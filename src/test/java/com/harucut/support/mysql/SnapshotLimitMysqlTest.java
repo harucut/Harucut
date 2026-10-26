@@ -1,6 +1,8 @@
 package com.harucut.support.mysql;
 
+import com.harucut.booth.exception.BoothErrorCode;
 import com.harucut.booth.service.BoothDeviceService;
+import com.harucut.common.exception.BusinessException;
 import com.harucut.entitlement.entity.Contract;
 import com.harucut.entitlement.entity.Entitlement;
 import com.harucut.entitlement.enums.Feature;
@@ -9,6 +11,7 @@ import com.harucut.event.dto.EventPatchRequest;
 import com.harucut.event.dto.EventResponse;
 import com.harucut.event.dto.EventSettings;
 import com.harucut.event.enums.EventStatus;
+import com.harucut.event.exception.EventErrorCode;
 import com.harucut.event.repository.EventRepository;
 import com.harucut.event.service.EventService;
 import com.harucut.frame.attributes.BackgroundAttributes;
@@ -102,7 +105,9 @@ class SnapshotLimitMysqlTest {
                 () -> eventService.publish(owner.getPublicId(), second.eventId()));
 
         assertThat(eventRepository.findAll()).filteredOn(e -> e.getStatus() == EventStatus.LIVE).hasSize(1);
-        assertThat(failures).hasSize(1);   // 하나는 게시 위반(EVENT-003)
+        // 진 쪽은 동시 운영 수 게시 위반(EVENT-003)이어야 한다 — 교착(500)이면 개수는 같아도 틀린 것이다
+        assertThat(failures).singleElement().isInstanceOfSatisfying(BusinessException.class,
+                e -> assertThat(e.getErrorCode()).isEqualTo(EventErrorCode.PUBLISH_INVALID));
     }
 
     @Test
@@ -119,7 +124,8 @@ class SnapshotLimitMysqlTest {
                 () -> boothDeviceService.create(owner.getPublicId(), event.eventId(), "기기 2"));
 
         assertThat(boothDeviceService.list(owner.getPublicId(), event.eventId())).hasSize(1);
-        assertThat(failures).hasSize(1);   // 하나는 BOOTH 기기 상한
+        assertThat(failures).singleElement().isInstanceOfSatisfying(BusinessException.class,
+                e -> assertThat(e.getErrorCode()).isEqualTo(BoothErrorCode.DEVICE_LIMIT));
     }
 
     @Test

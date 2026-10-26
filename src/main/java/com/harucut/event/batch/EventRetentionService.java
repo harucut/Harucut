@@ -32,6 +32,7 @@ import java.util.function.Supplier;
  * <ol>
  *   <li>보관 기한(작업 생성 + 행사 resultRetentionDays)이 지난 결과·썸네일 객체를 커밋 후 지우고 purged_at 을 남긴다 —
  *       사진함·묶음·결과 링크에서 EXPIRED. 그 사진을 담은 묶음은 무효로 한다.</li>
+ *   <li>삭제 요청·보관 종료 이틀 안의 결과 객체 삭제를 다시 예약한다 — 커밋 뒤 삭제가 서버 중단·S3 오류로 빠진 것을 메운다.</li>
  *   <li>결과가 확정된 작업에 묶였던 촬영 입력 행을 지운다(객체는 확정 때 이미 지웠다).</li>
  *   <li>촬영이 끝났고 보일 결과가 남지 않은 행사를 ARCHIVED 로.</li>
  *   <li>ARCHIVED 뒤 30일이 지난 행사의 참가자 세션·결과 토큰 행을 지우고 부스 기기를 회수한다.
@@ -81,6 +82,9 @@ public class EventRetentionService {
         for (Event event : eventRepository.findAllByStatusIn(EnumSet.of(EventStatus.LIVE, EventStatus.CAPTURE_CLOSED))) {
             purged += isolated("결과 정리", event, () -> purge(event), 0);
         }
+        // 삭제 요청·보관 종료 이틀 안의 결과 객체 삭제를 다시 예약한다 — 커밋 뒤 삭제는 실패해도 다시 시도하지 않는다(없는 key 삭제는 멱등)
+        transaction.executeWithoutResult(status -> composeJobRepository.findRecentlyRemovedResults(now().minusDays(2))
+                .forEach(job -> s3Deleter.deleteAfterCommit(List.of(job.getResultKey(), ComposeService.thumbnailKeyFor(job)))));
         Integer inputs = transaction.execute(status -> assetRepository.deleteSettledCaptureInputs());
         int archived = 0;
         for (Event event : eventRepository.findAllByStatusIn(EnumSet.of(EventStatus.LIVE, EventStatus.CAPTURE_CLOSED))) {

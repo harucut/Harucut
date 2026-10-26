@@ -26,29 +26,33 @@ public interface ExportJobRepository extends JpaRepository<ExportJob, Long> {
     // 재삭제 대상 — 최근에 실패·만료된 묶음(커밋 뒤 삭제가 서버 중단·S3 오류로 빠졌을 수 있다)
     List<ExportJob> findAllByStatusInAndUpdatedAtAfter(Collection<ExportStatus> statuses, LocalDateTime since);
 
+    // 상태 전이는 전부 벌크 UPDATE 라 BaseEntity 감사(updatedAt)를 거치지 않는다 — updatedAt 을 직접 넣는다.
+    // 재삭제(ExportWorker.reconcileDeletes)가 「최근에 실패·만료된 것」을 updatedAt 으로 고른다
+
     // 워커의 선점 — PENDING 인 것만 RUNNING 으로
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("update ExportJob e set e.status = com.harucut.export.enums.ExportStatus.RUNNING "
+    @Query("update ExportJob e set e.status = com.harucut.export.enums.ExportStatus.RUNNING, e.updatedAt = :now "
             + "where e.id = :id and e.status = com.harucut.export.enums.ExportStatus.PENDING")
-    int claim(@Param("id") Long id);
+    int claim(@Param("id") Long id, @Param("now") LocalDateTime now);
 
     // 완료 — 그사이 무효(EXPIRED)가 됐으면 0 이고, 호출자가 올린 객체를 지운다
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update ExportJob e set e.status = com.harucut.export.enums.ExportStatus.DONE, e.sizeBytes = :size, "
-            + "e.expiresAt = :expiresAt where e.id = :id and e.status = com.harucut.export.enums.ExportStatus.RUNNING")
-    int complete(@Param("id") Long id, @Param("size") long size, @Param("expiresAt") LocalDateTime expiresAt);
+            + "e.expiresAt = :expiresAt, e.updatedAt = :now where e.id = :id and e.status = com.harucut.export.enums.ExportStatus.RUNNING")
+    int complete(@Param("id") Long id, @Param("size") long size, @Param("expiresAt") LocalDateTime expiresAt,
+                 @Param("now") LocalDateTime now);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("update ExportJob e set e.status = com.harucut.export.enums.ExportStatus.FAILED, e.failureReason = :reason "
+    @Query("update ExportJob e set e.status = com.harucut.export.enums.ExportStatus.FAILED, e.failureReason = :reason, e.updatedAt = :now "
             + "where e.id = :id and e.status in (com.harucut.export.enums.ExportStatus.PENDING, com.harucut.export.enums.ExportStatus.RUNNING)")
-    int fail(@Param("id") Long id, @Param("reason") String reason);
+    int fail(@Param("id") Long id, @Param("reason") String reason, @Param("now") LocalDateTime now);
 
     // 무효화 — 아직 살아 있는 것(PENDING·RUNNING·DONE)만 EXPIRED 로. 이긴 쪽이 객체를 지운다
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("update ExportJob e set e.status = com.harucut.export.enums.ExportStatus.EXPIRED where e.id = :id "
+    @Query("update ExportJob e set e.status = com.harucut.export.enums.ExportStatus.EXPIRED, e.updatedAt = :now where e.id = :id "
             + "and e.status in (com.harucut.export.enums.ExportStatus.PENDING, com.harucut.export.enums.ExportStatus.RUNNING, "
             + "com.harucut.export.enums.ExportStatus.DONE)")
-    int expire(@Param("id") Long id);
+    int expire(@Param("id") Long id, @Param("now") LocalDateTime now);
 
     // 이 사진을 담은 살아 있는 묶음 — 사진 삭제 때 무효로 한다
     @Query("select distinct e from ExportJob e, ExportJobItem i where i.exportJobId = e.id and i.composeJobId = :composeJobId "

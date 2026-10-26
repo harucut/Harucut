@@ -284,6 +284,12 @@ public class EventService {
         if (starts != null && ends != null && !ends.isAfter(starts)) {
             throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "촬영 종료는 시작보다 뒤여야 합니다.");
         }
+        // 게시한 상시 캠페인에는 종료 시각을 새로 두지 않는다 — 게시 검사를 거치지 않으므로 여기서 막는다(지우기는 된다).
+        // 게시 뒤에는 종류를 바꿀 수 없으니 지금의 종류로 본다
+        if (settings.has("captureEndsAt") && ends != null && event.isAlwaysOn() && event.getCurrentExperienceVersionId() != null) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE,
+                    "게시한 상시 캠페인에는 종료 시각을 둘 수 없습니다 — 촬영 종료(close-capture)로 끝냅니다.");
+        }
         event.schedule(starts, ends);
 
         if (settings.has("kind")) {

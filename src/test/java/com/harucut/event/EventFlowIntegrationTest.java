@@ -60,6 +60,8 @@ class EventFlowIntegrationTest {
     @Autowired private FrameVersionService frameVersionService;
     @Autowired private UserRepository userRepository;
     @Autowired private ObjectMapper objectMapper;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+    @Autowired private jakarta.persistence.EntityManager entityManager;
 
     @Autowired private EntitlementRepository entitlementRepository;
 
@@ -224,6 +226,18 @@ class EventFlowIntegrationTest {
         assertThatThrownBy(() -> eventService.patch(operator.getPublicId(), created.eventId(),
                 new EventPatchRequest(live.settingsVersion(), patch(Map.of("kind", "SCHEDULED")))))
                 .isInstanceOf(BusinessException.class).extracting("errorCode").isEqualTo(GlobalErrorCode.INVALID_INPUT_VALUE);
+        // 게시 뒤에는 종료 시각을 새로 둘 수 없다(지우기는 된다)
+        assertThatThrownBy(() -> eventService.patch(operator.getPublicId(), created.eventId(),
+                new EventPatchRequest(live.settingsVersion(), patch(Map.of("captureEndsAt", java.time.OffsetDateTime.now().plusDays(1).toString())))))
+                .isInstanceOf(BusinessException.class).extracting("errorCode").isEqualTo(GlobalErrorCode.INVALID_INPUT_VALUE);
+        assertThat(eventService.patch(operator.getPublicId(), created.eventId(),
+                new EventPatchRequest(live.settingsVersion(), objectMapper.createObjectNode().putNull("captureEndsAt"))).captureOpen()).isTrue();
+        // 이미 저장된 종료 시각이 지나도 상시 캠페인은 열려 있다 — close-capture 로만 끝난다
+        entityManager.flush();
+        jdbcTemplate.update("update event set capture_ends_at = ? where public_id = ?",
+                java.time.LocalDateTime.now().minusHours(1), created.eventId());
+        entityManager.clear();
+        assertThat(eventService.get(operator.getPublicId(), created.eventId()).captureOpen()).isTrue();
         assertThat(eventService.cloneEvent(operator.getPublicId(), created.eventId(), "상시 복제", "always-2").settings().kind())
                 .isEqualTo(EventKind.ALWAYS_ON);
         assertThat(eventService.effectiveSettings(operator.getPublicId(), created.eventId()).sources()).containsEntry("kind", "EVENT");

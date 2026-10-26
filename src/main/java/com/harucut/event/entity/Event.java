@@ -176,7 +176,8 @@ public class Event extends BaseEntity {
         return status == EventStatus.LIVE
                 && !paused
                 && (captureStartsAt == null || !now.isBefore(captureStartsAt))
-                && (captureEndsAt == null || now.isBefore(captureEndsAt));
+                // 상시 캠페인은 종료 시각을 보지 않는다 — close-capture 로만 끝난다(이미 저장된 값이 있어도)
+                && (captureEndsAt == null || kind == EventKind.ALWAYS_ON || now.isBefore(captureEndsAt));
     }
 
     private void requireLive(String action) {

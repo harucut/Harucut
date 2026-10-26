@@ -75,14 +75,28 @@ public record FrameCreateRequest(
                 서버 값과 다르면 **409 `FRAME-002`** 이고 `data.currentVersion` 에 서버 값이 실린다.
                 **생략하면 지금처럼 덮어쓴다**(기존 클라이언트 호환).""",
                 example = "3")
-        Long version
+        Long version,
+
+        @Schema(description = """
+                프레임을 만들 공간의 public id(POST 에서만 의미가 있다). 생략하면 개인 공간.
+                행사에 쓸 프레임은 그 행사의 조직 공간에 만든다 — 행사는 같은 공간의 프레임과 시스템 프레임만 연결할 수 있다.
+                OWNER·ADMIN·DESIGNER 가 아니면 404.""",
+                example = "Ws1aB2cD3eF4")
+        String workspaceId
 ) {
-    // version 이 없던 시절의 생성자 — 기존 호출부·테스트 호환
+    // version·workspaceId 가 없던 시절의 생성자 — 기존 호출부·테스트 호환
     public FrameCreateRequest(String title, String description, String previewKey, FrameType frameType,
                               Integer canvasWidth, Integer canvasHeight, BackgroundAttributes background,
                               List<Boolean> cellCutouts, List<ComponentRequest> components) {
         this(title, description, previewKey, frameType, canvasWidth, canvasHeight, background,
-                cellCutouts, components, null);
+                cellCutouts, components, null, null);
+    }
+
+    public FrameCreateRequest(String title, String description, String previewKey, FrameType frameType,
+                              Integer canvasWidth, Integer canvasHeight, BackgroundAttributes background,
+                              List<Boolean> cellCutouts, List<ComponentRequest> components, Long version) {
+        this(title, description, previewKey, frameType, canvasWidth, canvasHeight, background,
+                cellCutouts, components, version, null);
     }
 
     // "description 없으면 빈 문자열로 저장" 규칙의 소유자

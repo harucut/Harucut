@@ -127,6 +127,28 @@ class WorkspaceServiceTest {
         });
     }
 
+    @Test
+    @DisplayName("createOrganization: 조직 공간을 만들고 만든 사람을 OWNER 로 넣는다")
+    void createOrganization() {
+        User user = User.localUser("me@harucut.com", "encoded", "나");
+        ReflectionTestUtils.setField(user, "id", USER_ID);
+        given(userRepository.findByPublicId(user.getPublicId())).willReturn(Optional.of(user));
+        given(workspaceRepository.save(org.mockito.ArgumentMatchers.any())).willAnswer(invocation -> {
+            Workspace saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", 20L);
+            return saved;
+        });
+
+        WorkspaceResponse response = workspaceService.createOrganization(user.getPublicId(), "웨딩팀");
+
+        assertThat(response.type()).isEqualTo(WorkspaceType.ORGANIZATION);
+        assertThat(response.role()).isEqualTo(WorkspaceRole.OWNER);
+        org.mockito.ArgumentCaptor<WorkspaceMembership> membership = org.mockito.ArgumentCaptor.captor();
+        then(membershipRepository).should().save(membership.capture());
+        assertThat(membership.getValue().getWorkspaceId()).isEqualTo(20L);
+        assertThat(membership.getValue().getRole()).isEqualTo(WorkspaceRole.OWNER);
+    }
+
     @Nested
     @DisplayName("requireRole — 공간 권한")
     class RequireRole {

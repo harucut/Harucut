@@ -229,7 +229,7 @@ class EntitlementIntegrationTest {
     }
 
     @Test
-    @DisplayName("계약 조건: 묶음은 BULK_DOWNLOAD 필요(ENT-004), 부스 수·동시 운영 행사 수·보관 일수 상한")
+    @DisplayName("계약 조건: 묶음은 BULK_DOWNLOAD 필요(ENT-004), 부스 수·동시 운영 행사 수·보관 일수 상한(PATCH 에서)")
     void termsEnforced() {
         LocalDateTime now = LocalDateTime.now();
         entitlementRepository.save(Entitlement.manual(workspaceId, null, new Contract.Terms(100, 30, 1, 1, Set.of()),
@@ -242,15 +242,51 @@ class EntitlementIntegrationTest {
         assertCode(() -> boothDeviceService.create(owner.getPublicId(), first.getPublicId(), "2번"), BoothErrorCode.DEVICE_LIMIT);
 
         EventResponse second = ready("terms-2");
-        eventService.patch(owner.getPublicId(), second.eventId(), new EventPatchRequest(
+        // 보관 일수 상한은 PATCH 에서 막는다(게시 뒤에도 넘기지 못하게)
+        assertCode(() -> eventService.patch(owner.getPublicId(), second.eventId(), new EventPatchRequest(
                 eventService.get(owner.getPublicId(), second.eventId()).settingsVersion(),
-                objectMapper.valueToTree(Map.of("resultRetentionDays", 60))));
+                objectMapper.valueToTree(Map.of("resultRetentionDays", 60)))), GlobalErrorCode.INVALID_INPUT_VALUE);
         assertThatThrownBy(() -> eventService.publish(owner.getPublicId(), second.eventId()))
                 .isInstanceOfSatisfying(BusinessException.class, e -> {
                     @SuppressWarnings("unchecked")
                     List<Map<String, String>> violations = (List<Map<String, String>>) ((Map<?, ?>) e.getData()).get("violations");
-                    assertThat(violations).extracting(v -> v.get("field")).contains("status", "resultRetentionDays");
+                    assertThat(violations).extracting(v -> v.get("field")).containsExactly("status");
                 });
+    }
+
+    @Test
+    @DisplayName("리뷰 반영: 게시 뒤 PATCH 로 보관 일수 상한을 넘길 수 없다, 촬영 종료 행사 재게시는 운영 중 수에 안 걸린다")
+    void retentionCapOnPatchAndRepublish() {
+        LocalDateTime now = LocalDateTime.now();
+        entitlementRepository.save(Entitlement.manual(workspaceId, null, new Contract.Terms(100, 30, null, 1, Set.of()),
+                now.minusDays(1), now.plusDays(10), null, "t"));
+        Event first = published("cap-1");
+
+        assertCode(() -> eventService.patch(owner.getPublicId(), first.getPublicId(), new EventPatchRequest(
+                eventService.get(owner.getPublicId(), first.getPublicId()).settingsVersion(),
+                objectMapper.valueToTree(Map.of("resultRetentionDays", 365)))), GlobalErrorCode.INVALID_INPUT_VALUE);
+
+        // 운영 중 1개 상한 — 촬영 종료 뒤 다시 게시해도 LIVE 가 늘지 않으니 위반이 아니다
+        eventService.closeCapture(owner.getPublicId(), first.getPublicId());
+        EventResponse other = ready("cap-2");
+        eventService.publish(owner.getPublicId(), other.eventId());   // 이제 LIVE 1개
+        eventService.publish(owner.getPublicId(), first.getPublicId());
+    }
+
+    @Test
+    @DisplayName("리뷰 반영: 같은 PORTONE 결제를 두 계약에 걸 수 없다, 상태 전이 응답은 바뀐 상태를 보여 준다")
+    void contractEvidenceUniqueAndTransitionView() {
+        EntitlementDtos.ContractRequest request = new EntitlementDtos.ContractRequest(org.workspaceId(), "웨딩홀",
+                EntitlementScope.WORKSPACE, null, 1000L, "KRW", OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(10),
+                new EntitlementDtos.Evidence(EvidenceKind.PORTONE, "pay-dup"), new EntitlementDtos.Terms(10, null, null, null, Set.of()));
+        EntitlementDtos.Contract contract = contractService.create(admin.getPublicId(), request);
+        assertCode(() -> contractService.create(admin.getPublicId(), request), GlobalErrorCode.INVALID_INPUT_VALUE);
+
+        assertThat(contractService.changeStatus(admin.getPublicId(), contract.contractId(), ContractStatus.ACTIVE).status())
+                .isEqualTo(ContractStatus.ACTIVE);
+        assertCode(() -> contractService.changeStatus(admin.getPublicId(), contract.contractId(), ContractStatus.ACTIVE),
+                EntitlementErrorCode.INVALID_TRANSITION);
+        assertThat(entitlementRepository.findAll()).filteredOn(e -> e.getContractId() != null).hasSize(1);   // 이용권은 한 번만
     }
 
     @Test

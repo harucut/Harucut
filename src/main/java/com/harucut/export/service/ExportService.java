@@ -153,7 +153,7 @@ public class ExportService {
     }
 
     void expire(ExportJob export) {
-        if (exportJobRepository.expire(export.getId()) == 1) {
+        if (exportJobRepository.expire(export.getId(), LocalDateTime.now(clock)) == 1) {
             s3Deleter.deleteAfterCommit(List.of(export.getS3Key()));
         }
     }

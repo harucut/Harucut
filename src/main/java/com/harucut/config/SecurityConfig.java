@@ -79,6 +79,8 @@ public class SecurityConfig {
                         // SecurityPaths.PUBLIC 에 넣지 않는 이유: 그 배열은 OpenAPI 문서의
                         // 자물쇠 표시도 파생시킨다. API 경로 규칙에 관리 경로를 섞지 않는다.
                         .requestMatchers("/actuator/**").permitAll()
+                        // 넓은 로그인 규칙(anyRequest)보다 앞에 둔다 — 먼저 일치한 규칙이 이긴다
+                        .requestMatchers(SecurityPaths.ADMIN).hasRole("ADMIN")
                         .requestMatchers(SecurityPaths.PUBLIC).permitAll()
                         .requestMatchers(SecurityPaths.AUTHENTICATED_ONLY).authenticated()
                         .anyRequest().hasAnyRole("USER", "ADMIN")

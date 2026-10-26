@@ -54,3 +54,7 @@ cloud:
       compose-function: test-compose-function
     sqs:
       compose-result-queue-url: ""
+storage:
+  deletion:
+    # 테스트는 재시도 배치를 직접 부른다 — 예약 주기가 테스트 도중 끼어들지 않게 길게
+    retry-interval: 3650d

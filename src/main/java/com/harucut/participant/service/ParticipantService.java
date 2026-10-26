@@ -157,12 +157,12 @@ public class ParticipantService {
 
         Map<String, ParticipantConsent> latest = latestDecisions(principal.participantId());
         boolean satisfied = requiredItems(experience).stream().allMatch(item -> agreed(latest.get(item.code()), item.version()));
-        if (satisfied) {
-            session.activate();
-        } else {
-            session.restrict();
+        SessionStatus next = satisfied ? SessionStatus.ACTIVE : SessionStatus.RESTRICTED;
+        // 조건부 UPDATE — 동의하는 사이 부스 회차 닫기·기기 회수로 회수됐으면 되살리지 않는다
+        if (sessionRepository.changeStatusUnlessRevoked(session.getId(), next) != 1) {
+            throw new BusinessException(ParticipantErrorCode.SESSION_INVALID);
         }
-        return new ParticipantDtos.ConsentResponse(session.getStatus());
+        return new ParticipantDtos.ConsentResponse(next);
     }
 
     // ── 회차 ──────────────────────

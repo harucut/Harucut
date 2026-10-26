@@ -18,7 +18,7 @@ dependencies {
     implementation project(':compose-core')
 
     // 잭슨 버전을 서버와 같은 Boot BOM으로 고정 — payload 직렬화가 서버와 한 벌이어야 한다
-    implementation platform('org.springframework.boot:spring-boot-dependencies:4.1.0')
+    implementation platform('org.springframework.boot:spring-boot-dependencies:4.1.2')
     implementation 'tools.jackson.core:jackson-databind'
 
     implementation platform('software.amazon.awssdk:bom:2.25.67')

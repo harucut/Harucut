@@ -16,7 +16,7 @@ repositories {
 
 dependencies {
     // 버전은 서버와 같은 Boot BOM으로 맞춘다 — jackson 버전이 어긋나면 직렬화가 미묘하게 달라진다
-    api platform('org.springframework.boot:spring-boot-dependencies:4.1.0')
+    api platform('org.springframework.boot:spring-boot-dependencies:4.1.2')
     api 'com.fasterxml.jackson.core:jackson-annotations'   // BackgroundAttributes의 @JsonTypeInfo용
 
     testImplementation 'org.junit.jupiter:junit-jupiter'

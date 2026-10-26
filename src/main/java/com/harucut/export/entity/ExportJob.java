@@ -1,5 +1,6 @@
 package com.harucut.export.entity;
 
+import com.harucut.common.utils.OpaqueTokens;
 import com.harucut.common.entity.BaseEntity;
 import com.harucut.common.utils.PublicIds;
 import com.harucut.export.enums.ExportScope;
@@ -81,6 +82,15 @@ public class ExportJob extends BaseEntity {
 
     public static ExportJob pending(Long workspaceId, Long eventId, String eventPublicId, Long requestedByUserId, int photoCount) {
         return new ExportJob(ExportScope.EVENT, workspaceId, null, eventId, "uploads/events/" + eventPublicId, requestedByUserId, photoCount);
+    }
+
+    /**
+     * 내려놓은 묶음을 다시 만들 때 올릴 새 key — 같은 폴더, 시도마다 다른 꼬리. 앞 시도의 업로드 책임(삭제 예약)이 언제 집혀도
+     * 새 업로드에 닿지 않는다(재시도 배치는 행을 잠그지 않고 읽어 지운다)
+     */
+    public static String retryKey(String key) {
+        String base = key.replaceFirst("(-r[A-Za-z0-9_-]{8})?\\.zip$", "");
+        return base + "-r" + OpaqueTokens.generate().substring(0, 8) + ".zip";
     }
 
     /** 여러 행사 묶음 — key 는 공간 아래(행사 하나에 속하지 않는다) */

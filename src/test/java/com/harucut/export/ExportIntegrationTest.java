@@ -172,10 +172,13 @@ class ExportIntegrationTest {
         assertThat(exportJobRepository.failStale(stale, before, "WORKER_LOST", now)).isZero();
         assertThat(exportJobRepository.failStale(fresh, before, "WORKER_LOST", now)).isZero();
         assertThat(exportJobRepository.failStale(lost, before, "WORKER_LOST", now)).isEqualTo(1);
-        assertThat(exportJobRepository.requeue(fresh, now)).isEqualTo(1);
-        assertThat(exportJobRepository.requeue(lost, now)).isZero();   // 이미 FAILED
+        assertThat(exportJobRepository.requeue(fresh, "uploads/events/e/exports/retry.zip", now)).isEqualTo(1);
+        assertThat(exportJobRepository.requeue(lost, "uploads/events/e/exports/lost.zip", now)).isZero();   // 이미 FAILED
 
-        assertThat(exportJobRepository.findById(fresh).orElseThrow().getStatus()).isEqualTo(ExportStatus.PENDING);
+        assertThat(exportJobRepository.findById(fresh).orElseThrow()).satisfies(job -> {
+            assertThat(job.getStatus()).isEqualTo(ExportStatus.PENDING);
+            assertThat(job.getS3Key()).isEqualTo("uploads/events/e/exports/retry.zip");   // 내려놓으면 새 key
+        });
         assertThat(exportJobRepository.findById(stale).orElseThrow().getStatus()).isEqualTo(ExportStatus.RUNNING);
         assertThat(exportJobRepository.findById(lost).orElseThrow().getStatus()).isEqualTo(ExportStatus.FAILED);
     }

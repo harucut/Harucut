@@ -237,8 +237,9 @@ public class ExportWorker {
         }
     }
 
-    // 종료 중 — 업로드를 취소하고 PENDING 으로 내려놓는다. 업로드 책임 행은 lease 그대로 둔다: 같은 key 를 다시 올릴 작업자가
-    // release 하고, 아무도 다시 만들지 않으면 lease 뒤 재시도 배치가 지운다(지금 지우게 당기면 다음 업로드를 지울 수 있다)
+    // 종료 중 — 업로드를 취소하고 PENDING 으로 내려놓는다. 다시 만들 때는 새 key 로 올린다: 같은 key 를 다시 쓰면 앞 시도의
+    // 업로드 책임(삭제 예약)이 lease 끝에 집혀 새 ZIP 을 DONE 전에 지우거나 그 행을 지워 크래시 보호를 없앨 수 있다(재시도 배치는
+    // 행을 잠그지 않는다). 버려진 옛 key 는 더 올릴 것이 없으니 같은 트랜잭션에서 지울 차례로 당긴다
     private void handBack(Long exportJobId, ExportJob export, S3MultipartOutputStream upload) {
         Thread.interrupted();   // 종료 인터럽트 — 남아 있으면 커넥션을 빌리지 못한다
         if (upload != null) {
@@ -248,7 +249,11 @@ public class ExportWorker {
                 log.warn("[묶음] {} multipart 취소 실패 — 버킷 수명 규칙이 정리한다", export.getPublicId(), abortFailure);
             }
         }
-        transaction.executeWithoutResult(status -> exportJobRepository.requeue(exportJobId, LocalDateTime.now(clock)));
+        transaction.executeWithoutResult(status -> {
+            if (exportJobRepository.requeue(exportJobId, ExportJob.retryKey(export.getS3Key()), LocalDateTime.now(clock)) == 1) {
+                s3Deleter.deleteHeldAfterCommit(export.getS3Key());
+            }
+        });
         log.info("[묶음] {} 종료 중 — PENDING 으로 내려놓음", export.getPublicId());
     }
 

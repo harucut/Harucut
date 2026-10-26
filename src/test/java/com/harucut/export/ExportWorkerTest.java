@@ -14,6 +14,7 @@ import com.harucut.storage.service.S3Deleter;
 import com.harucut.storage.service.S3MultipartOutputStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.transaction.PlatformTransactionManager;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -116,9 +117,11 @@ class ExportWorkerTest {
     }
 
     @Test
-    @DisplayName("종료 훅: 압축 중이면 다음 사진 경계에서 멈추고 업로드를 취소한 뒤 PENDING 으로 내려놓는다 — 실패로 기록하지 않고 업로드 책임도 당기지 않는다")
+    @DisplayName("종료 훅: 압축 중이면 다음 사진 경계에서 멈추고 업로드를 취소한 뒤 새 key 로 PENDING — 실패로 기록하지 않고, 버린 옛 key 만 지울 차례로")
     void handsBackOnShutdown() {
         Fixture f = new Fixture(Clock.systemUTC());
+        String oldKey = f.export.getS3Key();
+        given(f.exportJobRepository.requeue(eq(7L), anyString(), any())).willReturn(1);
         given(f.fileStorageService.openStream(anyString())).willAnswer(i -> {
             f.worker.shutdown();   // 첫 사진을 읽는 동안 종료가 시작된다
             return new ByteArrayInputStream(new byte[]{1});
@@ -126,12 +129,24 @@ class ExportWorkerTest {
 
         f.worker.run(7L);
 
-        then(f.exportJobRepository).should().requeue(eq(7L), any());
+        ArgumentCaptor<String> newKey = ArgumentCaptor.forClass(String.class);
+        then(f.exportJobRepository).should().requeue(eq(7L), newKey.capture(), any());
+        assertThat(newKey.getValue()).isNotEqualTo(oldKey).startsWith("uploads/events/Ev1/exports/").endsWith(".zip");
+        then(f.s3Deleter).should().deleteHeldAfterCommit(oldKey);   // 옛 key 는 더 올릴 것이 없다
+        then(f.s3Deleter).should(never()).deleteHeldAfterCommit(newKey.getValue());
         then(f.s3Client).should().abortMultipartUpload(any(AbortMultipartUploadRequest.class));
         then(f.s3Client).should(never()).completeMultipartUpload(any(CompleteMultipartUploadRequest.class));
         then(f.exportJobRepository).should(never()).fail(anyLong(), anyString(), any());
-        then(f.s3Deleter).should(never()).deleteHeldAfterCommit(anyString());
         then(f.fileStorageService).should(org.mockito.Mockito.times(1)).openStream(anyString());   // 두 번째 사진은 읽지 않는다
+    }
+
+    @Test
+    @DisplayName("다시 만들 key 는 같은 폴더·시도마다 다른 꼬리 — 여러 번 내려놓아도 꼬리가 쌓이지 않는다")
+    void retryKey() {
+        String first = ExportJob.retryKey("uploads/events/Ev1/exports/AbC.zip");
+        String second = ExportJob.retryKey(first);
+        assertThat(first).matches("uploads/events/Ev1/exports/AbC-r[A-Za-z0-9_-]{8}\\.zip");
+        assertThat(second).matches("uploads/events/Ev1/exports/AbC-r[A-Za-z0-9_-]{8}\\.zip").isNotEqualTo(first);
     }
 
     @Test
@@ -188,13 +203,13 @@ class ExportWorkerTest {
         final S3Client s3Client = mock(S3Client.class);
         final S3Deleter s3Deleter = mock(S3Deleter.class);
         final ExportWorker worker;
+        final ExportJob export = ExportJob.pending(9L, 1L, "Ev1", 2L, 2);
 
         Fixture(Clock clock) {
             this(clock, Duration.ofMinutes(5));
         }
 
         Fixture(Clock clock, Duration staleAfter) {
-            ExportJob export = ExportJob.pending(9L, 1L, "Ev1", 2L, 2);
             given(exportJobRepository.claim(eq(7L), any())).willReturn(1);
             given(exportJobRepository.findById(7L)).willReturn(Optional.of(export));
             given(itemRepository.findAllByExportJobIdOrderBySortOrderAsc(7L))

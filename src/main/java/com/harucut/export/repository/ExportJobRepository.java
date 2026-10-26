@@ -50,11 +50,11 @@ public interface ExportJobRepository extends JpaRepository<ExportJob, Long> {
     @Query("update ExportJob e set e.updatedAt = :now where e.id = :id and e.status = com.harucut.export.enums.ExportStatus.RUNNING")
     int touch(@Param("id") Long id, @Param("now") LocalDateTime now);
 
-    // 종료하는 작업자가 하던 것을 내려놓는다 — 다른 인스턴스(또는 다음 기동)가 처음부터 다시 만든다
+    // 종료하는 작업자가 하던 것을 내려놓는다 — 다른 인스턴스(또는 다음 기동)가 처음부터, 새 key 로 다시 만든다
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("update ExportJob e set e.status = com.harucut.export.enums.ExportStatus.PENDING, e.updatedAt = :now "
+    @Query("update ExportJob e set e.status = com.harucut.export.enums.ExportStatus.PENDING, e.s3Key = :s3Key, e.updatedAt = :now "
             + "where e.id = :id and e.status = com.harucut.export.enums.ExportStatus.RUNNING")
-    int requeue(@Param("id") Long id, @Param("now") LocalDateTime now);
+    int requeue(@Param("id") Long id, @Param("s3Key") String s3Key, @Param("now") LocalDateTime now);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update ExportJob e set e.status = com.harucut.export.enums.ExportStatus.FAILED, e.failureReason = :reason, e.updatedAt = :now "

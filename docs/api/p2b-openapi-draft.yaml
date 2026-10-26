@@ -19,6 +19,14 @@ paths:
       summary: 행사 고객 초대 (OWNER·ADMIN) — 수락하면 EventGrant 만 생긴다(공간 멤버 아님)
       requestBody: { content: { application/json: { schema: { type: object, required: [permissions], properties: { permissions: { type: array, items: { $ref: '#/components/schemas/PhotoPermission' } }, note: { type: string } } } } } }
       responses: { '201': { content: { application/json: { schema: { $ref: '#/components/schemas/InvitationIssued' } } } } }
+  /api/auth/invitations/preview:
+    post:
+      summary: 초대 미리보기 (로그인) — 소비하지 않는다
+      requestBody: { content: { application/json: { schema: { type: object, required: [token], properties: { token: { type: string } } } } } }
+      responses:
+        '200': { content: { application/json: { schema: { $ref: '#/components/schemas/InvitationPreview' } } } }
+        '400': { description: MEMBER-002 }
+        '410': { description: MEMBER-001 }
   /api/auth/invitations/accept:
     post:
       summary: 초대 수락 (로그인) — 링크 /invite#<token> 의 token
@@ -76,7 +84,7 @@ paths:
         '403': { description: PHOTO-001 }
   /api/auth/events/{eventId}/photos/{photoId}/download:
     post:
-      summary: 개별 다운로드 (DOWNLOAD_PHOTOS) — 5분 URL
+      summary: 개별 다운로드 (DOWNLOAD_PHOTOS) — 5분 URL, 파일 이름 「{행사명}-{photoId}.jpg」
       responses: { '200': { content: { application/json: { schema: { $ref: '#/components/schemas/DownloadUrl' } } } }, '403': { description: PHOTO-001 } }
   /api/auth/events/{eventId}/photos/{photoId}:
     delete:
@@ -108,7 +116,7 @@ paths:
     get: { responses: { '200': { content: { application/json: { schema: { $ref: '#/components/schemas/Export' } } } } } }
   /api/auth/events/{eventId}/exports/{exportId}/download:
     post:
-      summary: 묶음 받기 — 권한·포함 사진을 다시 검사, 5분 URL
+      summary: 묶음 받기 — 권한·포함 사진을 다시 검사, 5분 URL, 파일 이름 「{행사명}-{YYYYMMDD}.zip」
       responses:
         '200': { content: { application/json: { schema: { $ref: '#/components/schemas/DownloadUrl' } } } }
         '409': { description: EXPORT-001 }
@@ -164,6 +172,9 @@ components:
     Invitation:
       type: object
       properties: { invitationId: { type: string }, kind: { type: string, enum: [WORKSPACE, EVENT] }, role: { $ref: '#/components/schemas/WorkspaceRole' }, permissions: { type: array, items: { $ref: '#/components/schemas/PhotoPermission' } }, email: { type: string }, expiresAt: { type: string, format: date-time }, status: { type: string, enum: [OPEN, ACCEPTED, REVOKED, EXPIRED] } }
+    InvitationPreview:
+      type: object
+      properties: { kind: { type: string, enum: [WORKSPACE, EVENT] }, workspaceName: { type: string }, eventName: { type: string }, role: { $ref: '#/components/schemas/WorkspaceRole' }, permissions: { type: array, items: { $ref: '#/components/schemas/PhotoPermission' } }, invitedByName: { type: string }, expiresAt: { type: string, format: date-time } }
     InvitationAccepted:
       type: object
       properties: { kind: { type: string, enum: [WORKSPACE, EVENT] }, workspaceId: { type: string }, eventId: { type: string }, role: { $ref: '#/components/schemas/WorkspaceRole' }, permissions: { type: array, items: { $ref: '#/components/schemas/PhotoPermission' } } }
@@ -214,8 +225,8 @@ components:
         schemaVersion: { type: integer, enum: [1] }
         colors:
           type: object
-          description: '#RRGGBB. FE 토큰 --ev-background --ev-surface --ev-text --ev-muted-text --ev-primary --ev-on-primary --ev-accent'
-          properties: { background: { type: string }, surface: { type: string }, text: { type: string }, mutedText: { type: string }, primary: { type: string }, onPrimary: { type: string }, accent: { type: string } }
+          description: '#RRGGBB. FE 토큰 --ev-bg --ev-card --ev-text --ev-muted --ev-border --ev-accent --ev-accent-contrast 와 1:1'
+          properties: { bg: { type: string }, card: { type: string }, text: { type: string }, muted: { type: string }, border: { type: string }, accent: { type: string }, accentContrast: { type: string } }
         font: { type: string, enum: [SYSTEM, PRETENDARD, NANUM_MYEONGJO, GOWUN_DODUM, BLACK_HAN_SANS] }
         logoAssetId: { type: string, description: 이 공간의 VERIFIED PAGE_THEME_ASSET }
         backgroundAssetId: { type: string }

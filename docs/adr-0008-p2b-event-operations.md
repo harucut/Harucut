@@ -1,6 +1,6 @@
 # ADR-0008 · P2B 단일 행사·부스 운영 — 멤버·고객 열람·사진함·ZIP·테마·계약·이용권·사용량·PortOne
 
-- **상태**: 초안 (프론트 합의 전)
+- **상태**: 초안 · 프론트 의견 반영(2026-10-26, #22) — 2-4 의 (a)(b)는 사용자 확인 대기
 - **날짜**: 2026-10-26
 - **관련**: R5 2·3·7·8·9·10·11·12·14·20절, ADR-0006(P1), ADR-0007(P2A, §12 구현 반영), `docs/api/p2b-openapi-draft.yaml`
 - **완료 조건(R5 20절)**: 링크와 부스 양쪽에서 지정 디자인·프레임으로 촬영, 참가자·주최자·고객 재다운로드 및 실패 처리
@@ -40,6 +40,9 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
   - 초대 토큰은 32바이트 불투명 값, 7일, **원문은 이 응답에서만**. 링크는 `/invite#<token>`(fragment — 서버 로그에 남지 않게).
   - email 은 표시용 메모다(메일 발송은 하지 않는다). 수락은 토큰을 가진 로그인 사용자 누구나 — 링크 전달이 곧 초대.
   - OWNER 초대는 OWNER 만 할 수 있다.
+- `POST /api/auth/invitations/preview { token }` (로그인) → `{ kind, workspaceName, eventName?, role?, permissions?, invitedByName, expiresAt }`
+  — 수락 전에 무엇에 들어가는지 보여 준다. 소비하지 않는다. 토큰을 쿼리에 싣지 않으려고 POST. 오류는 수락과 같다(MEMBER-001·002).
+  FE 흐름: `/invite#<token>` → sessionStorage 에 잠깐 → (로그인) → 미리보기 → 수락.
 - `POST /api/auth/invitations/accept { token }` (로그인) → `{ kind: WORKSPACE|EVENT, workspaceId?, eventId?, role?, permissions? }`
   - 1회 소비(조건부 UPDATE). 만료 410 `MEMBER-001`, 틀림·이미 사용 400 `MEMBER-002`, 이미 멤버 409 `MEMBER-003`.
 - `GET /api/auth/workspaces/{workspaceId}/members` (멤버 누구나) → `[{ userId(public), nickname, role, joinedAt }]`
@@ -66,6 +69,11 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
   사진 삭제, ZIP 생성·수령, CMS(계약·이용권·ManualGrant) 변경. 원문 토큰·개인 연락처는 넣지 않는다.
 - 조회: `GET /api/auth/workspaces/{workspaceId}/audit-logs?cursor` (OWNER·ADMIN), `GET /api/admin/audit-logs` (플랫폼 ADMIN).
 
+### 2-4. 바꾸기 쉽게 둘 정책 (사용자 확인 대기)
+- (a) 공간 OWNER·ADMIN 도 사진은 EventGrant 로만 본다 — 판정은 `EventAccessPolicy` 한 곳에 둔다.
+- (b) 초대 수락에 이메일 일치 검사를 하지 않는다 — 수락 검사는 `InvitationService` 한 곳에 둔다.
+- 사용자 결정이 바뀌면 그 한 곳만 고친다.
+
 ## 3. 사진함 (P2B-2)
 
 - `GET /api/auth/events/{eventId}/photos?cursor&limit&from&to&channel&frameVersionId&status`
@@ -74,7 +82,8 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
     thumbnailUrl?, failure?: { code, retryable } }], nextCursor? }`
   - thumbnailUrl 은 presigned GET **5분**(`storage.download.get-ttl`). 목록을 다시 부르면 새 URL.
   - 실패 사유는 내부 예외 문자열이 아니라 코드(`COMPOSE_FAILED · INPUT_MISSING · TIMEOUT`)와 재시도 가능 여부만.
-- `POST /api/auth/events/{eventId}/photos/{photoId}/download` (`DOWNLOAD_PHOTOS`) → `{ url, expiresAt }` 5분
+- `POST /api/auth/events/{eventId}/photos/{photoId}/download` (`DOWNLOAD_PHOTOS`) → `{ url, expiresAt }` 5분.
+  URL 에 `response-content-disposition`(RFC 5987 `filename*`)으로 「{행사명}-{photoId}.jpg」를 붙인다.
 - `DELETE /api/auth/events/{eventId}/photos/{photoId}` (`DELETE_PHOTOS`) → 삭제 요청
   - job 에 `deleted_at` 을 기록하고 결과·썸네일 객체를 커밋 후 지운다. 목록·ZIP·참가자 결과 링크에서 즉시 빠진다
     (결과 링크는 `RESULT-002` 410 과 같은 「만료」로 보인다 — 삭제 사실을 참가자에게 따로 알리지 않는다).
@@ -88,6 +97,7 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
   → 202 `{ exportId, status: PENDING }`. 대상은 접수 시점의 DONE·미삭제 사진. 최대 2,000장(넘으면 400 `EXPORT-003`).
 - `GET /api/auth/events/{eventId}/exports/{exportId}` → `{ exportId, status: PENDING|RUNNING|DONE|FAILED|EXPIRED, photoCount, sizeBytes?, expiresAt? }`
 - `POST /api/auth/events/{eventId}/exports/{exportId}/download` → `{ url, expiresAt }` 5분. 준비 전 409 `EXPORT-001`, 만료·무효 410 `EXPORT-002`.
+  파일 이름은 「{행사명}-{YYYYMMDD}.zip」(접수 날짜, `response-content-disposition`·RFC 5987).
 - `GET /api/auth/events/{eventId}/exports` — 내가 만든 최근 작업(다른 사람의 작업은 보이지 않는다).
 - 처리: 앱 안의 비동기 실행기(동시 1개)가 결과 객체를 차례로 읽어 ZIP 으로 스트리밍하고 S3 multipart 로 올린다.
   키는 `uploads/events/{eventPid}/exports/{exportPid}.zip`. API 요청 하나가 압축을 맡지 않는다.
@@ -102,8 +112,8 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
 ```json
 {
   "schemaVersion": 1,
-  "colors": { "background": "#FFF8F3", "surface": "#FFFFFF", "text": "#2B2B2B", "mutedText": "#6B6B6B",
-              "primary": "#C8553D", "onPrimary": "#FFFFFF", "accent": "#F2A65A" },
+  "colors": { "bg": "#FFF8F3", "card": "#FFFFFF", "text": "#2B2B2B", "muted": "#6B6B6B",
+              "border": "#E8DED6", "accent": "#C8553D", "accentContrast": "#FFFFFF" },
   "font": "PRETENDARD",
   "logoAssetId": "As12…",
   "backgroundAssetId": "As34…",
@@ -113,8 +123,10 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
 }
 ```
 
-- colors: `#RRGGBB` 7개 고정 이름. **FE 토큰과 1:1** — `--ev-background --ev-surface --ev-text --ev-muted-text --ev-primary --ev-on-primary --ev-accent`.
-  빠진 색은 하루컷 기본값을 쓴다(서버가 채워서 내려준다).
+- colors: `#RRGGBB` 7개 고정 이름. **FE 토큰과 1:1**(FE `.ev-surface`):
+  `bg→--ev-bg · card→--ev-card · text→--ev-text · muted→--ev-muted · border→--ev-border · accent→--ev-accent · accentContrast→--ev-accent-contrast`.
+  빠진 색은 하루컷 기본값을 쓴다(서버가 채워서 내려준다). `--ev-danger`(오류 문구)는 가독성 때문에 테마로 열지 않는다.
+  색 대비는 서버가 막지 않는다 — Studio 가 text↔bg, accentContrast↔accent 대비 4.5:1 미만이면 경고한다.
 - font: `SYSTEM · PRETENDARD · NANUM_MYEONGJO · GOWUN_DODUM · BLACK_HAN_SANS` 중 하나(웹폰트 로딩은 FE).
 - logoAssetId·backgroundAssetId: 이 공간의 VERIFIED `PAGE_THEME_ASSET`(PNG·JPEG). 업로드는 기존 자산 intent 에
   `purpose: PAGE_THEME_ASSET` + `workspaceId` (OWNER·ADMIN·DESIGNER) — P1 자산 흐름 그대로.

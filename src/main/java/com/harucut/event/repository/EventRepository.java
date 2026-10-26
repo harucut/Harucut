@@ -4,6 +4,8 @@ import com.harucut.event.entity.Event;
 import com.harucut.event.enums.EventStatus;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.Query;
 
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -23,8 +25,6 @@ public interface EventRepository extends JpaRepository<Event, Long> {
 
     List<Event> findAllByWorkspaceIdOrderByCreatedAtDesc(Long workspaceId);
 
-    long countByWorkspaceIdAndStatus(Long workspaceId, EventStatus status);
-
     List<Event> findAllByStatusIn(Collection<EventStatus> statuses);
 
     // 관리자 검색 — slug·이름 부분 일치(소문자)
@@ -32,4 +32,9 @@ public interface EventRepository extends JpaRepository<Event, Long> {
     List<Event> search(@Param("pattern") String pattern, Pageable pageable);
 
     List<Event> findAllByStatusAndArchivedAtBefore(EventStatus status, LocalDateTime before);
+
+    // 공간의 운영 중 행사 — 잠금 읽기(FOR UPDATE)라 REPEATABLE READ 스냅샷이 아니라 최신 커밋을 본다.
+    // 공간 행 잠금을 기다린 뒤 일반 읽기로 세면, 잠금 전에 잡힌 스냅샷 때문에 방금 커밋된 LIVE 를 놓친다
+    @Query(value = "select event_id from event where workspace_id = :workspaceId and status = 'LIVE' for update", nativeQuery = true)
+    List<Long> lockLiveEventIds(@Param("workspaceId") Long workspaceId);
 }

@@ -1,5 +1,8 @@
 package com.harucut.config;
 
+import com.harucut.booth.enums.BoothDeviceStatus;
+import com.harucut.booth.repository.BoothDeviceRepository;
+import com.harucut.booth.security.BoothPrincipal;
 import com.harucut.common.utils.OpaqueTokens;
 import com.harucut.participant.entity.Participant;
 import com.harucut.participant.entity.ParticipantSession;
@@ -41,21 +44,25 @@ import java.util.Optional;
 public class EventCredentialFilter extends OncePerRequestFilter {
 
     public static final String PARTICIPANT_HEADER = "X-Participant-Token";
+    public static final String BOOTH_HEADER = "X-Booth-Token";
     private static final String BEARER = "Bearer ";
 
     private final ParticipantSessionRepository sessionRepository;
     private final ParticipantRepository participantRepository;
     private final ResultAccessRepository resultAccessRepository;
+    private final BoothDeviceRepository boothDeviceRepository;
     private final TransactionTemplate readOnly;
     private final Clock clock;
 
     public EventCredentialFilter(ParticipantSessionRepository sessionRepository,
                                  ParticipantRepository participantRepository,
                                  ResultAccessRepository resultAccessRepository,
+                                 BoothDeviceRepository boothDeviceRepository,
                                  TransactionTemplate readOnly, Clock clock) {
         this.sessionRepository = sessionRepository;
         this.participantRepository = participantRepository;
         this.resultAccessRepository = resultAccessRepository;
+        this.boothDeviceRepository = boothDeviceRepository;
         this.readOnly = readOnly;
         this.clock = clock;
     }
@@ -69,6 +76,8 @@ public class EventCredentialFilter extends OncePerRequestFilter {
             authentication = participant(request.getHeader(PARTICIPANT_HEADER));
         } else if (path.startsWith("/api/public/results")) {
             authentication = resultAccess(request.getHeader(HttpHeaders.AUTHORIZATION));
+        } else if (path.startsWith("/api/booth/")) {
+            authentication = booth(request.getHeader(BOOTH_HEADER));
         }
         authentication.ifPresent(token -> {
             SecurityContext context = SecurityContextHolder.createEmptyContext();
@@ -98,6 +107,17 @@ public class EventCredentialFilter extends OncePerRequestFilter {
                 .filter(access -> !access.revoked())
                 .map(access -> authenticated(new ResultPrincipal(access.getId(), access.getComposeJobId()),
                         "ROLE_RESULT_ACCESS")));
+    }
+
+    // 회수된 기기는 토큰 해시를 지우므로 여기서 걸리지 않지만, 상태도 한 번 더 본다
+    private Optional<AbstractAuthenticationToken> booth(String token) {
+        if (token == null || token.isBlank()) {
+            return Optional.empty();
+        }
+        return readOnly.execute(status -> boothDeviceRepository.findByTokenHash(OpaqueTokens.hash(token.strip()))
+                .filter(device -> device.getStatus() == BoothDeviceStatus.ACTIVE)
+                .map(device -> authenticated(new BoothPrincipal(device.getId(), device.getPublicId(), device.getEventId()),
+                        "ROLE_BOOTH")));
     }
 
     private static ParticipantPrincipal principal(ParticipantSession session, Participant participant) {

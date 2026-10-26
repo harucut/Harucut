@@ -292,6 +292,21 @@ public class EventService {
         return response(flush(operated.event()), operated.workspace());
     }
 
+    /** 부스 기기 관리처럼 행사를 운영하는 다른 기능의 관문 — 그 공간의 OWNER·ADMIN. 아니면 404 */
+    @Transactional(readOnly = true)
+    public Event requireOperable(String userPublicId, String eventPublicId) {
+        return operate(userPublicId, eventPublicId).event();
+    }
+
+    /** 내부 id 판 — 기기처럼 행사 id 를 이미 가진 행에서 */
+    @Transactional(readOnly = true)
+    public Event requireOperable(String userPublicId, Long eventId) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        workspaceService.requireRole(event.getWorkspaceId(), getUser(userPublicId).getId(), OPERATOR_ROLES);
+        return event;
+    }
+
     private Operated operate(String publicId, String eventId) {
         User user = getUser(publicId);
         Event event = eventRepository.findByPublicId(eventId)

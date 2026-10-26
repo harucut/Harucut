@@ -162,12 +162,18 @@ class OpenApiDocumentTest {
         }
 
         @Test
-        @DisplayName("잠긴 엔드포인트에는 401 이 빠짐없이 있다")
+        @DisplayName("잠긴 엔드포인트에는 자격 실패 응답이 빠짐없이 있다 — 401, 부스 기기는 403 BOOTH-003(ADR-0007)")
         void securedOperationsDocumentUnauthorized() {
             List<String> missing = new ArrayList<>();
 
             forEachOperation("1-user", (path, method, operation) -> {
-                if (operation.has("security") && !operation.get("responses").has("401")) {
+                if (!operation.has("security")) {
+                    return;
+                }
+                boolean documented = path.startsWith("/api/booth/")
+                        ? operation.get("responses").path("403").path("content").toString().contains("BOOTH-003")
+                        : operation.get("responses").has("401");
+                if (!documented) {
                     missing.add(method + " " + path);
                 }
             });

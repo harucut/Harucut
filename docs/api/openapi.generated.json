@@ -104,6 +104,155 @@
         },
         "required" : [ "type" ]
       },
+      "BoothDeviceCreateRequest" : {
+        "description" : "부스 기기 등록",
+        "properties" : {
+          "name" : {
+            "description" : "운영자가 알아볼 이름(중복 허용)",
+            "example" : "입구 부스",
+            "maxLength" : 50,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "name" ],
+        "type" : "object"
+      },
+      "BoothDeviceResponse" : {
+        "description" : "부스 기기 — pairingCode 는 등록·재발급 응답에만 실린다",
+        "properties" : {
+          "deviceId" : {
+            "description" : "기기 public id",
+            "type" : "string"
+          },
+          "lastSeenAt" : {
+            "description" : "기기가 마지막으로 상태를 확인한 시각",
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "name" : {
+            "description" : "이름",
+            "example" : "입구 부스",
+            "type" : "string"
+          },
+          "pairingCode" : {
+            "description" : "연결 코드(XXXX-XXXX, 10분). 기기 화면에 입력한다",
+            "example" : "K7QM-3XPA",
+            "type" : "string"
+          },
+          "pairingExpiresAt" : {
+            "description" : "연결 코드 만료 시각",
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "PENDING_PAIRING · ACTIVE · REVOKED",
+            "enum" : [ "PENDING_PAIRING", "ACTIVE", "REVOKED" ],
+            "example" : "PENDING_PAIRING",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "BoothMeResponse" : {
+        "description" : "기기 상태와 배정 행사",
+        "properties" : {
+          "deviceId" : {
+            "type" : "string"
+          },
+          "event" : {
+            "$ref" : "#/components/schemas/PublicEventResponse",
+            "description" : "GET /api/public/events/{slug} 와 같은 모양. 게시 전·보관 종료면 키가 없다(대기 화면)"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "status" : {
+            "enum" : [ "PENDING_PAIRING", "ACTIVE", "REVOKED" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "BoothPairingRedeemRequest" : {
+        "description" : "연결 코드 교환",
+        "properties" : {
+          "code" : {
+            "description" : "XXXX-XXXX — 하이픈·대소문자·공백은 무시한다",
+            "example" : "K7QM-3XPA",
+            "maxLength" : 20,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "code" ],
+        "type" : "object"
+      },
+      "BoothPairingRedeemResponse" : {
+        "description" : "기기 토큰 — 원문은 이 응답에서만 볼 수 있다",
+        "properties" : {
+          "boothToken" : {
+            "description" : "X-Booth-Token 헤더로 보낼 토큰",
+            "type" : "string"
+          },
+          "deviceId" : {
+            "description" : "기기 public id",
+            "type" : "string"
+          },
+          "eventId" : {
+            "description" : "배정 행사 public id",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "BoothRunJob" : {
+        "properties" : {
+          "jobId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "status" : {
+            "enum" : [ "PENDING", "DONE", "FAILED" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "BoothRunStateRequest" : {
+        "description" : "회차를 바꾸는 요청이 대조할 stateVersion",
+        "properties" : {
+          "stateVersion" : {
+            "description" : "current 응답의 stateVersion",
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "stateVersion" ],
+        "type" : "object"
+      },
+      "BoothRunView" : {
+        "description" : "기기의 지금 회차",
+        "properties" : {
+          "captureRunId" : {
+            "type" : "string"
+          },
+          "job" : {
+            "$ref" : "#/components/schemas/BoothRunJob",
+            "description" : "version 이 stateVersion 과 같을 때만, 합성 작업이 있으면"
+          },
+          "stateVersion" : {
+            "description" : "닫을 때 그대로 보낸다",
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "status" : {
+            "enum" : [ "ACTIVE", "CLOSED", "EXPIRED" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "Canvas" : {
         "properties" : {
           "height" : {
@@ -2302,6 +2451,106 @@
         },
         "type" : "object"
       },
+      "ResponseBoothDeviceResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/BoothDeviceResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseBoothMeResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/BoothMeResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseBoothPairingRedeemResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/BoothPairingRedeemResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseBoothRunView" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/BoothRunView",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseComposeAccepted" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -2488,6 +2737,34 @@
           "data" : {
             "$ref" : "#/components/schemas/FrameVersionResponse",
             "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseListBoothDeviceResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "description" : "응답 본문. 없으면 키 자체가 없다",
+            "items" : {
+              "$ref" : "#/components/schemas/BoothDeviceResponse"
+            },
+            "type" : "array"
           },
           "message" : {
             "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
@@ -4429,7 +4706,7 @@
       },
       "post" : {
         "description" : "만들자마자 활성 상태다.\n\n⚠️ **만든 뒤에는 아무것도 고칠 수 없다.** 이름·상한·마감일 수정 API 가 없고,\n삭제도 없다. 잘못 만들었으면 비활성화하고 새로 발행하는 수밖에 없다.\n\n`code` 는 대문자로 정규화해 저장한다. 소문자로 만들어도 대문자가 되고,\n사용자는 대소문자 아무렇게나 입력해도 찾힌다.\n\n부여 기간은 **1개월 고정**이라 요청에 넣는 자리가 없다.\n",
-        "operationId" : "create_2",
+        "operationId" : "create_3",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -7198,6 +7475,234 @@
         "tags" : [ "자산" ]
       }
     },
+    "/api/auth/booth-devices/{deviceId}/pairing-codes" : {
+      "post" : {
+        "description" : "이전 코드는 닫힌다. 이미 연결된 기기의 토큰은 새 코드가 교환되는 순간 무효가 된다(기기 교체).",
+        "operationId" : "reissue_1",
+        "parameters" : [ {
+          "description" : "기기 public id",
+          "in" : "path",
+          "name" : "deviceId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseBoothDeviceResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "BOOTH-003" : {
+                    "summary" : "BOOTH-003 — 회수된 기기",
+                    "value" : {
+                      "code" : "BOOTH-003",
+                      "message" : "The booth device is revoked, unassigned or its token is invalid.",
+                      "status" : 403
+                    }
+                  },
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `BOOTH-003` — 회수된 기기 _(The booth device is revoked, unassigned or its token is invalid.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 기기이거나 OWNER·ADMIN 이 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 기기이거나 OWNER·ADMIN 이 아니다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "연결 코드 재발급",
+        "tags" : [ "행사 운영" ]
+      }
+    },
+    "/api/auth/booth-devices/{deviceId}/revoke" : {
+      "post" : {
+        "description" : "기기 토큰을 무효로 하고 열린 코드를 닫는다. 진행 중 회차를 종료하고 그 기기로 만든 참가자 세션을 회수한다. 되돌릴 수 없다.",
+        "operationId" : "revoke",
+        "parameters" : [ {
+          "description" : "기기 public id",
+          "in" : "path",
+          "name" : "deviceId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseBoothDeviceResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 기기이거나 OWNER·ADMIN 이 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 기기이거나 OWNER·ADMIN 이 아니다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "부스 기기 회수",
+        "tags" : [ "행사 운영" ]
+      }
+    },
     "/api/auth/coupons" : {
       "get" : {
         "description" : "내가 쓴 쿠폰의 이력이다. 페이징이 없고 **정렬도 보장하지 않는다.**\n\n`status` 가 `RESERVED` 면 아직 시작 안 한 예약분이다.\n`redeemedAt` 은 **코드를 입력한 시각**이지 적용이 시작된 시각이 아니다 —\n예약분은 둘이 다르므로 \"사용일\"로 표시하면 오해를 부른다.\n\n`publicId` 는 **이 사용 이력의 ID** 이지 쿠폰 자체의 ID 가 아니다.\n",
@@ -7302,7 +7807,7 @@
     "/api/auth/coupons/redeem" : {
       "post" : {
         "description" : "코드를 넣으면 **무료 사용자면 즉시 적용, 이미 유료 사용자면 현재 주기 뒤로 예약**된다.\n응답의 `applied` 로 구분한다.\n\n⚠️ **`applied: false` 는 실패가 아니다.** 200 이고 쿠폰은 정상 등록됐다.\n\"지금 적용됐습니다\"와 \"구독이 끝나는 {startsAt}부터 적용됩니다\"로 문구를 나눠야 한다.\n예약은 돈 내고 쓰는 구독을 무료 쿠폰이 덮어써 강등시키지 않으려는 장치다.\n\n부여 기간은 **항상 1개월 고정**이다. 쿠폰마다 다르게 정할 수 없다.\n\n**거절 사유가 여섯 가지이고 안내가 전부 다르다.** 400 은 쿠폰 자체가 못 쓰는 상태,\n404 는 코드가 틀린 것, 409 셋은 각각 \"상한 소진\" · \"이미 쓴 쿠폰\" · \"예약이 이미 있음\"이다.\nHTTP 상태로 뭉뚱그리지 말고 코드로 분기할 것.\n\n**예약 슬롯은 하나뿐이다**(`COUPON-007`). 예약이 활성화될 때까지 다른 쿠폰을 쓸 수 없다.\n",
-        "operationId" : "redeem",
+        "operationId" : "redeem_1",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -7778,6 +8283,266 @@
           "bearerAuth" : [ ]
         } ],
         "summary" : "설정 초안 수정",
+        "tags" : [ "행사 운영" ]
+      }
+    },
+    "/api/auth/events/{eventId}/booth-devices" : {
+      "get" : {
+        "description" : "연결 코드는 싣지 않는다.",
+        "operationId" : "list_3",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseListBoothDeviceResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 행사이거나 OWNER·ADMIN 이 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 행사이거나 OWNER·ADMIN 이 아니다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "행사의 부스 기기 목록",
+        "tags" : [ "행사 운영" ]
+      },
+      "post" : {
+        "description" : "기기를 만들고 연결 코드(`XXXX-XXXX`, 10분)를 준다. 행사장 기기 화면에서 코드를 입력하면 연결된다.\n행사당 회수되지 않은 기기는 20대까지.\n",
+        "operationId" : "create_2",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/BoothDeviceCreateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseBoothDeviceResponse"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "BOOTH-006" : {
+                    "summary" : "BOOTH-006 — 기기 수 상한",
+                    "value" : {
+                      "code" : "BOOTH-006",
+                      "message" : "The event has reached its booth device limit.",
+                      "status" : 403
+                    }
+                  },
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `BOOTH-006` — 기기 수 상한 _(The event has reached its booth device limit.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 행사이거나 OWNER·ADMIN 이 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 행사이거나 OWNER·ADMIN 이 아니다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "부스 기기 등록",
         "tags" : [ "행사 운영" ]
       }
     },
@@ -13193,6 +13958,433 @@
         "tags" : [ "공간" ]
       }
     },
+    "/api/booth/capture-runs/current" : {
+      "get" : {
+        "description" : "활성 회차가 없으면 200 이고 `data` 키가 없다.\n`version` 이 서버 stateVersion 과 다르면 `job` 을 싣지 않는다 — 늦게 온 이전 손님 결과를 새 손님 화면에 보이지 않게.\n결과 토큰은 싣지 않는다(합성 접수 응답의 resultToken 을 쓴다).\n",
+        "operationId" : "current",
+        "parameters" : [ {
+          "description" : "화면이 알고 있는 stateVersion",
+          "in" : "query",
+          "name" : "version",
+          "required" : false,
+          "schema" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseBoothRunView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "BOOTH-003" : {
+                    "summary" : "BOOTH-003 — 기기 토큰이 없거나 무효(회수·재연결로 바뀜)",
+                    "value" : {
+                      "code" : "BOOTH-003",
+                      "message" : "The booth device is revoked, unassigned or its token is invalid.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `BOOTH-003` — 기기 토큰이 없거나 무효(회수·재연결로 바뀜) _(The booth device is revoked, unassigned or its token is invalid.)_"
+          }
+        },
+        "security" : [ {
+          "boothToken" : [ ]
+        } ],
+        "summary" : "지금 회차",
+        "tags" : [ "부스" ]
+      }
+    },
+    "/api/booth/capture-runs/{captureRunId}/close" : {
+      "post" : {
+        "description" : "회차를 끝내고 그 손님 세션을 회수한다. 다음 손님은 세션 발급부터.",
+        "operationId" : "close",
+        "parameters" : [ {
+          "description" : "회차 public id",
+          "in" : "path",
+          "name" : "captureRunId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/BoothRunStateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseBoothRunView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "BOOTH-003" : {
+                    "summary" : "BOOTH-003 — 기기 토큰이 없거나 무효(회수·재연결로 바뀜)",
+                    "value" : {
+                      "code" : "BOOTH-003",
+                      "message" : "The booth device is revoked, unassigned or its token is invalid.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `BOOTH-003` — 기기 토큰이 없거나 무효(회수·재연결로 바뀜) _(The booth device is revoked, unassigned or its token is invalid.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 이 기기의 회차가 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 이 기기의 회차가 아니다 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "BOOTH-005" : {
+                    "summary" : "BOOTH-005 — stateVersion 불일치",
+                    "value" : {
+                      "code" : "BOOTH-005",
+                      "message" : "The capture run state version does not match.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `BOOTH-005` — stateVersion 불일치 _(The capture run state version does not match.)_"
+          }
+        },
+        "security" : [ {
+          "boothToken" : [ ]
+        } ],
+        "summary" : "회차 닫기",
+        "tags" : [ "부스" ]
+      }
+    },
+    "/api/booth/capture-runs/{captureRunId}/result-access" : {
+      "post" : {
+        "description" : "명시적으로 부를 때만 새 토큰을 만든다(이전 토큰도 유효). 정상 경로는 합성 접수 응답의 resultToken 이다.",
+        "operationId" : "resultAccess_1",
+        "parameters" : [ {
+          "description" : "회차 public id",
+          "in" : "path",
+          "name" : "captureRunId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/BoothRunStateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseResultTokenResponse"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "BOOTH-003" : {
+                    "summary" : "BOOTH-003 — 기기 토큰이 없거나 무효(회수·재연결로 바뀜)",
+                    "value" : {
+                      "code" : "BOOTH-003",
+                      "message" : "The booth device is revoked, unassigned or its token is invalid.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `BOOTH-003` — 기기 토큰이 없거나 무효(회수·재연결로 바뀜) _(The booth device is revoked, unassigned or its token is invalid.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 이 기기의 회차가 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 이 기기의 회차가 아니다 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "BOOTH-005" : {
+                    "summary" : "BOOTH-005 — stateVersion 불일치",
+                    "value" : {
+                      "code" : "BOOTH-005",
+                      "message" : "The capture run state version does not match.",
+                      "status" : 409
+                    }
+                  },
+                  "RESULT-003" : {
+                    "summary" : "RESULT-003 — 이 회차에 합성 작업이 없다",
+                    "value" : {
+                      "code" : "RESULT-003",
+                      "message" : "The result is not ready yet.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `BOOTH-005` — stateVersion 불일치 _(The capture run state version does not match.)_\n- `RESULT-003` — 이 회차에 합성 작업이 없다 _(The result is not ready yet.)_"
+          }
+        },
+        "security" : [ {
+          "boothToken" : [ ]
+        } ],
+        "summary" : "회차 결과 토큰 다시 발급",
+        "tags" : [ "부스" ]
+      }
+    },
+    "/api/booth/me" : {
+      "get" : {
+        "description" : "event 는 공개 행사 정보와 같은 모양. 게시 전·보관 종료면 event 키가 없다.",
+        "operationId" : "me",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseBoothMeResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "BOOTH-003" : {
+                    "summary" : "BOOTH-003 — 기기 토큰이 없거나 무효(회수·재연결로 바뀜)",
+                    "value" : {
+                      "code" : "BOOTH-003",
+                      "message" : "The booth device is revoked, unassigned or its token is invalid.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `BOOTH-003` — 기기 토큰이 없거나 무효(회수·재연결로 바뀜) _(The booth device is revoked, unassigned or its token is invalid.)_"
+          }
+        },
+        "security" : [ {
+          "boothToken" : [ ]
+        } ],
+        "summary" : "기기 상태와 배정 행사",
+        "tags" : [ "부스" ]
+      }
+    },
+    "/api/booth/participant-sessions" : {
+      "post" : {
+        "description" : "새 참가자(BOOTH)와 RESTRICTED 세션(30분). 이후 동의·회차·업로드·합성은 이 participantToken 으로 `/api/participant/**` 를 쓴다.\n부스 세션의 회차는 기기당 활성 1개(BOOTH-004). 결과 목록·다운로드는 열리지 않는다(PART-006).\n",
+        "operationId" : "nextParticipant",
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseSessionResponse"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "BOOTH-003" : {
+                    "summary" : "BOOTH-003 — 기기 토큰이 없거나 무효(회수·재연결로 바뀜)",
+                    "value" : {
+                      "code" : "BOOTH-003",
+                      "message" : "The booth device is revoked, unassigned or its token is invalid.",
+                      "status" : 403
+                    }
+                  },
+                  "EVENT-002" : {
+                    "summary" : "EVENT-002 — 부스 참가를 허용하지 않는 행사",
+                    "value" : {
+                      "code" : "EVENT-002",
+                      "message" : "This participation channel is not allowed for the event.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `BOOTH-003` — 기기 토큰이 없거나 무효(회수·재연결로 바뀜) _(The booth device is revoked, unassigned or its token is invalid.)_\n- `EVENT-002` — 부스 참가를 허용하지 않는 행사 _(This participation channel is not allowed for the event.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "EVENT-001" : {
+                    "summary" : "EVENT-001 — 지금 촬영할 수 없다",
+                    "value" : {
+                      "code" : "EVENT-001",
+                      "message" : "The event is not open for capture.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `EVENT-001` — 지금 촬영할 수 없다 _(The event is not open for capture.)_"
+          }
+        },
+        "security" : [ {
+          "boothToken" : [ ]
+        } ],
+        "summary" : "다음 손님 세션",
+        "tags" : [ "부스" ]
+      }
+    },
     "/api/email-auth/code" : {
       "post" : {
         "description" : "입력한 이메일로 6자리 코드를 보낸다. 코드는 **5분** 유효하다.\n\n**같은 이메일로 60초 안에 다시 요청하면 429 다.** 재발송 버튼에 60초 카운트다운을 붙이고,\n그래도 429 가 오면(탭을 새로 열었다거나) 에러 화면이 아니라 \"잠시 후 다시 시도\" 안내로 처리할 것.\n\n이미 가입된 이메일이면 메일을 보내지 않고 409 로 거절한다 — 마지막 단계까지 가서야\n중복을 알게 되는 일을 막기 위해서다. **쿨다운을 먼저 검사하므로, 연달아 요청하면\n가입된 이메일이어도 429 가 먼저 나올 수 있다.**\n",
@@ -15803,6 +16995,108 @@
         "tags" : [ "결제 웹훅" ]
       }
     },
+    "/api/public/booth-pairings/redeem" : {
+      "post" : {
+        "description" : "기기 화면에서 운영자가 받은 코드를 입력한다. 성공은 한 번만 — 토큰 원문은 이 응답에서만 볼 수 있다.\n토큰은 이후 `X-Booth-Token` 헤더로 보낸다. 실패 5회면 그 코드가 닫힌다(운영자가 재발급).\n",
+        "operationId" : "redeem",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/BoothPairingRedeemRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseBoothPairingRedeemResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "BOOTH-001" : {
+                    "summary" : "BOOTH-001 — 틀렸거나 만료된 코드",
+                    "value" : {
+                      "code" : "BOOTH-001",
+                      "message" : "The pairing code is wrong or expired.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `BOOTH-001` — 틀렸거나 만료된 코드 _(The pairing code is wrong or expired.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "410" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "BOOTH-002" : {
+                    "summary" : "BOOTH-002 — 실패 한도로 닫힌 코드",
+                    "value" : {
+                      "code" : "BOOTH-002",
+                      "message" : "The pairing was closed after too many failed attempts.",
+                      "status" : 410
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `BOOTH-002` — 실패 한도로 닫힌 코드 _(The pairing was closed after too many failed attempts.)_"
+          },
+          "429" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-061" : {
+                    "summary" : "GEN-061 — 요청이 너무 잦다",
+                    "value" : {
+                      "code" : "GEN-061",
+                      "message" : "Too many requests.",
+                      "status" : 429
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-061` — 요청이 너무 잦다 _(Too many requests.)_"
+          }
+        },
+        "summary" : "연결 코드 교환",
+        "tags" : [ "부스" ]
+      }
+    },
     "/api/public/events/{slug}" : {
       "get" : {
         "description" : "로그인 없이 연다. 게시 전·보관 종료 행사는 404.",
@@ -17049,6 +18343,9 @@
   }, {
     "description" : "로그인 없는 참가자 — 행사 조회 → 세션 → 동의 → 회차 → 촬영 업로드 → 합성 → 결과 토큰. 자격은 `X-Participant-Token` 헤더",
     "name" : "행사 참가"
+  }, {
+    "description" : "행사장 공용 촬영 기기 — 연결 코드 교환 → 기기 토큰(`X-Booth-Token`) → 다음 손님 세션·회차 확인·닫기. 촬영 자체는 손님의 참가자 토큰으로",
+    "name" : "부스"
   }, {
     "description" : "결과 링크(`/r#<token>`)로 여는 결과 상태·다운로드. 자격은 Bearer 결과 토큰",
     "name" : "행사 결과 수령"

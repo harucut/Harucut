@@ -1,6 +1,7 @@
 package com.harucut.config.openapi;
 
 import com.harucut.auth.exception.AuthErrorCode;
+import com.harucut.booth.exception.BoothErrorCode;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.config.SecurityPaths;
 import com.harucut.participant.exception.ParticipantErrorCode;
@@ -107,6 +108,8 @@ public class ApiErrorDocumentationCustomizer implements GlobalOpenApiCustomizer 
                     DocumentedError.of(ResultErrorCode.TOKEN_INVALID, "결과 토큰이 없거나 틀림"));
         } else if (path.startsWith("/api/booth/")) {
             requireScheme(operation, OpenApiConfig.BOOTH_SCHEME);
+            errors.put(BoothErrorCode.DEVICE_UNAVAILABLE.getCode(),
+                    DocumentedError.of(BoothErrorCode.DEVICE_UNAVAILABLE, "기기 토큰이 없거나 무효(회수·재연결로 바뀜)"));
         }
     }
 

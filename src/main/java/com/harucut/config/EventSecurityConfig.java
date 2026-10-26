@@ -1,5 +1,7 @@
 package com.harucut.config;
 
+import com.harucut.booth.exception.BoothErrorCode;
+import com.harucut.booth.repository.BoothDeviceRepository;
 import com.harucut.common.exception.ErrorCode;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.common.response.Response;
@@ -45,6 +47,7 @@ public class EventSecurityConfig {
                                                 ParticipantSessionRepository sessionRepository,
                                                 ParticipantRepository participantRepository,
                                                 ResultAccessRepository resultAccessRepository,
+                                                BoothDeviceRepository boothDeviceRepository,
                                                 PlatformTransactionManager transactionManager,
                                                 Clock clock,
                                                 ObjectMapper objectMapper) throws Exception {
@@ -68,13 +71,14 @@ public class EventSecurityConfig {
                         .authenticationEntryPoint((request, response, e) -> write(objectMapper, response, codeFor(request)))
                         .accessDeniedHandler((request, response, e) -> write(objectMapper, response, codeFor(request))))
                 .addFilterBefore(new EventCredentialFilter(sessionRepository, participantRepository,
-                        resultAccessRepository, readOnly, clock), UsernamePasswordAuthenticationFilter.class)
+                        resultAccessRepository, boothDeviceRepository, readOnly, clock), UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/public/events/*").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/public/events/*/sessions").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/public/booth-pairings/redeem").permitAll()
                         .requestMatchers("/api/participant/**").hasRole("PARTICIPANT")
                         .requestMatchers("/api/public/results/**").hasRole("RESULT_ACCESS")
+                        .requestMatchers("/api/booth/**").hasRole("BOOTH")
                         .anyRequest().denyAll());
         return http.build();
     }
@@ -87,6 +91,9 @@ public class EventSecurityConfig {
         }
         if (path.startsWith("/api/public/results")) {
             return ResultErrorCode.TOKEN_INVALID;
+        }
+        if (path.startsWith("/api/booth/")) {
+            return BoothErrorCode.DEVICE_UNAVAILABLE;
         }
         return GlobalErrorCode.FORBIDDEN;
     }

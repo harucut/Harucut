@@ -12,7 +12,7 @@ import java.util.List;
 
 public interface S3DeletionRepository extends JpaRepository<S3Deletion, Long> {
 
-    // 삭제 예약 — 같은 key 가 이미 있으면 아무것도 하지 않는다(멱등). 호출자 트랜잭션에 함께 커밋·롤백된다
+    // 삭제 예약 — 같은 key 가 이미 있으면 아무것도 하지 않는다(멱등, 0 을 돌려준다). 호출자 트랜잭션에 함께 커밋·롤백된다
     @Transactional
     @Modifying
     @Query(value = "insert ignore into s3_deletion (s3_key, key_hash, attempts, next_attempt_at, created_at, updated_at) "
@@ -27,9 +27,10 @@ public interface S3DeletionRepository extends JpaRepository<S3Deletion, Long> {
 
     @Transactional
     @Modifying
-    @Query("update S3Deletion d set d.attempts = :attempts, d.nextAttemptAt = :nextAttemptAt, d.lastError = :lastError, "
-            + "d.updatedAt = :now where d.keyHash = :keyHash")
-    int recordFailure(@Param("keyHash") String keyHash, @Param("attempts") int attempts,
+    // 실패 기록 — 읽은 횟수(previous)일 때만 +1. 그사이 다른 시도가 기록했으면 0 행(덮어쓰지 않는다)
+    @Query("update S3Deletion d set d.attempts = d.attempts + 1, d.nextAttemptAt = :nextAttemptAt, d.lastError = :lastError, "
+            + "d.updatedAt = :now where d.keyHash = :keyHash and d.attempts = :previous")
+    int recordFailure(@Param("keyHash") String keyHash, @Param("previous") int previous,
                       @Param("nextAttemptAt") LocalDateTime nextAttemptAt, @Param("lastError") String lastError,
                       @Param("now") LocalDateTime now);
 

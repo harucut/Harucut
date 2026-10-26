@@ -37,7 +37,13 @@ public class S3Deleter {
         LocalDateTime now = LocalDateTime.now(clock);
         // 첫 시도는 커밋 직후 리스너 몫 — 배치는 첫 백오프가 지난 뒤에야 본다(둘이 겹쳐 지우지 않게)
         LocalDateTime firstRetry = now.plus(S3DeletionAttempt.BACKOFF.getFirst());
-        managed.forEach(key -> deletionRepository.schedule(key, OpaqueTokens.hash(key), firstRetry, now));
-        eventPublisher.publishEvent(new S3DeleteEvent(managed));
+        // 새로 넣은 예약만 첫 시도로 넘긴다. 이미 있는 key(재시도 중·상한을 넘어 남긴 것)는 그 행의 횟수·다음 시각을 그대로 따른다 —
+        // 첫 시도로 다루면 실패했을 때 실패 이력과 상한이 처음부터 다시 시작된다
+        List<String> fresh = managed.stream()
+                .filter(key -> deletionRepository.schedule(key, OpaqueTokens.hash(key), firstRetry, now) == 1)
+                .toList();
+        if (!fresh.isEmpty()) {
+            eventPublisher.publishEvent(new S3DeleteEvent(fresh));
+        }
     }
 }

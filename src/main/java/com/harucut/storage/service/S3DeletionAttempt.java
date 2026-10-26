@@ -54,7 +54,7 @@ public class S3DeletionAttempt {
             int failures = previousFailures + 1;
             LocalDateTime now = LocalDateTime.now(clock);
             String reason = truncate(e.getClass().getSimpleName() + ": " + e.getMessage());
-            update(() -> repository.recordFailure(keyHash, failures, now.plus(backoff(failures)), reason, now));
+            update(() -> repository.recordFailure(keyHash, previousFailures, now.plus(backoff(failures)), reason, now));
             if (failures >= maxAttempts) {
                 log.error("[S3 삭제] 재시도 상한({}회)에 닿아 남겨 둔다 — 고아 객체: {} ({})", maxAttempts, key, reason);
             } else {

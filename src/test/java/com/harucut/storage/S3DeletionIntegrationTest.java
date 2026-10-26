@@ -154,6 +154,37 @@ class S3DeletionIntegrationTest {
     }
 
     @Test
+    @DisplayName("상한을 넘어 남긴 행을 다시 예약해도 그대로 남는다 — 첫 시도로 되살리지 않는다")
+    void abandonedStaysAbandonedWhenRescheduled() {
+        willThrow(new IllegalStateException("S3 장애")).given(fileStorageService).delete(KEY);
+        transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(KEY)));
+        jdbcTemplate.update("update s3_deletion set attempts = 8 where key_hash = ?", OpaqueTokens.hash(KEY));
+
+        transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(KEY)));   // 보관 재삭제처럼 다시 예약
+
+        then(fileStorageService).should(times(1)).delete(KEY);   // 처음 커밋 뒤 한 번뿐
+        assertThat(repository.findAll()).singleElement().satisfies(row -> assertThat(row.getAttempts()).isEqualTo(8));
+        assertThat(retrier.retryDue().abandoned()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("재시도 중인 행을 다시 예약해도 실패 횟수·다음 시각이 그대로다")
+    void pendingKeepsStateWhenRescheduled() {
+        willThrow(new IllegalStateException("S3 장애")).given(fileStorageService).delete(KEY);
+        transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(KEY)));
+        LocalDateTime later = LocalDateTime.now().plusHours(3).withNano(0);
+        jdbcTemplate.update("update s3_deletion set attempts = 3, next_attempt_at = ? where key_hash = ?", later, OpaqueTokens.hash(KEY));
+
+        transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(KEY)));
+
+        then(fileStorageService).should(times(1)).delete(KEY);
+        assertThat(repository.findAll()).singleElement().satisfies(row -> {
+            assertThat(row.getAttempts()).isEqualTo(3);
+            assertThat(row.getNextAttemptAt()).isEqualTo(later);
+        });
+    }
+
+    @Test
     @DisplayName("트랜잭션 밖에서 불러 리스너가 안 불려도 예약 행이 남아 배치가 지운다")
     void outsideTransactionIsPickedUpByRetrier() {
         s3Deleter.deleteAfterCommit(List.of(KEY));

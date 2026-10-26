@@ -109,6 +109,70 @@ class AllocationConcurrencyMysqlTest {
         assertThat(parentNow.getUsed() + parentNow.getReserved()).isEqualTo(2);   // 넘지 않았다
     }
 
+    @Test
+    @DisplayName("리뷰 반영(#39): 같은 배분을 동시에 6→3 두 번 줄여도 부모 합은 3 만 줄어든다")
+    void concurrentShrinkUsesCurrentQuota() throws Exception {
+        Setup s = setup("shrink", 10);
+        String child = contractService.allocate(s.admin().getPublicId(), s.parentId(), new EntitlementDtos.AllocationRequest(s.a().getPublicId(), 6))
+                .entitlementId();
+
+        List<Throwable> failures = raceBehind(() -> entitlementRepository.lockById(s.parent()),
+                () -> contractService.resize(s.admin().getPublicId(), child, new EntitlementDtos.AllocationResizeRequest(3)),
+                () -> contractService.resize(s.admin().getPublicId(), child, new EntitlementDtos.AllocationResizeRequest(3)));
+
+        assertThat(failures).isEmpty();
+        assertThat(entitlementRepository.findById(s.parent()).orElseThrow().getAllocatedQuota()).isEqualTo(3);
+        assertThat(entitlementRepository.findByPublicId(child).orElseThrow().getComposeQuota()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("리뷰 반영(#39): 같은 부모·같은 행사를 동시에 두 번 배분하면 하나만 생기고(다른 하나 GEN-002) 부모 합도 한 번만")
+    void concurrentDuplicateAllocation() throws Exception {
+        Setup s = setup("dup", 10);
+
+        List<Throwable> failures = raceBehind(() -> entitlementRepository.lockById(s.parent()),
+                () -> contractService.allocate(s.admin().getPublicId(), s.parentId(), new EntitlementDtos.AllocationRequest(s.a().getPublicId(), 4)),
+                () -> contractService.allocate(s.admin().getPublicId(), s.parentId(), new EntitlementDtos.AllocationRequest(s.a().getPublicId(), 4)));
+
+        assertThat(failures).singleElement().isInstanceOfSatisfying(BusinessException.class,
+                e -> assertThat(e.getErrorCode()).isEqualTo(com.harucut.common.exception.GlobalErrorCode.INVALID_INPUT_VALUE));
+        assertThat(entitlementRepository.findAllByParentEntitlementId(s.parent()))
+                .filteredOn(e -> e.getStatus() == com.harucut.entitlement.enums.EntitlementStatus.ACTIVE).hasSize(1);
+        assertThat(entitlementRepository.findById(s.parent()).orElseThrow().getAllocatedQuota()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("리뷰 반영(#39): 같은 배분을 동시에 두 번 회수하면 하나만 되고(ENT-003) 부모 합은 한 번만 돌아온다")
+    void concurrentDoubleRevoke() throws Exception {
+        Setup s = setup("revoke", 10);
+        String child = contractService.allocate(s.admin().getPublicId(), s.parentId(), new EntitlementDtos.AllocationRequest(s.a().getPublicId(), 6))
+                .entitlementId();
+        contractService.allocate(s.admin().getPublicId(), s.parentId(), new EntitlementDtos.AllocationRequest(s.b().getPublicId(), 2));
+
+        List<Throwable> failures = raceBehind(() -> entitlementRepository.lockById(s.parent()),
+                () -> contractService.revoke(s.admin().getPublicId(), child, "취소"),
+                () -> contractService.revoke(s.admin().getPublicId(), child, "취소"));
+
+        assertThat(failures).singleElement().isInstanceOfSatisfying(BusinessException.class,
+                e -> assertThat(e.getErrorCode()).isEqualTo(EntitlementErrorCode.INVALID_TRANSITION));
+        assertThat(entitlementRepository.findById(s.parent()).orElseThrow().getAllocatedQuota()).isEqualTo(2);
+    }
+
+    private record Setup(User admin, String parentId, Long parent, Event a, Event b) {
+    }
+
+    private Setup setup(String prefix, int quota) {
+        User admin = userRepository.save(User.localUser("admin@" + prefix + ".test", "e", "관리자"));
+        User owner = userRepository.save(User.localUser("owner@" + prefix + ".test", "e", "오너"));
+        WorkspaceResponse org = workspaceService.createOrganization(owner.getPublicId(), prefix);
+        Event a = event(owner, org, prefix + "-a");
+        Event b = event(owner, org, prefix + "-b");
+        String parentId = contractService.grantManually(admin.getPublicId(), new EntitlementDtos.ManualGrantRequest(org.workspaceId(), null,
+                OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(30),
+                new EntitlementDtos.Terms(quota, null, null, null, Set.of()), "기업 총량")).entitlementId();
+        return new Setup(admin, parentId, entitlementRepository.findByPublicId(parentId).orElseThrow().getId(), a, b);
+    }
+
     private Event event(User owner, WorkspaceResponse org, String slug) {
         EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(),
                 new EventSettings(slug, slug, null, null, null, null, null, null, null, null, null, null, null, null));

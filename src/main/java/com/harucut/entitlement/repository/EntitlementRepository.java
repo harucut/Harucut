@@ -61,9 +61,24 @@ public interface EntitlementRepository extends JpaRepository<Entitlement, Long> 
 
     List<Entitlement> findAllByParentEntitlementId(Long parentEntitlementId);
 
-    // 부모 행만 잠근다(PK 행 잠금) — 배분량을 줄일 때 자식보다 부모를 먼저 잡아 잠금 순서(부모 → 자식)를 지킨다
+    // 부모 행만 잠근다(PK 행 잠금) — 배분·배분량 변경·회수가 같은 부모 아래에서 줄을 서고, 잠금 순서(부모 → 자식)를 지킨다
     @Query(value = "select entitlement_id from entitlement where entitlement_id = :id for update", nativeQuery = true)
     List<Long> lockById(@Param("id") Long id);
+
+    // 활성 자식의 현재 한도 — 잠금 읽기(부모를 잡은 뒤). 잠금 전에 읽은 값으로 차이를 계산하면 동시 변경이 부모 합을 두 번 줄인다
+    @Query(value = "select compose_quota from entitlement where entitlement_id = :id and status = 'ACTIVE' for update", nativeQuery = true)
+    List<Integer> lockActiveQuota(@Param("id") Long id);
+
+    // 부모의 활성 자식(행사를 주면 그 행사만) — 잠금 읽기(부모를 잡은 뒤). 같은 부모의 배분은 부모 잠금에서 줄을 서므로 최신 커밋까지 본다
+    @Query(value = "select entitlement_id from entitlement where parent_entitlement_id = :parentId and status = 'ACTIVE' "
+            + "and (:eventId is null or event_id = :eventId) for update", nativeQuery = true)
+    List<Long> lockActiveChildIds(@Param("parentId") Long parentId, @Param("eventId") Long eventId);
+
+    // 회수 — ACTIVE 일 때만 한 번. 동시에 두 번 회수해도 한쪽만 1(부모 카운터를 한 번만 돌려준다)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update Entitlement e set e.status = com.harucut.entitlement.enums.EntitlementStatus.REVOKED, e.revokedAt = :now, "
+            + "e.revokeReason = :reason where e.id = :id and e.status = com.harucut.entitlement.enums.EntitlementStatus.ACTIVE")
+    int revokeIfActive(@Param("id") Long id, @Param("now") LocalDateTime now, @Param("reason") String reason);
 
     // 한도 알림 — 확정 사용량이 그 비율 이상이고 아직 기록하지 않았을 때만 1(동시에 확정돼도 한 번)
     @Modifying(clearAutomatically = true, flushAutomatically = true)

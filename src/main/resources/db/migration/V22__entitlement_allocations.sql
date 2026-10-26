@@ -17,3 +17,10 @@ ALTER TABLE `usage_reservation`
 ALTER TABLE `usage_ledger`
   ADD UNIQUE KEY `uk_usage_ledger_job_entitlement_kind` (`compose_job_id`, `entitlement_id`, `kind`),
   DROP INDEX `uk_usage_ledger_job_kind`;
+
+-- 활성 배분은 부모·행사마다 하나 — 활성일 때만 값이 있는 생성 칼럼에 유니크(회수·종료하면 NULL 이라 다시 배분할 수 있다).
+-- 앱은 부모 잠금 아래에서 먼저 검사하고, 이 키는 그 검사가 빠졌을 때의 불변식이다
+ALTER TABLE `entitlement`
+  ADD COLUMN `active_allocation` varchar(41) GENERATED ALWAYS AS
+    (IF(`status` = 'ACTIVE' AND `parent_entitlement_id` IS NOT NULL, CONCAT(`parent_entitlement_id`, ':', `event_id`), NULL)) STORED,
+  ADD UNIQUE KEY `uk_entitlement_active_allocation` (`active_allocation`);

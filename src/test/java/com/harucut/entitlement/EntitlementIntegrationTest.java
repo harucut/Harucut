@@ -483,6 +483,40 @@ class EntitlementIntegrationTest {
         assertThat(entitlementService.applicable(b)).isEmpty();
     }
 
+    @Test
+    @DisplayName("리뷰 반영(#39): 같은 배분을 두 번 회수하면 두 번째는 ENT-003·부모 합은 한 번만 줄어든다, 영향에 배분으로 운영 중인 행사가 들어간다, 500자 사유로 부모를 회수해도 롤백되지 않는다")
+    void allocationReviewFixes() {
+        String parentId = manualParent(10);
+        Event viaChild = published("impact-child");
+        Event viaParent = published("impact-parent");
+        Event covered = published("impact-covered");
+        String child = contractService.allocate(admin.getPublicId(), parentId, new EntitlementDtos.AllocationRequest(viaChild.getPublicId(), 4))
+                .entitlementId();
+        // 무관한 행사 범위 이용권에 덮인 행사는 부모 회수의 영향이 아니다
+        contractService.grantManually(admin.getPublicId(), new EntitlementDtos.ManualGrantRequest(org.workspaceId(), covered.getPublicId(),
+                OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(10), new EntitlementDtos.Terms(5, null, null, null, Set.of()), "따로"));
+        assertThat(contractService.impact(parentId).liveEvents())
+                .containsExactlyInAnyOrder(viaChild.getPublicId(), viaParent.getPublicId());
+
+        contractService.revoke(admin.getPublicId(), child, "취소");
+        assertCode(() -> contractService.revoke(admin.getPublicId(), child, "또"), EntitlementErrorCode.INVALID_TRANSITION);
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(contractService.entitlements()).filteredOn(e -> e.entitlementId().equals(parentId)).singleElement()
+                .satisfies(parent -> assertThat(parent.allocatedQuota()).isZero());
+
+        String again = contractService.allocate(admin.getPublicId(), parentId, new EntitlementDtos.AllocationRequest(viaChild.getPublicId(), 3))
+                .entitlementId();
+        String longReason = "가".repeat(500);
+        contractService.revoke(admin.getPublicId(), parentId, longReason);
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(contractService.entitlements()).filteredOn(e -> e.entitlementId().equals(again)).singleElement().satisfies(e -> {
+            assertThat(e.status()).isEqualTo(EntitlementStatus.REVOKED);
+            assertThat(e.revokeReason()).hasSize(500).startsWith("부모 이용권 회수: ");
+        });
+    }
+
     private String manualParent(int quota) {
         return contractService.grantManually(admin.getPublicId(), new EntitlementDtos.ManualGrantRequest(org.workspaceId(), null,
                 OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(30),

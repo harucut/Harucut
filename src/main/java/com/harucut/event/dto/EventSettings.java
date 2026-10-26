@@ -46,7 +46,10 @@ public record EventSettings(
         @Schema(description = "참가 동의 항목 — 사진 수신 주체·목적·보관 안내를 담는다. 하나 이상")
         List<ConsentItem> consentItems,
 
-        @Schema(description = "페이지 테마 — 게시 때 형식·자산·이용권 기능을 검사한다") PageTheme theme
+        @Schema(description = "페이지 테마 — 게시 때 형식·자산·이용권 기능을 검사한다") PageTheme theme,
+
+        @Schema(description = "프로젝트 public id(선택) — 같은 공간의 보관되지 않은 프로젝트. 게시 뒤에는 바꿀 수 없다(PROJECT-002). "
+                + "PATCH 에서 null 이면 프로젝트에서 뺀다", example = "Pj3kL9mN2qRs") String projectId
 ) {
 
     @Schema(description = "제공 프레임 발행본")

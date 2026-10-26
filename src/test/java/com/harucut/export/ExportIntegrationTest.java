@@ -141,7 +141,7 @@ class ExportIntegrationTest {
         // 묶음 다운로드는 계약 기능 BULK_DOWNLOAD 가 필요하다(P2B-5)
         TestEntitlements.grant(entitlementRepository, workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId());
         EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings("민지 ♥ 준호", "export-event", null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("민지 ♥ 준호", "export-event", null, null, null, null, null, null, null, null, null, null, null));
         event = eventRepository.findByPublicId(created.eventId()).orElseThrow();
         Participant participant = participantRepository.save(Participant.byod(event.getId()));
         first = done(participant, "k1", "uploads/events/e/results/1.jpg");

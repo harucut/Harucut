@@ -149,7 +149,7 @@ class MembersAndGrantsIntegrationTest {
     @DisplayName("행사: 만든 사람은 네 권한, 고객 초대는 그 행사 권한만(공간 멤버 아님), 다시 받으면 합친다, 멤버 회수는 권한도 회수")
     void eventGrants() {
         EventResponse event = eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings("민지 ♥ 준호", "grant-event", null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("민지 ♥ 준호", "grant-event", null, null, null, null, null, null, null, null, null, null, null));
 
         assertThat(eventGrantService.myEvents(owner.getPublicId())).singleElement().satisfies(mine -> {
             assertThat(mine.eventId()).isEqualTo(event.eventId());
@@ -206,7 +206,7 @@ class MembersAndGrantsIntegrationTest {
     void auditLog() {
         join(designer, WorkspaceRole.DESIGNER);
         eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings("행사", "audit-event", null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("행사", "audit-event", null, null, null, null, null, null, null, null, null, null, null));
         Long workspaceId = workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId();
 
         AuditLogPage page = auditLogService.workspacePage(workspaceId, null);

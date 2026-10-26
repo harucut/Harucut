@@ -76,6 +76,10 @@ public class Event extends BaseEntity {
     @Column(name = "created_by_user_id", nullable = false)
     private Long createdByUserId;
 
+    // 선택 — 같은 공간의 프로젝트. 브랜드 기본값을 공간 → 프로젝트 → 행사 순서로 상속한다(ADR-0009 §2)
+    @Column(name = "project_id")
+    private Long projectId;
+
     private Event(Long workspaceId, String slug, String name, Long createdByUserId, String settingsDraft) {
         this.publicId = PublicIds.generate();
         this.workspaceId = workspaceId;
@@ -91,6 +95,10 @@ public class Event extends BaseEntity {
 
     public static Event draft(Long workspaceId, String slug, String name, Long createdByUserId, String settingsDraft) {
         return new Event(workspaceId, slug, name, createdByUserId, settingsDraft);
+    }
+
+    public void assignProject(Long projectId) {
+        this.projectId = projectId;
     }
 
     public void rename(String name) {

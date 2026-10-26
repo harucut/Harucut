@@ -163,7 +163,7 @@ class LockedReadMysqlTest {
     private EventResponse draftEvent(User owner, String slug) {
         WorkspaceResponse org = workspaceService.createOrganization(owner.getPublicId(), slug);
         return eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings(slug, slug, null, null, null, null, null, null, null, null, null, null));
+                new EventSettings(slug, slug, null, null, null, null, null, null, null, null, null, null, null));
     }
 
     // lock 으로 행을 잡아 둔 채 두 요청을 출발시키고, 둘 다 기다리는 중에 푼다. 실패한 요청의 예외 목록을 돌려준다

@@ -37,6 +37,10 @@ public class Workspace extends BaseEntity {
     @Column(name = "personal_owner_user_id", unique = true)
     private Long personalOwnerUserId;
 
+    // 공간(기업) 단위 브랜드 기본값 — 행사 설정의 상속 가능한 필드 JSON(ADR-0009 §2). null 이면 이 단계의 값 없음
+    @Column(name = "brand_defaults", columnDefinition = "mediumtext")
+    private String brandDefaults;
+
     private Workspace(WorkspaceType type, String name, Long personalOwnerUserId) {
         this.publicId = PublicIds.generate();
         this.type = type;
@@ -47,6 +51,10 @@ public class Workspace extends BaseEntity {
     // 행사·기업이 쓰는 공유 공간. 만든 사람이 OWNER 멤버가 된다 — 소유자 컬럼은 PERSONAL 전용이라 비워 둔다
     public static Workspace organization(String name) {
         return new Workspace(WorkspaceType.ORGANIZATION, name, null);
+    }
+
+    public void changeBrandDefaults(String brandDefaults) {
+        this.brandDefaults = brandDefaults;
     }
 
     public boolean isPersonal() {

@@ -93,7 +93,7 @@ class PublishAndFrameLimitMysqlTest {
         TestEntitlements.grant(entitlementRepository, workspaceId);
         Long frameVersionId = frameVersionService.publish(owner.getPublicId(), frame(owner, org)).frameVersionId();
         EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings("행사", "double-publish", null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("행사", "double-publish", null, null, null, null, null, null, null, null, null, null, null));
         eventService.patch(owner.getPublicId(), created.eventId(), new EventPatchRequest(created.settingsVersion(),
                 objectMapper.valueToTree(Map.of(
                         "allowedLayouts", List.of("CLASSIC"),

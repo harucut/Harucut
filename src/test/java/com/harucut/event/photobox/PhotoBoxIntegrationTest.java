@@ -112,7 +112,7 @@ class PhotoBoxIntegrationTest {
         stranger = userRepository.save(User.localUser("stranger@harucut.com", "e", "남"));
         WorkspaceResponse org = workspaceService.createOrganization(owner.getPublicId(), "웨딩홀");
         EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings("민지 ♥ 준호", "photo-box", null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("민지 ♥ 준호", "photo-box", null, null, null, null, null, null, null, null, null, null, null));
         event = eventRepository.findByPublicId(created.eventId()).orElseThrow();
 
         Participant byod = participantRepository.save(Participant.byod(event.getId()));

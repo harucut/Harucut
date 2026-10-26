@@ -363,7 +363,7 @@ class EntitlementIntegrationTest {
 
     private EventResponse ready(String slug) {
         EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings("행사", slug, null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("행사", slug, null, null, null, null, null, null, null, null, null, null, null));
         return eventService.patch(owner.getPublicId(), created.eventId(), new EventPatchRequest(created.settingsVersion(),
                 objectMapper.valueToTree(Map.of(
                         "allowedLayouts", List.of("CLASSIC"),

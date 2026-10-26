@@ -6,6 +6,8 @@ import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.event.dto.EventExperienceDocument;
 import com.harucut.entitlement.enums.Feature;
 import com.harucut.entitlement.service.EntitlementService;
+import com.harucut.event.dto.EffectiveSettingsResponse;
+import com.harucut.event.dto.InheritableSettings;
 import com.harucut.event.dto.EventPatchRequest;
 import com.harucut.event.dto.EventResponse;
 import com.harucut.event.dto.EventSettings;
@@ -22,6 +24,9 @@ import com.harucut.frame.entity.FrameVersion;
 import com.harucut.frame.enums.FrameType;
 import com.harucut.frame.repository.FrameRepository;
 import com.harucut.frame.repository.FrameVersionRepository;
+import com.harucut.project.entity.Project;
+import com.harucut.project.exception.ProjectErrorCode;
+import com.harucut.project.repository.ProjectRepository;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.entity.Workspace;
@@ -35,16 +40,16 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.time.Clock;
-import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -61,7 +66,6 @@ public class EventService {
 
     private static final Set<WorkspaceRole> OPERATOR_ROLES = Set.of(WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
     private static final Pattern SLUG = Pattern.compile("^[a-z0-9-]{3,40}$");
-    private static final int MAX_RETENTION_DAYS = 3650;
 
     private final EventRepository eventRepository;
     private final EventExperienceVersionRepository experienceVersionRepository;
@@ -79,6 +83,8 @@ public class EventService {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final EntityManager entityManager;
+    private final ProjectRepository projectRepository;
+    private final EffectiveSettingsResolver settingsResolver;
 
     public EventResponse create(String publicId, String workspacePublicId, EventSettings settings) {
         User user = getUser(publicId);
@@ -94,12 +100,12 @@ public class EventService {
         }
 
         Event event = Event.draft(workspace.getId(), slug, settings.name().strip(), user.getId(),
-                write(EventExperienceDocument.empty()));
-        // 만들 때는 보낸 값만 적용한다 — 안 보낸 필드(null)는 기본값(Event.draft)을 그대로 둔다
+                objectMapper.writeValueAsString(InheritableSettings.empty()));
+        // 만들 때는 보낸 값만 행사의 직접 값으로 둔다 — 안 보낸 필드(null)는 공간·프로젝트 기본값(없으면 서버 기본값)을 따른다
         ObjectNode sent = objectMapper.valueToTree(settings);
         List<String> nulls = sent.propertyNames().stream().filter(name -> sent.get(name).isNull()).toList();
         nulls.forEach(sent::remove);
-        apply(event, sent, true);
+        apply(event, sent, true, workspace);
         Event saved = eventRepository.save(event);
         eventGrantService.grantCreator(saved.getId(), user.getId());
         auditLogService.record(user.getId(), workspace.getId(), saved.getId(), "EVENT_CREATED", "EVENT", saved.getPublicId(), null);
@@ -120,6 +126,13 @@ public class EventService {
         Event copy = Event.draft(source.getWorkspaceId(), newSlug, requireText(name, "name"), operated.user().getId(),
                 source.getSettingsDraft());
         copy.configure(source.getTimezone(), source.isByodEnabled(), source.isBoothEnabled(), source.getResultRetentionDays());
+        if (source.getProjectId() != null) {
+            // 같은 프로젝트에 새 행사를 넣는 것이다 — 보관된 프로젝트면 PROJECT-001
+            if (projectRepository.findById(source.getProjectId()).map(Project::isArchived).orElse(false)) {
+                throw new BusinessException(ProjectErrorCode.PROJECT_ARCHIVED);
+            }
+            copy.assignProject(source.getProjectId());
+        }
         Event saved = eventRepository.save(copy);
         eventGrantService.grantCreator(saved.getId(), operated.user().getId());
         auditLogService.record(operated.user().getId(), saved.getWorkspaceId(), saved.getId(), "EVENT_CLONED", "EVENT",
@@ -148,7 +161,7 @@ public class EventService {
         if (request.settingsVersion() != event.getSettingsVersion()) {
             throw versionConflict(event);
         }
-        apply(event, request.settings(), false);
+        apply(event, request.settings(), false, operated.workspace());
         // 바뀐 필드 이름만 남긴다 — 값(동의 문구·테마 등)은 길고 발행본에 남는다
         auditLogService.record(operated.user().getId(), event.getWorkspaceId(), event.getId(), "EVENT_SETTINGS_CHANGED",
                 "EVENT", event.getPublicId(), Map.of("fields", request.settings().propertyNames().stream().sorted().toList()));
@@ -169,7 +182,11 @@ public class EventService {
             throw new BusinessException(EventErrorCode.SETTINGS_VERSION_CONFLICT, "동시 게시 충돌: " + event.getPublicId());
         }
         entitlementService.requireApplicable(event);   // 적용 이용권이 없으면 403 ENT-001
-        EventExperienceDocument draft = read(event.getSettingsDraft());
+        // 게시 = 지금의 유효 설정(공간 ⊕ 프로젝트 ⊕ 행사)을 발행본에 굳힌다. 컬럼(지금 적용되는 값)도 유효값으로 맞춘다 —
+        // 그 뒤 상위 기본값이 바뀌어도 이 행사는 다시 게시하기 전까지 그대로다(ADR-0009 원칙 2)
+        EffectiveSettingsResolver.Effective effective = effective(event, operated.workspace()).effective();
+        event.configure(effective.timezone(), effective.byodEnabled(), effective.boothEnabled(), effective.resultRetentionDays());
+        EventExperienceDocument draft = document(effective);
 
         List<Map<String, String>> violations = new ArrayList<>();
         List<FrameVersion> versions = validateForPublish(event, draft, violations);
@@ -212,8 +229,11 @@ public class EventService {
 
     // ── 설정 적용 ──────────────────────
 
-    // settings 에 있는 필드만 바꾼다. creating 이면 name·slug 는 이미 정해졌다
-    private void apply(Event event, ObjectNode settings, boolean creating) {
+    // settings 에 있는 필드만 바꾼다. creating 이면 name·slug 는 이미 정해졌다.
+    // 상속 가능한 필드는 행사의 「직접 값」(settings_draft)에 넣고 뺀다 — null 이면 빼서 위 단계 값을 따른다(ADR-0009 §2-1).
+    // 컬럼(지금 적용되는 값)은 만들 때·프로젝트를 바꿀 때·그 필드를 직접 바꿀 때만 유효값으로 다시 계산한다 — 다른 필드를 저장했다고
+    // 그사이 바뀐 상위 기본값이 운영 중 행사에 끌려 들어오지 않게
+    private void apply(Event event, ObjectNode settings, boolean creating, Workspace workspace) {
         if (!creating && settings.has("name")) {
             event.rename(requireText(settings.get("name").isNull() ? null : settings.get("name").asString(), "name"));
         }
@@ -239,12 +259,25 @@ public class EventService {
         }
         event.schedule(starts, ends);
 
-        String timezone = settings.has("timezone") ? requireZone(typed.timezone()) : event.getTimezone();
-        boolean byod = settings.has("byodEnabled") ? Boolean.TRUE.equals(typed.byodEnabled()) : event.isByodEnabled();
-        boolean booth = settings.has("boothEnabled") ? Boolean.TRUE.equals(typed.boothEnabled()) : event.isBoothEnabled();
-        int retention = settings.has("resultRetentionDays") ? requireRetention(typed.resultRetentionDays())
+        // 검사를 다 마친 뒤에 바꾼다 — 거절된 요청이 엔티티에 흔적을 남기지 않게(같은 트랜잭션의 다음 작업이 보지 않게)
+        Project project = settings.has("projectId") ? projectFor(event, settings.get("projectId"))
+                : event.getProjectId() == null ? null : projectRepository.findById(event.getProjectId()).orElse(null);
+        Long projectId = project == null ? null : project.getId();
+        boolean projectChanged = !Objects.equals(projectId, event.getProjectId());
+
+        Set<String> touched = new HashSet<>(EffectiveSettingsResolver.KEYS);
+        touched.retainAll(settings.propertyNames());
+        String directJson = settingsResolver.merge(event.getSettingsDraft(), settings, false);
+
+        boolean all = creating || projectChanged;
+        EffectiveSettingsResolver.Effective effective = settingsResolver.resolve(workspace.getBrandDefaults(),
+                project == null ? null : project.getBrandDefaults(), directJson);
+        String timezone = all || touched.contains("timezone") ? effective.timezone() : event.getTimezone();
+        boolean byod = all || touched.contains("byodEnabled") ? effective.byodEnabled() : event.isByodEnabled();
+        boolean booth = all || touched.contains("boothEnabled") ? effective.boothEnabled() : event.isBoothEnabled();
+        int retention = all || touched.contains("resultRetentionDays") ? effective.resultRetentionDays()
                 : event.getResultRetentionDays();
-        if (settings.has("resultRetentionDays")) {
+        if (all || touched.contains("resultRetentionDays")) {
             // 이용권의 보관 일수 상한 — 게시 뒤 PATCH 로도 넘지 못하게(보관·정리는 이 값을 바로 읽는다)
             entitlementService.applicable(event).map(e -> e.getRetentionDays()).filter(Objects::nonNull)
                     .filter(cap -> retention > cap)
@@ -253,15 +286,27 @@ public class EventService {
                                 "이용권의 보관 일수 상한(" + cap + "일)을 넘습니다.");
                     });
         }
+        event.assignProject(projectId);
+        event.replaceSettingsDraft(directJson);
         event.configure(timezone, byod, booth, retention);
+    }
 
-        EventExperienceDocument draft = read(event.getSettingsDraft());
-        event.replaceSettingsDraft(write(new EventExperienceDocument(
-                settings.has("allowedLayouts") ? orEmpty(typed.allowedLayouts()) : draft.allowedLayouts(),
-                settings.has("frames") ? orEmpty(typed.frames()) : draft.frames(),
-                settings.has("consentItems") ? orEmpty(typed.consentItems()) : draft.consentItems(),
-                settings.has("theme") ? typed.theme() : draft.theme(),
-                null)));
+    // 행사의 프로젝트 지정·해제 검사 — 같은 공간·보관되지 않은 프로젝트만, 게시 뒤에는 바꾸지 않는다. 지정할 프로젝트(해제면 null)
+    private Project projectFor(Event event, JsonNode value) {
+        Project project = null;
+        if (!value.isNull()) {
+            project = projectRepository.findByPublicId(value.asString())
+                    .filter(p -> p.getWorkspaceId().equals(event.getWorkspaceId()))
+                    .orElseThrow(() -> new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "이 공간의 프로젝트가 아닙니다."));
+            if (!project.getId().equals(event.getProjectId()) && project.isArchived()) {
+                throw new BusinessException(ProjectErrorCode.PROJECT_ARCHIVED);
+            }
+        }
+        Long projectId = project == null ? null : project.getId();
+        if (!Objects.equals(projectId, event.getProjectId()) && event.getCurrentExperienceVersionId() != null) {
+            throw new BusinessException(ProjectErrorCode.EVENT_PUBLISHED);
+        }
+        return project;
     }
 
     // ── 게시 검증 ──────────────────────
@@ -423,22 +468,63 @@ public class EventService {
                 Map.of("currentSettingsVersion", event.getSettingsVersion()));
     }
 
+    /** 유효 설정 미리보기(ADR-0009 §2-2) — 게시와 같은 계산, 값이 있는 경로마다 출처 */
+    @Transactional(readOnly = true)
+    public EffectiveSettingsResponse effectiveSettings(String publicId, String eventId) {
+        Operated operated = operate(publicId, eventId);
+        Event event = operated.event();
+        Resolved resolved = effective(event, operated.workspace());
+        Map<String, String> sources = new LinkedHashMap<>();
+        sources.put("name", EffectiveSettingsResolver.Source.EVENT.name());
+        sources.put("slug", EffectiveSettingsResolver.Source.EVENT.name());
+        if (event.getCaptureStartsAt() != null) {
+            sources.put("captureStartsAt", EffectiveSettingsResolver.Source.EVENT.name());
+        }
+        if (event.getCaptureEndsAt() != null) {
+            sources.put("captureEndsAt", EffectiveSettingsResolver.Source.EVENT.name());
+        }
+        if (resolved.project() != null) {
+            sources.put("projectId", EffectiveSettingsResolver.Source.EVENT.name());
+        }
+        resolved.effective().sources().forEach((path, source) -> sources.put(path, source.name()));
+        return new EffectiveSettingsResponse(settings(event, resolved), sources);
+    }
+
     EventResponse response(Event event, Workspace workspace) {
-        EventExperienceDocument draft = read(event.getSettingsDraft());
         Integer currentVersion = event.getCurrentExperienceVersionId() == null ? null
                 : experienceVersionRepository.findById(event.getCurrentExperienceVersionId())
                 .map(EventExperienceVersion::getVersionNo).orElse(null);
-        EventSettings settings = new EventSettings(event.getName(), event.getSlug(),
-                offset(event.getCaptureStartsAt()), offset(event.getCaptureEndsAt()), event.getTimezone(),
-                event.isByodEnabled(), event.isBoothEnabled(), event.getResultRetentionDays(),
-                draft.allowedLayouts(), draft.frames(), draft.consentItems(), draft.theme());
+        // 설정 = 지금 게시하면 들어갈 유효값(공간 ⊕ 프로젝트 ⊕ 행사). 어디서 왔는지는 effective-settings 가 준다
+        EventSettings settings = settings(event, effective(event, workspace));
         return new EventResponse(event.getPublicId(), workspace.getPublicId(), event.getStatus(), event.isPaused(),
                 event.captureOpen(LocalDateTime.now(clock)), event.getSettingsVersion(), settings, currentVersion,
                 "/e/" + event.getSlug());
     }
 
-    EventExperienceDocument read(String json) {
-        return objectMapper.readValue(json, EventExperienceDocument.class);
+    private record Resolved(Project project, EffectiveSettingsResolver.Effective effective) {
+    }
+
+    private Resolved effective(Event event, Workspace workspace) {
+        Project project = event.getProjectId() == null ? null : projectRepository.findById(event.getProjectId()).orElse(null);
+        return new Resolved(project, settingsResolver.resolve(workspace.getBrandDefaults(),
+                project == null ? null : project.getBrandDefaults(), event.getSettingsDraft()));
+    }
+
+    private EventSettings settings(Event event, Resolved resolved) {
+        EffectiveSettingsResolver.Effective effective = resolved.effective();
+        InheritableSettings values = effective.values();
+        return new EventSettings(event.getName(), event.getSlug(),
+                offset(event.getCaptureStartsAt()), offset(event.getCaptureEndsAt()), effective.timezone(),
+                effective.byodEnabled(), effective.boothEnabled(), effective.resultRetentionDays(),
+                effective.orEmpty(values.allowedLayouts()), effective.orEmpty(values.frames()),
+                effective.orEmpty(values.consentItems()), values.theme(),
+                resolved.project() == null ? null : resolved.project().getPublicId());
+    }
+
+    private static EventExperienceDocument document(EffectiveSettingsResolver.Effective effective) {
+        InheritableSettings values = effective.values();
+        return new EventExperienceDocument(effective.orEmpty(values.allowedLayouts()), effective.orEmpty(values.frames()),
+                effective.orEmpty(values.consentItems()), values.theme(), null);
     }
 
     private String write(EventExperienceDocument document) {
@@ -466,22 +552,6 @@ public class EventService {
                     "slug 는 영문 소문자·숫자·하이픈 3~40자여야 합니다.");
         }
         return slug;
-    }
-
-    private static String requireZone(String timezone) {
-        try {
-            return ZoneId.of(timezone).getId();
-        } catch (DateTimeException | NullPointerException e) {
-            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "알 수 없는 시간대입니다: " + timezone);
-        }
-    }
-
-    private static int requireRetention(Integer days) {
-        if (days == null || days < 1 || days > MAX_RETENTION_DAYS) {
-            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE,
-                    "resultRetentionDays 는 1~" + MAX_RETENTION_DAYS + " 이어야 합니다.");
-        }
-        return days;
     }
 
     private static <T> List<T> orEmpty(List<T> list) {

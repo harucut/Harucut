@@ -198,7 +198,8 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
 - `POST /api/payments/webhook` 의 검증기를 Standard Webhooks 로 바꾼다: `webhook-id`·`webhook-timestamp`·`webhook-signature` 헤더,
   서명 = base64(HMAC-SHA256(secret, `${id}.${timestamp}.${rawBody}`)), 비밀은 `whsec_` 접두어 base64. 허용 시각차 5분.
   **원문 body 바이트**로 검증한다(JSON 재직렬화 금지). 같은 webhook-id 는 한 번만 처리(`webhook_receipt` 유니크).
-- 서명이 맞으면 PortOne API 로 결제를 조회해 금액·통화·상점·상태를 서버 주문과 대조한 뒤에만 상태를 바꾼다. 중복·역순 이벤트는 외부 결제 id 와 현재 상태로 거른다.
+- 서명이 맞으면 PortOne API 로 결제를 조회해(`GET /payments/{paymentId}?storeId=` — storeId 를 빼면 API 비밀의 상점으로 조회되므로 늘 보낸다,
+  상점 id 가 없으면 기동하지 않는다) 금액·통화·상점·상태를 서버 주문과 대조한 뒤에만 상태를 바꾼다. 중복·역순 이벤트는 외부 결제 id 와 현재 상태로 거른다.
 - 계약 결제는 `contract.paymentEvidence(kind PORTONE, reference = paymentId)` 로 연결한다. 개인 구독 결제 흐름은 그대로 둔다.
 - 키(웹훅 비밀·API 비밀·상점 id)는 설정으로만 받는다. 키가 없으면 기존 Mock 검증기를 쓴다(운영 프로필에서는 기동 실패 — 지금 MockGatewayGuard 와 같은 방식).
   MockGatewayGuard 가 `payment.webhook.provider=mock` 도 함께 본다 — local·test 밖에서는 `PAYMENT_MOCK_ALLOWED` 없이 기동하지 않는다.

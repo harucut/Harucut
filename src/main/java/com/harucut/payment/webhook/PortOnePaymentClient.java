@@ -15,19 +15,28 @@ import tools.jackson.databind.JsonNode;
 public class PortOnePaymentClient {
 
     private final RestClient restClient;
+    private final String storeId;
 
     public PortOnePaymentClient(PaymentProperties properties, RestClient.Builder builder) {
         String apiSecret = properties.portone().apiSecret();
         if (apiSecret == null || apiSecret.isBlank()) {
             throw new IllegalStateException("payment.portone.api-secret 이 없다 — 결제 조회 대조를 할 수 없다");
         }
+        String storeId = properties.portone().storeId();
+        if (storeId == null || storeId.isBlank()) {
+            throw new IllegalStateException("payment.portone.store-id 가 없다 — 어느 상점의 결제인지 정할 수 없다");
+        }
+        this.storeId = storeId;
         this.restClient = builder.baseUrl(properties.portone().baseUrl())
                 .defaultHeader("Authorization", "PortOne " + apiSecret)
                 .build();
     }
 
     public PortOnePayment get(String paymentId) {
-        JsonNode body = restClient.get().uri("/payments/{paymentId}", paymentId).retrieve().body(JsonNode.class);
+        // storeId 를 빼면 PortOne 은 API 비밀의 상점으로 조회한다 — 설정한 상점이 다르면 엉뚱한 상점을 보게 되므로 늘 보낸다
+        JsonNode body = restClient.get()
+                .uri(uri -> uri.path("/payments/{paymentId}").queryParam("storeId", storeId).build(paymentId))
+                .retrieve().body(JsonNode.class);
         if (body == null) {
             throw new IllegalStateException("PortOne 결제 조회 응답이 비었다: " + paymentId);
         }

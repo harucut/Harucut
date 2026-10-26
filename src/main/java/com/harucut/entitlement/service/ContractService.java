@@ -56,6 +56,7 @@ public class ContractService {
     private final ContractRepository contractRepository;
     private final EntitlementRepository entitlementRepository;
     private final UsageReservationRepository reservationRepository;
+    private final EntitlementService entitlementService;
     private final WorkspaceRepository workspaceRepository;
     private final EventRepository eventRepository;
     private final UserRepository userRepository;
@@ -147,7 +148,10 @@ public class ContractService {
                 ? eventRepository.findById(entitlement.getEventId()).filter(e -> e.getStatus() == EventStatus.LIVE).stream().toList()
                 : eventRepository.findAllByWorkspaceIdOrderByCreatedAtDesc(entitlement.getWorkspaceId()).stream()
                 .filter(e -> e.getStatus() == EventStatus.LIVE).toList();
-        return new EntitlementDtos.Impact(live.stream().map(Event::getPublicId).toList(),
+        // 지금 그 행사에 적용되는 이용권이 이것인 행사만 — 행사 범위 이용권에 덮였거나 이미 끝난·회수된 이용권은 영향이 없다
+        return new EntitlementDtos.Impact(live.stream()
+                .filter(e -> entitlementService.applicable(e).map(Entitlement::getId).filter(entitlement.getId()::equals).isPresent())
+                .map(Event::getPublicId).toList(),
                 reservationRepository.countByEntitlementIdAndStatus(entitlement.getId(), ReservationStatus.RESERVED));
     }
 

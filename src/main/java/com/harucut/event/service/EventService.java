@@ -338,11 +338,10 @@ public class EventService {
         List<Map<String, String>> violations = new ArrayList<>();
         entitlementService.applicable(event).ifPresent(entitlement -> {
             // 처음 게시(DRAFT → LIVE)만 운영 중 행사 수를 늘린다(촬영 종료 뒤 재게시는 LIVE 로 돌아가지 않는다).
-            // 같은 공간에서 동시에 게시하면 둘 다 0 을 읽을 수 있어, 공간 행을 잠근 뒤 센다
+            // 같은 공간에서 동시에 게시하면 둘 다 0 을 읽을 수 있어, 공간 행을 잠근 뒤 잠금 읽기로 센다(스냅샷 읽기는 놓친다)
             if (entitlement.getMaxLiveEvents() != null && event.getStatus() == EventStatus.DRAFT
                     && workspaceRepository.lockById(event.getWorkspaceId()).isPresent()
-                    && eventRepository.countByWorkspaceIdAndStatus(event.getWorkspaceId(), EventStatus.LIVE)
-                    >= entitlement.getMaxLiveEvents()) {
+                    && eventRepository.lockLiveEventIds(event.getWorkspaceId()).size() >= entitlement.getMaxLiveEvents()) {
                 violations.add(violation("status", "이용권의 동시 운영 행사 수(" + entitlement.getMaxLiveEvents() + ")를 넘는다"));
             }
             if (entitlement.getRetentionDays() != null && event.getResultRetentionDays() > entitlement.getRetentionDays()) {

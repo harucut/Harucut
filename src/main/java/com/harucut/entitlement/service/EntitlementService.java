@@ -85,7 +85,7 @@ public class EntitlementService {
     public void reserve(Long composeJobId, Event event) {
         Entitlement entitlement = applicable(event)
                 .orElseThrow(() -> new BusinessException(EntitlementErrorCode.QUOTA_REACHED));
-        if (entitlementRepository.reserve(entitlement.getId()) != 1) {
+        if (entitlementRepository.reserve(entitlement.getId(), now()) != 1) {
             throw new BusinessException(EntitlementErrorCode.QUOTA_REACHED);
         }
         reservationRepository.save(new UsageReservation(composeJobId, entitlement.getId()));

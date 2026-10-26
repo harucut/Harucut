@@ -20,6 +20,7 @@ import com.harucut.participant.repository.CaptureRunRepository;
 import com.harucut.participant.repository.ParticipantSessionRepository;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
+import com.harucut.workspace.repository.WorkspaceRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,6 +53,7 @@ public class BoothDeviceService {
     private final ParticipantSessionRepository sessionRepository;
     private final EventService eventService;
     private final EntitlementService entitlementService;
+    private final WorkspaceRepository workspaceRepository;
     private final AuditLogService auditLogService;
     private final UserRepository userRepository;
     private final ParticipationProperties properties;
@@ -62,7 +64,9 @@ public class BoothDeviceService {
         // 적용 이용권의 부스 수가 설정값을 대신한다(ADR-0008 §6-2)
         int limit = entitlementService.applicable(event).map(e -> e.getMaxBoothDevices())
                 .filter(Objects::nonNull).orElse(properties.maxBoothDevicesPerEvent());
-        if (deviceRepository.countByEventIdAndStatusNot(event.getId(), BoothDeviceStatus.REVOKED) >= limit) {
+        // 동시에 두 대를 만들어도 상한을 넘지 않게 공간 행을 잠근 뒤 잠금 읽기로 센다
+        workspaceRepository.lockById(event.getWorkspaceId());
+        if (deviceRepository.lockUnrevokedIds(event.getId()).size() >= limit) {
             throw new BusinessException(BoothErrorCode.DEVICE_LIMIT);
         }
         BoothDevice device = deviceRepository.save(BoothDevice.pending(event.getWorkspaceId(), event.getId(), name.strip()));

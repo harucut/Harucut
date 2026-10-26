@@ -17,8 +17,8 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
     // 폴링 조회 — 소유자 조건이 쿼리에 있어 남의 것과 없는 것이 똑같이 empty다 (미디어와 같은 404 규칙)
     Optional<ComposeJob> findByIdAndUser(Long id, User user);
 
-    // 멱등 조회 — 같은 key의 재시도에게 기존 Job을 돌려준다
-    Optional<ComposeJob> findByUserAndIdempotencyKey(User user, String idempotencyKey);
+    // 멱등 조회 — 같은 주체·같은 key 의 재시도에게 기존 Job 을 돌려준다
+    Optional<ComposeJob> findByIdempotencyScopeAndIdempotencyKey(String idempotencyScope, String idempotencyKey);
 
     // 적체 게이지용 — 인덱스(status, started_at)의 앞 컬럼만 타므로 PENDING 수에 비례한다.
     // PENDING 이 적을 때 싸고, 많을 때 비싸진다. 그 순간이 알아야 하는 순간이라 감수한다
@@ -70,7 +70,7 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
 
     @Query("""
             SELECT j FROM ComposeJob j
-            JOIN FETCH j.user
+            LEFT JOIN FETCH j.user
             WHERE j.status = ComposeStatus.PENDING
                 AND (j.startedAt IS NULL OR j.startedAt < :staleBefore)
             ORDER BY j.id

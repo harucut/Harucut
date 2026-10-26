@@ -68,8 +68,8 @@ public class ComposeService {
                 .map(S3Keys::normalizeToKey)
                 .toList();
 
-        Optional<ComposeJob> existing =
-                composeJobRepository.findByUserAndIdempotencyKey(user, request.idempotencyKey());
+        Optional<ComposeJob> existing = composeJobRepository.findByIdempotencyScopeAndIdempotencyKey(
+                ComposeJob.personalScope(user.getId()), request.idempotencyKey());
         if (existing.isPresent()) {
             return replay(existing.get(), request, sourceKeys);
         }
@@ -87,7 +87,7 @@ public class ComposeService {
         // 아직 안 보이는 Job을 상대로 결과를 기록하려다 실패한다
         eventPublisher.publishEvent(new ComposeRequestedEvent(
                 job.getId(), spec, job.sourceKeys(),
-                resultKeyFor(publicId, job.getId()), thumbnailKeyFor(publicId, job.getId()),
+                resultKeyFor(job), thumbnailKeyFor(job),
                 RESULT_FORMAT));
         composeMetrics.requestAccepted();
         return ComposeJobResponse.from(job);
@@ -102,7 +102,8 @@ public class ComposeService {
         List<String> sourceKeys = request.sourceKeys().stream()
                 .map(S3Keys::normalizeToKey)
                 .toList();
-        return composeJobRepository.findByUserAndIdempotencyKey(user, request.idempotencyKey())
+        return composeJobRepository.findByIdempotencyScopeAndIdempotencyKey(
+                        ComposeJob.personalScope(user.getId()), request.idempotencyKey())
                 .map(job -> replay(job, request, sourceKeys))
                 .orElse(null);
     }
@@ -171,9 +172,12 @@ public class ComposeService {
             return false;   // 읽은 뒤 다른 통지가 먼저 전이했다
         }
 
-        UserMedia media = userMediaRepository.save(UserMedia.of(job.getUser(), resultKey,
-                thumbnailKey, DisplayNames.resolve(null, resultKey, LocalDateTime.now(clock))));
-        composeJobRepository.attachMedia(jobId, media.getId());
+        // 개인 작업만 보관함(user_media)에 들어간다. 행사 참가자 작업은 결과 토큰으로 받는다(ResultAccess, P2A)
+        if (job.getUser() != null) {
+            UserMedia media = userMediaRepository.save(UserMedia.of(job.getUser(), resultKey,
+                    thumbnailKey, DisplayNames.resolve(null, resultKey, LocalDateTime.now(clock))));
+            composeJobRepository.attachMedia(jobId, media.getId());
+        }
         // 원본은 성공 시 삭제 — 결과만 보관함에 남는다.
         // 원본은 합성 재료일 뿐 사용자의 보관 대상이 아니라 저장 비용만 먹는다
         s3Deleter.deleteAfterCommit(job.sourceKeys());
@@ -216,13 +220,8 @@ public class ComposeService {
     public List<ComposeRequestedEvent> findStalled(Duration staleAfter, int limit) {
         LocalDateTime staleBefore = LocalDateTime.now(clock).minus(staleAfter);
         return composeJobRepository.findStalled(staleBefore, PageRequest.of(0, limit)).stream()
-                .map(job -> {
-                    String publicId = job.getUser().getPublicId();
-                    return new ComposeRequestedEvent(job.getId(), job.getSpec(), job.sourceKeys(),
-                            resultKeyFor(publicId, job.getId()),
-                            thumbnailKeyFor(publicId, job.getId()),
-                            RESULT_FORMAT);
-                })
+                .map(job -> new ComposeRequestedEvent(job.getId(), job.getSpec(), job.sourceKeys(),
+                        resultKeyFor(job), thumbnailKeyFor(job), RESULT_FORMAT))
                 .toList();
     }
 
@@ -238,13 +237,13 @@ public class ComposeService {
 
     // Job당 결정적 결과 key — 재실행이 겹쳐도 같은 객체를 덮어쓰므로 고아 파일이 안 생기고,
     // UserMedia의 s3Key unique가 중복 행의 최종 방어선이 된다
-    static String resultKeyFor(String publicId, Long jobId) {
-        return S3Keys.userRoot(publicId) + "fourcuts/job-" + jobId + "." + RESULT_FORMAT.extension();
+    static String resultKeyFor(ComposeJob job) {
+        return job.getStorageRoot() + "fourcuts/job-" + job.getId() + "." + RESULT_FORMAT.extension();
     }
 
     // 썸네일도 같은 원칙의 결정적 key — 원본 옆에서 함께 살고 함께 지워진다
-    static String thumbnailKeyFor(String publicId, Long jobId) {
-        return S3Keys.userRoot(publicId) + "fourcuts/job-" + jobId + "-thumb.jpg";
+    static String thumbnailKeyFor(ComposeJob job) {
+        return job.getStorageRoot() + "fourcuts/job-" + job.getId() + "-thumb.jpg";
     }
 
     // 남의 원본으로 합성 못 한다 — 정규화된 key의 내 prefix 검사, 403.

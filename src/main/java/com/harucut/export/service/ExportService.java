@@ -159,7 +159,8 @@ public class ExportService {
     }
 
     private List<ComposeJob> targets(Event event, ExportDtos.ExportRequest request) {
-        if (request.photoIds() != null && !request.photoIds().isEmpty()) {
+        // photoIds 를 보냈으면(빈 목록 포함) 명시 선택이다 — 빈 목록이 필터·전체로 떨어지면 안 된다(빈 선택은 EXPORT-003)
+        if (request.photoIds() != null) {
             Map<Long, ComposeJob> found = composeJobRepository.findAllById(request.photoIds()).stream()
                     .filter(job -> event.getId().equals(job.getEventId()) && usable(job))
                     .collect(Collectors.toMap(ComposeJob::getId, Function.identity()));

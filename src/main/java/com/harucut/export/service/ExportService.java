@@ -95,7 +95,7 @@ public class ExportService {
             throw new BusinessException(ExportErrorCode.INVALID_SELECTION,
                     "묶을 사진 " + targets.size() + "장 — 1장 이상 " + maxPhotos + "장 이하여야 합니다.");
         }
-        ExportJob export = exportJobRepository.save(ExportJob.pending(event.getId(), event.getPublicId(), actorId, targets.size()));
+        ExportJob export = exportJobRepository.save(ExportJob.pending(event.getWorkspaceId(), event.getId(), event.getPublicId(), actorId, targets.size()));
         for (int i = 0; i < targets.size(); i++) {
             itemRepository.save(new ExportJobItem(export.getId(), targets.get(i).getId(), i));
         }
@@ -184,13 +184,28 @@ public class ExportService {
     // 다른 사람이 만든 묶음은 없는 것처럼 — 404
     private ExportJob own(Event event, Long actorId, String exportPublicId) {
         return exportJobRepository.findByPublicId(exportPublicId)
-                .filter(found -> found.getEventId().equals(event.getId()) && found.getRequestedByUserId().equals(actorId))
+                .filter(found -> event.getId().equals(found.getEventId()) && found.getRequestedByUserId().equals(actorId))
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
     }
 
-    private ExportDtos.Export view(ExportJob export) {
+    ExportDtos.Export view(ExportJob export) {
+        return view(export, null);
+    }
+
+    // 여러 행사 묶음이면 scope 와 담긴 행사들을 싣는다(행사 묶음에서는 둘 다 없다)
+    ExportDtos.Export view(ExportJob export, java.util.List<ExportDtos.ExportEvent> events) {
         return new ExportDtos.Export(export.getPublicId(), export.getStatus(), export.getPhotoCount(), export.getSizeBytes(),
-                export.getStatus() == ExportStatus.DONE ? offset(export.getExpiresAt()) : null, offset(export.getCreatedAt()));
+                export.getStatus() == ExportStatus.DONE ? offset(export.getExpiresAt()) : null, offset(export.getCreatedAt()),
+                events == null ? null : export.getScope(), events);
+    }
+
+    /** 행사의 묶을 수 있는 완성 사진 전부(최대 maxPhotos + 1 장) — 여러 행사 묶음이 행사마다 부른다 */
+    List<ComposeJob> visiblePhotos(Event event) {
+        return targets(event, new ExportDtos.ExportRequest(null, null));
+    }
+
+    int maxPhotos() {
+        return maxPhotos;
     }
 
     private Long userId(String publicId) {
@@ -202,7 +217,7 @@ public class ExportService {
         return value == null ? null : value.atZoneSameInstant(clock.getZone()).toLocalDateTime();
     }
 
-    private OffsetDateTime offset(LocalDateTime value) {
+    OffsetDateTime offset(LocalDateTime value) {
         return value == null ? null : value.atZone(clock.getZone()).toOffsetDateTime();
     }
 }

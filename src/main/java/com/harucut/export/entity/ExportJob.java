@@ -2,6 +2,7 @@ package com.harucut.export.entity;
 
 import com.harucut.common.entity.BaseEntity;
 import com.harucut.common.utils.PublicIds;
+import com.harucut.export.enums.ExportScope;
 import com.harucut.export.enums.ExportStatus;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -14,7 +15,8 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "export_job", indexes = {
         @Index(name = "idx_export_job_event_requester", columnList = "event_id, requested_by_user_id"),
-        @Index(name = "idx_export_job_status", columnList = "status")})
+        @Index(name = "idx_export_job_status", columnList = "status"),
+        @Index(name = "idx_export_job_scope_requester", columnList = "workspace_id, scope, requested_by_user_id")})
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ExportJob extends BaseEntity {
@@ -27,8 +29,20 @@ public class ExportJob extends BaseEntity {
     @Column(name = "public_id", nullable = false, unique = true, length = 12)
     private String publicId;
 
-    @Column(name = "event_id", nullable = false)
+    // 행사 하나 묶음(EVENT)일 때만 — 여러 행사 묶음은 비어 있다
+    @Column(name = "event_id")
     private Long eventId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private ExportScope scope;
+
+    @Column(name = "workspace_id", nullable = false)
+    private Long workspaceId;
+
+    // PROJECT 일 때만
+    @Column(name = "project_id")
+    private Long projectId;
 
     @Column(name = "requested_by_user_id", nullable = false)
     private Long requestedByUserId;
@@ -52,16 +66,26 @@ public class ExportJob extends BaseEntity {
     @Column(name = "failure_reason")
     private String failureReason;
 
-    private ExportJob(Long eventId, String eventPublicId, Long requestedByUserId, int photoCount) {
+    private ExportJob(ExportScope scope, Long workspaceId, Long projectId, Long eventId, String keyRoot, Long requestedByUserId,
+                      int photoCount) {
         this.publicId = PublicIds.generate();
+        this.scope = scope;
+        this.workspaceId = workspaceId;
+        this.projectId = projectId;
         this.eventId = eventId;
         this.requestedByUserId = requestedByUserId;
         this.photoCount = photoCount;
         this.status = ExportStatus.PENDING;
-        this.s3Key = "uploads/events/" + eventPublicId + "/exports/" + publicId + ".zip";
+        this.s3Key = keyRoot + "/exports/" + publicId + ".zip";
     }
 
-    public static ExportJob pending(Long eventId, String eventPublicId, Long requestedByUserId, int photoCount) {
-        return new ExportJob(eventId, eventPublicId, requestedByUserId, photoCount);
+    public static ExportJob pending(Long workspaceId, Long eventId, String eventPublicId, Long requestedByUserId, int photoCount) {
+        return new ExportJob(ExportScope.EVENT, workspaceId, null, eventId, "uploads/events/" + eventPublicId, requestedByUserId, photoCount);
+    }
+
+    /** 여러 행사 묶음 — key 는 공간 아래(행사 하나에 속하지 않는다) */
+    public static ExportJob pendingMulti(ExportScope scope, Long workspaceId, String workspacePublicId, Long projectId,
+                                         Long requestedByUserId, int photoCount) {
+        return new ExportJob(scope, workspaceId, projectId, null, "uploads/workspaces/" + workspacePublicId, requestedByUserId, photoCount);
     }
 }

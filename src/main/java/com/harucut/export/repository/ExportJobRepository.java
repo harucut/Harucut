@@ -1,6 +1,7 @@
 package com.harucut.export.repository;
 
 import com.harucut.export.entity.ExportJob;
+import com.harucut.export.enums.ExportScope;
 import com.harucut.export.enums.ExportStatus;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -19,6 +20,10 @@ public interface ExportJobRepository extends JpaRepository<ExportJob, Long> {
     List<ExportJob> findByEventIdAndRequestedByUserIdOrderByIdDesc(Long eventId, Long requestedByUserId, Pageable pageable);
 
     List<ExportJob> findAllByStatus(ExportStatus status);
+
+    // 여러 행사 묶음의 내 목록 — 그 범위(공간·프로젝트)에서 내가 만든 것, 최신순
+    List<ExportJob> findByWorkspaceIdAndScopeAndProjectIdAndRequestedByUserIdOrderByIdDesc(
+            Long workspaceId, ExportScope scope, Long projectId, Long requestedByUserId, Pageable pageable);
 
     List<ExportJob> findAllByStatusAndExpiresAtBefore(ExportStatus status, LocalDateTime now);
 

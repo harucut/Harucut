@@ -65,11 +65,14 @@ public class ExportWorker {
     private final TransactionTemplate transaction;
     private final Clock clock;
     private final Duration ttl;
+    // 업로드 책임의 유효 시간 — 이보다 오래 걸리는 묶음은 없다(최대 2,000장). 지나면 재시도 배치가 그 key 를 지운다
+    private final Duration uploadHold;
 
     public ExportWorker(ExportJobRepository exportJobRepository, ExportJobItemRepository itemRepository,
                         ComposeJobRepository composeJobRepository, FileStorageService fileStorageService,
                         S3Deleter s3Deleter, PlatformTransactionManager transactionManager, Clock clock,
-                        @Value("${event.export.ttl:24h}") Duration ttl) {
+                        @Value("${event.export.ttl:24h}") Duration ttl,
+                        @Value("${event.export.upload-hold:6h}") Duration uploadHold) {
         this.exportJobRepository = exportJobRepository;
         this.itemRepository = itemRepository;
         this.composeJobRepository = composeJobRepository;
@@ -78,6 +81,7 @@ public class ExportWorker {
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
         this.ttl = ttl;
+        this.uploadHold = uploadHold;
     }
 
     @TransactionalEventListener
@@ -98,6 +102,8 @@ public class ExportWorker {
             List<ExportJobItem> items = itemRepository.findAllByExportJobIdOrderBySortOrderAsc(exportJobId);
             Map<Long, ComposeJob> jobs = composeJobRepository.findAllById(items.stream().map(ExportJobItem::getComposeJobId).toList())
                     .stream().collect(Collectors.toMap(ComposeJob::getId, Function.identity()));
+            // 올리기 전에 그 key 를 지울 책임부터 남긴다 — DONE 이 기록돼야 풀린다. 그 전에 멈추면 uploadHold 뒤 재시도 배치가 지운다
+            transaction.executeWithoutResult(status -> s3Deleter.holdForUpload(export.getS3Key(), uploadHold));
             upload = fileStorageService.openMultipartUpload(export.getS3Key(), "application/zip");
             CountingOutputStream counted = new CountingOutputStream(upload);
             try (ZipOutputStream zip = new ZipOutputStream(counted)) {
@@ -120,12 +126,17 @@ public class ExportWorker {
             upload.close();
             uploaded = true;
             long size = counted.count;
-            Boolean completed = transaction.execute(status ->
-                    exportJobRepository.complete(exportJobId, size, LocalDateTime.now(clock).plus(ttl), LocalDateTime.now(clock)) == 1);
-            if (!Boolean.TRUE.equals(completed)) {
-                // 압축하는 동안 무효가 됐다(사진 삭제 등) — 방금 올린 객체를 지운다(삭제 예약 — 실패해도 다시 지운다)
-                transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(export.getS3Key())));
-            }
+            Boolean completed = transaction.execute(status -> {
+                boolean done = exportJobRepository.complete(exportJobId, size, LocalDateTime.now(clock).plus(ttl),
+                        LocalDateTime.now(clock)) == 1;
+                if (done) {
+                    s3Deleter.release(export.getS3Key());   // DONE 과 같은 트랜잭션 — 둘 다 되거나 둘 다 안 된다
+                } else {
+                    // 압축하는 동안 무효가 됐다(사진 삭제 등) — 방금 올린 객체를 지금 지운다(실패해도 다시 지운다)
+                    s3Deleter.deleteHeldAfterCommit(export.getS3Key());
+                }
+                return done;
+            });
         } catch (Exception e) {
             log.warn("[묶음] {} 실패", export.getPublicId(), e);
             if (uploaded) {
@@ -140,12 +151,10 @@ public class ExportWorker {
                 }
             }
             String reason = e.getClass().getSimpleName();
-            boolean leftObject = uploaded;
             transaction.executeWithoutResult(status -> {
                 exportJobRepository.fail(exportJobId, reason, LocalDateTime.now(clock));
-                if (leftObject) {
-                    s3Deleter.deleteAfterCommit(List.of(export.getS3Key()));
-                }
+                // 업로드가 끝났든 아니든 지울 책임을 지금 처리한다(없는 객체 삭제는 아무 일도 하지 않는다)
+                s3Deleter.deleteHeldAfterCommit(export.getS3Key());
             });
         }
     }
@@ -158,7 +167,8 @@ public class ExportWorker {
         transaction.executeWithoutResult(status -> exportJobRepository.findAllByStatus(ExportStatus.RUNNING)
                 .forEach(export -> {
                     if (exportJobRepository.fail(export.getId(), "SERVER_RESTARTED", LocalDateTime.now(clock)) == 1) {
-                        s3Deleter.deleteAfterCommit(List.of(export.getS3Key()));
+                        // 멈추기 전 남긴 업로드 책임이 있으면 지금으로 당긴다 — 더 올리는 중인 것이 없다
+                        s3Deleter.deleteHeldAfterCommit(export.getS3Key());
                     }
                 }));
         List<ExportJob> pending = exportJobRepository.findAllByStatus(ExportStatus.PENDING);

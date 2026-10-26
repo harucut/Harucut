@@ -20,6 +20,12 @@ public interface S3DeletionRepository extends JpaRepository<S3Deletion, Long> {
     int schedule(@Param("s3Key") String s3Key, @Param("keyHash") String keyHash,
                  @Param("nextAttemptAt") LocalDateTime nextAttemptAt, @Param("now") LocalDateTime now);
 
+    // 업로드 책임으로 미뤄 둔 예약을 지금 지울 차례로 당긴다(횟수는 그대로). 행이 없으면 0
+    @Transactional
+    @Modifying
+    @Query("update S3Deletion d set d.nextAttemptAt = :now, d.updatedAt = :now where d.keyHash = :keyHash")
+    int makeDue(@Param("keyHash") String keyHash, @Param("now") LocalDateTime now);
+
     @Transactional
     @Modifying
     @Query("delete from S3Deletion d where d.keyHash = :keyHash")

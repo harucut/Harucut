@@ -61,12 +61,14 @@ class ExportWorkerTest {
 
         S3Deleter s3Deleter = mock(S3Deleter.class);
         ExportWorker worker = new ExportWorker(exportJobRepository, itemRepository, composeJobRepository, fileStorageService,
-                s3Deleter, mock(PlatformTransactionManager.class), Clock.systemUTC(), Duration.ofHours(24));
+                s3Deleter, mock(PlatformTransactionManager.class), Clock.systemUTC(), Duration.ofHours(24), Duration.ofHours(6));
         worker.run(7L);
 
         then(s3Client).should().completeMultipartUpload(any(CompleteMultipartUploadRequest.class));
+        then(s3Deleter).should().holdForUpload(export.getS3Key(), Duration.ofHours(6));   // 올리기 전에 지울 책임부터
         then(fileStorageService).should().delete(export.getS3Key());   // DB 없이 먼저 한 번
-        then(s3Deleter).should().deleteAfterCommit(List.of(export.getS3Key()));   // 실패 기록과 함께 예약 — S3 가 실패해도 다시 지운다
+        then(s3Deleter).should().deleteHeldAfterCommit(export.getS3Key());   // 실패 기록과 함께 — S3 가 실패해도 다시 지운다
+        then(s3Deleter).should(never()).release(anyString());
         then(s3Client).should(never()).abortMultipartUpload(any(AbortMultipartUploadRequest.class));
         then(exportJobRepository).should().fail(eq(7L), eq("IllegalStateException"), any());
     }
@@ -94,9 +96,11 @@ class ExportWorkerTest {
                 .willAnswer(i -> new S3MultipartOutputStream(s3Client, "bucket", i.getArgument(0), "application/zip", 1024));
 
         new ExportWorker(exportJobRepository, itemRepository, composeJobRepository, fileStorageService,
-                s3Deleter, mock(PlatformTransactionManager.class), Clock.systemUTC(), Duration.ofHours(24)).run(7L);
+                s3Deleter, mock(PlatformTransactionManager.class), Clock.systemUTC(), Duration.ofHours(24), Duration.ofHours(6)).run(7L);
 
-        then(s3Deleter).should().deleteAfterCommit(List.of(export.getS3Key()));
+        then(s3Deleter).should().holdForUpload(export.getS3Key(), Duration.ofHours(6));
+        then(s3Deleter).should().deleteHeldAfterCommit(export.getS3Key());   // 미뤄 둔 책임을 지금으로
+        then(s3Deleter).should(never()).release(anyString());
         then(fileStorageService).should(never()).delete(anyString());
         then(exportJobRepository).should(never()).fail(anyLong(), anyString(), any());
     }

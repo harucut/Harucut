@@ -259,7 +259,7 @@ class ExportIntegrationTest {
         exportWorker.recover();
 
         assertThat(exportService.get(owner.getPublicId(), event.getPublicId(), running.exportId()).status()).isEqualTo(ExportStatus.FAILED);
-        then(s3Deleter).should().deleteAfterCommit(List.of(key));
+        then(s3Deleter).should().deleteHeldAfterCommit(key);
     }
 
     @Test

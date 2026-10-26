@@ -25,6 +25,11 @@ public interface ParticipantSessionRepository extends JpaRepository<ParticipantS
             + "where s.participantId = :participantId and s.status <> com.harucut.participant.enums.SessionStatus.REVOKED")
     int revokeAllByParticipantId(@Param("participantId") Long participantId);
 
+    // 보관 종료 30일 뒤 — 그 행사 참가자의 세션 행
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("delete from ParticipantSession s where s.participantId in (select p.id from Participant p where p.eventId = :eventId)")
+    int deleteByEventId(@Param("eventId") Long eventId);
+
     // 부스 기기 회수 — 그 기기로 만든 참가자 세션 전부
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update ParticipantSession s set s.status = com.harucut.participant.enums.SessionStatus.REVOKED "

@@ -13,6 +13,6 @@ public interface ExportJobItemRepository extends JpaRepository<ExportJobItem, Lo
 
     // 담긴 사진 중 삭제 요청된 것이 있는가 — 수령 때 다시 본다
     @Query("select count(i) > 0 from ExportJobItem i, ComposeJob j where i.exportJobId = :exportJobId "
-            + "and j.id = i.composeJobId and j.deletedAt is not null")
+            + "and j.id = i.composeJobId and (j.deletedAt is not null or j.purgedAt is not null)")
     boolean containsDeleted(@Param("exportJobId") Long exportJobId);
 }

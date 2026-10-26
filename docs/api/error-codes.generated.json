@@ -151,6 +151,22 @@
   "status" : 413,
   "message" : "The draft document is too large."
 }, {
+  "code" : "ENT-001",
+  "status" : 403,
+  "message" : "No entitlement applies to this event."
+}, {
+  "code" : "ENT-002",
+  "status" : 409,
+  "message" : "The event has reached its compose quota."
+}, {
+  "code" : "ENT-003",
+  "status" : 409,
+  "message" : "The contract or entitlement cannot change to this state."
+}, {
+  "code" : "ENT-004",
+  "status" : 403,
+  "message" : "The entitlement does not include this feature."
+}, {
   "code" : "EVENT-001",
   "status" : 409,
   "message" : "The event is not open for capture."

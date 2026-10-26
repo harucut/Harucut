@@ -12,6 +12,8 @@ import com.harucut.subscription.exception.SubscriptionErrorCode;
 import com.harucut.terms.exception.TermsErrorCode;
 
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Function;
@@ -50,6 +52,11 @@ public final class ErrorCodeCatalog {
                     LinkedHashMap::new));
 
     private ErrorCodeCatalog() {
+    }
+
+    /** 등록된 모든 에러 코드(선언 순서). 프론트 계약 산출물(docs/api/error-codes.generated.json)이 이걸 쓴다. */
+    public static Collection<ErrorCode> all() {
+        return Collections.unmodifiableCollection(BY_CODE.values());
     }
 
     public static ErrorCode require(String code) {

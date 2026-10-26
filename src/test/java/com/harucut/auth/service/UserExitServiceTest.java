@@ -1,5 +1,7 @@
 package com.harucut.auth.service;
 
+import com.harucut.workspace.service.WorkspaceService;
+import org.mockito.InOrder;
 import com.harucut.auth.exception.AuthErrorCode;
 import com.harucut.auth.oauth2.unlink.OAuth2UnlinkService;
 import com.harucut.common.exception.BusinessException;
@@ -35,6 +37,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 
 @ExtendWith(MockitoExtension.class)
@@ -63,13 +66,16 @@ class UserExitServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private WorkspaceService workspaceService;
+
     private UserExitService service;
 
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(NOW.atZone(ZONE).toInstant(), ZONE);
         service = new UserExitService(userRepository, refreshTokenService, clock,
-                List.of(firstHandler, secondHandler), List.of(unlinkService), eventPublisher);
+                List.of(firstHandler, secondHandler), List.of(unlinkService), eventPublisher, workspaceService);
     }
 
     @Nested
@@ -191,6 +197,19 @@ class UserExitServiceTest {
 
             then(firstHandler).should().handleUserDeletion(USER_ID);
             then(secondHandler).should().handleUserDeletion(USER_ID);
+        }
+
+        @Test
+        @DisplayName("개인 공간은 모든 핸들러가 끝난 뒤에 지운다 — 핸들러가 지우는 데이터가 공간을 참조한다")
+        void deletesWorkspaceAfterHandlers() {
+            givenDeleteRequestedUserById(USER_ID);
+
+            service.exit(USER_ID);
+
+            InOrder order = inOrder(firstHandler, secondHandler, workspaceService);
+            order.verify(firstHandler).handleUserDeletion(USER_ID);
+            order.verify(secondHandler).handleUserDeletion(USER_ID);
+            order.verify(workspaceService).deleteForUser(USER_ID);
         }
 
         @Test

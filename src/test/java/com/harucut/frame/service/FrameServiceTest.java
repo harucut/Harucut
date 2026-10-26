@@ -1,5 +1,7 @@
 package com.harucut.frame.service;
 
+import com.harucut.workspace.entity.Workspace;
+import com.harucut.workspace.service.WorkspaceService;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.frame.attributes.BackgroundAttributes;
@@ -61,6 +63,9 @@ class FrameServiceTest {
     @Mock
     private FrameSubscriptionPolicy frameSubscriptionPolicy;
 
+    @Mock
+    private WorkspaceService workspaceService;
+
     private FrameService frameService;
 
     private User user;
@@ -68,7 +73,7 @@ class FrameServiceTest {
     @BeforeEach
     void setUp() {
         frameService = new FrameService(frameRepository, userRepository,
-                frameAssetManager, frameComponentAssembler, frameSubscriptionPolicy);
+                frameAssetManager, frameComponentAssembler, frameSubscriptionPolicy, workspaceService);
         user = User.localUser("user@harucut.com", "encoded", "하루컷");
         ReflectionTestUtils.setField(user, "id", 1L);
     }
@@ -88,10 +93,15 @@ class FrameServiceTest {
             given(frameComponentAssembler.assembleOwned(user, request)).willReturn(frame);
             given(frameRepository.save(frame)).willReturn(frame);
             given(frameComponentAssembler.toFrameResponse(frame)).willReturn(expected);
+            Workspace personal = Workspace.personal(1L);
+            ReflectionTestUtils.setField(personal, "id", 77L);
+            given(workspaceService.personalWorkspaceOf(1L)).willReturn(personal);
 
             assertThat(frameService.createFrame(PUBLIC_ID, request)).isEqualTo(expected);
             // 한도 판정에 "현재 보관 총량"이 정확히 전달된다
             then(frameSubscriptionPolicy).should().assertFrameRetentionLimit(1L, 2);
+            // 새 프레임은 사용자의 개인 공간에 속한다
+            assertThat(frame.getWorkspaceId()).isEqualTo(77L);
         }
 
         @Test

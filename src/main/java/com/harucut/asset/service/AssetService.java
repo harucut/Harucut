@@ -132,6 +132,48 @@ public class AssetService {
         return result(judged);
     }
 
+    /**
+     * 예전 경로(presigned-upload)로 올라와 key 문자열로만 쓰이던 파일을 자산으로 편입한다 — 발행(FrameVersion)이
+     * 참조를 고정하려면 자산이어야 한다. 이미 자산이면 그 판정을 그대로 쓰고, 처음이면 같은 검증(complete 와 동일)을 돌린다.
+     * 거부되면 rejection 이 채워진다(객체가 없으면 ASSET-001). 호출자 트랜잭션에 참여한다.
+     */
+    public AdoptResult adopt(String key, AssetPurpose purpose, Long workspaceId, Long userId) {
+        Optional<Asset> existing = assetRepository.findByS3Key(key);
+        if (existing.isPresent() && existing.get().getStatus() != AssetStatus.PENDING_UPLOAD) {
+            Asset asset = existing.get();
+            return new AdoptResult(asset, asset.isVerified() ? null : AssetErrorCode.fromCode(asset.getRejectReason()));
+        }
+
+        Optional<StoredObject> stored = fileStorageService.head(key);
+        if (stored.isEmpty()) {
+            return new AdoptResult(existing.orElse(null), AssetErrorCode.OBJECT_NOT_UPLOADED);
+        }
+        Asset asset = existing.orElseGet(() -> assetRepository.save(Asset.pendingUpload(Asset.newPublicId(),
+                workspaceId, purpose, key, mimeOf(key, stored.get()), stored.get().size(), userId)));
+
+        Verdict verdict = judge(asset, stored.get());
+        if (verdict.rejection() != null) {
+            asset.reject(verdict.rejection().getCode());
+            return new AdoptResult(asset, verdict.rejection());
+        }
+        asset.verify(stored.get().size(), verdict.width(), verdict.height(), LocalDateTime.now(clock));
+        return new AdoptResult(asset, null);
+    }
+
+    // 예전 업로드는 S3 에 Content-Type 이 있지만, 없으면 확장자로 정한다(모르면 judge 가 형식 불일치로 거부)
+    private static String mimeOf(String key, StoredObject stored) {
+        if (stored.contentType() != null && stored.contentType().startsWith("image/")) {
+            return stored.contentType();
+        }
+        String extension = extensionOf(key).toLowerCase();
+        for (ContentType type : ContentType.values()) {
+            if (type.getExtensions().contains(extension)) {
+                return type.getMimeType();
+            }
+        }
+        return "application/octet-stream";
+    }
+
     public AssetResponse get(String publicId, String assetPublicId) {
         Asset asset = readOnly.execute(status -> findAccessible(publicId, assetPublicId));
         return response(asset);
@@ -195,7 +237,7 @@ public class AssetService {
                 return type;
             }
         }
-        throw new IllegalStateException("알 수 없는 MIME: " + asset.getContentType());
+        return null;   // 판정에서 "선언 형식 불명"으로 거부된다
     }
 
     private static String extensionOf(String filename) {
@@ -206,6 +248,10 @@ public class AssetService {
     private User getUser(String publicId) {
         return userRepository.findByPublicId(publicId)
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+    }
+
+    /** rejection 이 null 이면 asset 은 VERIFIED 다 */
+    public record AdoptResult(Asset asset, AssetErrorCode rejection) {
     }
 
     /** rejection 이 있으면 컨트롤러가 그 코드의 HTTP 상태(422)로, 본문 data 에 자산을 실어 내보낸다 */

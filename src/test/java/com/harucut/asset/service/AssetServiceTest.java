@@ -251,6 +251,67 @@ class AssetServiceTest {
         }
     }
 
+    @Nested
+    @DisplayName("adopt — 예전 key 를 자산으로 편입(발행용)")
+    class Adopt {
+
+        private static final String KEY = "uploads/users/x/components/legacy.png";
+
+        @Test
+        @DisplayName("이미 VERIFIED 자산이면 S3 를 다시 보지 않고 그대로 쓴다")
+        void existingVerified() {
+            Asset verified = Asset.pendingUpload("As1", 10L, AssetPurpose.FRAME_ASSET, KEY, "image/png", 1L, 1L);
+            verified.verify(1L, 1, 1, java.time.LocalDateTime.of(2026, 10, 26, 10, 0));
+            given(assetRepository.findByS3Key(KEY)).willReturn(Optional.of(verified));
+
+            AssetService.AdoptResult result = service.adopt(KEY, AssetPurpose.FRAME_ASSET, 10L, 1L);
+
+            assertThat(result.rejection()).isNull();
+            assertThat(result.asset()).isSameAs(verified);
+            then(fileStorageService).should(never()).head(anyString());
+        }
+
+        @Test
+        @DisplayName("처음이면 자산 행을 만들고 같은 검증으로 VERIFIED")
+        void newAdoptionVerified() throws Exception {
+            byte[] png = png(20, 10);
+            given(assetRepository.findByS3Key(KEY)).willReturn(Optional.empty());
+            given(fileStorageService.head(KEY)).willReturn(Optional.of(new StoredObject(png.length, "image/png")));
+            given(fileStorageService.downloadBytes(KEY)).willReturn(png);
+
+            AssetService.AdoptResult result = service.adopt(KEY, AssetPurpose.FRAME_ASSET, 10L, 1L);
+
+            assertThat(result.rejection()).isNull();
+            assertThat(result.asset().getS3Key()).isEqualTo(KEY);
+            assertThat(result.asset().getStatus()).isEqualTo(AssetStatus.VERIFIED);
+            assertThat(result.asset().getWorkspaceId()).isEqualTo(10L);
+        }
+
+        @Test
+        @DisplayName("객체가 없으면 ASSET-001 거부 — 자산 행은 만들지 않는다")
+        void missingObject() {
+            given(assetRepository.findByS3Key(KEY)).willReturn(Optional.empty());
+            given(fileStorageService.head(KEY)).willReturn(Optional.empty());
+
+            AssetService.AdoptResult result = service.adopt(KEY, AssetPurpose.FRAME_ASSET, 10L, 1L);
+
+            assertThat(result.rejection()).isEqualTo(AssetErrorCode.OBJECT_NOT_UPLOADED);
+            then(assetRepository).should(never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Content-Type 이 없으면 확장자로 형식을 정해 검증한다")
+        void mimeFromExtension() throws Exception {
+            byte[] png = png(4, 4);
+            given(assetRepository.findByS3Key(KEY)).willReturn(Optional.empty());
+            given(fileStorageService.head(KEY)).willReturn(Optional.of(new StoredObject(png.length, null)));
+            given(fileStorageService.downloadBytes(KEY)).willReturn(png);
+
+            assertThat(service.adopt(KEY, AssetPurpose.FRAME_ASSET, 10L, 1L).asset().getContentType())
+                    .isEqualTo("image/png");
+        }
+    }
+
     @Test
     @DisplayName("get: PENDING 이면 URL 없이 상태만")
     void getPendingHasNoUrl() {

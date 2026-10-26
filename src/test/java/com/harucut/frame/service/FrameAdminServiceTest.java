@@ -43,7 +43,7 @@ class FrameAdminServiceTest {
     private FrameRepository frameRepository;
 
     @Mock
-    private FrameAssetManager frameAssetManager;
+    private FrameVersionCleaner frameVersionCleaner;
 
     @Mock
     private FrameComponentAssembler frameComponentAssembler;
@@ -52,7 +52,7 @@ class FrameAdminServiceTest {
 
     @BeforeEach
     void setUp() {
-        adminService = new FrameAdminService(frameRepository, frameAssetManager, frameComponentAssembler);
+        adminService = new FrameAdminService(frameRepository, frameVersionCleaner, frameComponentAssembler);
     }
 
     @Test
@@ -119,7 +119,7 @@ class FrameAdminServiceTest {
     class DeleteSystemFrame {
 
         @Test
-        @DisplayName("수집된 key 전부를 예약하고 행을 지운다")
+        @DisplayName("수집된 key 전부를 정리 입구에 넘기고 발행본을 먼저 지운 뒤 행을 지운다")
         void deletesWithAllKeys() {
             Frame frame = systemFrame();
             given(frameRepository.findById(FRAME_ID)).willReturn(Optional.of(frame));
@@ -129,9 +129,10 @@ class FrameAdminServiceTest {
             adminService.deleteSystemFrame(FRAME_ID);
 
             ArgumentCaptor<Collection<String>> captor = ArgumentCaptor.captor();
-            then(frameAssetManager).should().deleteAfterCommit(captor.capture());
+            then(frameComponentAssembler).should().scheduleDeletion(captor.capture());
             assertThat(captor.getValue())
                     .containsExactly("uploads/k1.png", "uploads/bg.png", "uploads/preview.png");
+            then(frameVersionCleaner).should().deleteForFrames(List.of(FRAME_ID));
             then(frameRepository).should().delete(frame);
         }
 
@@ -146,7 +147,7 @@ class FrameAdminServiceTest {
                     .isEqualTo(FrameErrorCode.SYSTEM_FRAME_NOT_FOUND);
 
             then(frameRepository).should(never()).delete(any(Frame.class));
-            then(frameAssetManager).shouldHaveNoInteractions();
+            then(frameVersionCleaner).shouldHaveNoInteractions();
         }
     }
 

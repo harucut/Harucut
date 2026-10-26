@@ -1,7 +1,9 @@
 package com.harucut.workspace.service;
 
+import com.harucut.asset.repository.AssetRepository;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.storage.service.S3Deleter;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.dto.WorkspaceResponse;
@@ -53,6 +55,12 @@ class WorkspaceServiceTest {
 
     @Mock
     private PersonalWorkspaceCreator personalWorkspaceCreator;
+
+    @Mock
+    private AssetRepository assetRepository;
+
+    @Mock
+    private S3Deleter s3Deleter;
 
     @InjectMocks
     private WorkspaceService workspaceService;
@@ -170,12 +178,17 @@ class WorkspaceServiceTest {
     }
 
     @Test
-    @DisplayName("deleteForUser: 멤버십을 먼저, 개인 공간을 나중에 지운다(FK)")
+    @DisplayName("deleteForUser: 개인 공간의 자산 → 멤버십 → 개인 공간 순으로 지운다(FK). 자산 파일은 커밋 후")
     void deleteForUser() {
+        given(workspaceRepository.findByPersonalOwnerUserId(USER_ID)).willReturn(Optional.of(personal));
+        given(assetRepository.findKeysByWorkspaceId(10L)).willReturn(List.of("uploads/users/x/assets/a.png"));
+
         workspaceService.deleteForUser(USER_ID);
 
-        InOrder order = inOrder(membershipRepository, workspaceRepository);
+        InOrder order = inOrder(assetRepository, membershipRepository, workspaceRepository);
+        order.verify(assetRepository).deleteByWorkspaceId(10L);
         order.verify(membershipRepository).deleteByUserId(USER_ID);
         order.verify(workspaceRepository).deletePersonalByOwner(USER_ID);
+        then(s3Deleter).should().deleteAfterCommit(List.of("uploads/users/x/assets/a.png"));
     }
 }

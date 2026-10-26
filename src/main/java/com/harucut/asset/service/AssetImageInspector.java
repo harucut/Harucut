@@ -48,7 +48,7 @@ class AssetImageInspector {
 
     Inspection inspect(byte[] bytes, ContentType declared) throws Rejected {
         ContentType detected = detect(bytes);
-        if (detected != declared) {
+        if (declared == null || detected != declared) {
             throw new Rejected(AssetErrorCode.INVALID_IMAGE, "선언 " + declared + " / 실제 " + detected);
         }
 

@@ -21,7 +21,7 @@ import java.util.List;
 public class FrameAdminService {
 
     private final FrameRepository frameRepository;
-    private final FrameAssetManager frameAssetManager;
+    private final FrameVersionCleaner frameVersionCleaner;
     private final FrameComponentAssembler frameComponentAssembler;
 
     public FrameResponse createSystemFrame(FrameCreateRequest request) {
@@ -39,7 +39,8 @@ public class FrameAdminService {
 
     public void deleteSystemFrame(Long frameId) {
         Frame frame = findSystemFrame(frameId);
-        frameAssetManager.deleteAfterCommit(frameComponentAssembler.collectAllKeys(frame));
+        frameComponentAssembler.scheduleDeletion(frameComponentAssembler.collectAllKeys(frame));
+        frameVersionCleaner.deleteForFrames(List.of(frame.getId()));
         frameRepository.delete(frame);
     }
 

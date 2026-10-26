@@ -155,6 +155,11 @@ public class FrameComponentAssembler {
 
     // 합성 스냅샷(compose_job.spec_json)에 담길 크기를 저장 시점에 미리 잰다. 레이어는 합성기가 받는 모양
     // 그대로(ComposeSpec.Layer) 직렬화한다 — 합성 시점에 DB 오류(500)로 죽는 대신 여기서 400 으로 끊는다
+    // 발행 직전 재검사용 — 상한이 생기기 전에 저장된 프레임도 발행본으로 굳히기 전에 걸러진다
+    void assertComposable(Frame frame) {
+        assertComposable(frame.getBackground(), frame.getComponents());
+    }
+
     private void assertComposable(BackgroundAttributes background, List<FrameComponent> components) {
         List<ComposeSpec.Layer> layers = components.stream()
                 .map(c -> new ComposeSpec.Layer(
@@ -232,7 +237,21 @@ public class FrameComponentAssembler {
         }
         Set<String> keptAssetKeys = Set.copyOf(extractAssetKeys(newComponents));
         oldAssetKeys.stream().filter(key -> !keptAssetKeys.contains(key)).forEach(garbage::add);
-        frameAssetManager.deleteAfterCommit(garbage);
+        scheduleDeletion(garbage);
+    }
+
+    /**
+     * 프레임이 놓아 버린 key 를 커밋 후 지운다. 단 자산 행이 있는 key 는 건너뛴다 — 발행본이 편입했거나
+     * 초안이 참조할 수 있어서, 자산은 미참조 자산 정리 배치가 참조를 세어 지운다(ADR-0006 §2).
+     * 사용자 삭제·관리자 삭제·탈퇴·수정이 모두 이 입구를 쓴다.
+     */
+    public void scheduleDeletion(java.util.Collection<String> keys) {
+        List<String> candidates = keys.stream().filter(Objects::nonNull).distinct().toList();
+        if (candidates.isEmpty()) {
+            return;
+        }
+        Set<String> assetBacked = frameAssetResolver.assetBackedKeys(candidates);
+        frameAssetManager.deleteAfterCommit(candidates.stream().filter(key -> !assetBacked.contains(key)).toList());
     }
 
     // 삭제 시 예약할 key 전부: 사진·구운 텍스트 + 배경 + 프리뷰.

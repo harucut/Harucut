@@ -55,7 +55,7 @@ class FrameServiceTest {
     private UserRepository userRepository;
 
     @Mock
-    private FrameAssetManager frameAssetManager;
+    private FrameVersionCleaner frameVersionCleaner;
 
     @Mock
     private FrameComponentAssembler frameComponentAssembler;
@@ -73,7 +73,7 @@ class FrameServiceTest {
     @BeforeEach
     void setUp() {
         frameService = new FrameService(frameRepository, userRepository,
-                frameAssetManager, frameComponentAssembler, frameSubscriptionPolicy, workspaceService);
+                frameComponentAssembler, frameSubscriptionPolicy, workspaceService, frameVersionCleaner);
         user = User.localUser("user@harucut.com", "encoded", "하루컷");
         ReflectionTestUtils.setField(user, "id", 1L);
     }
@@ -362,9 +362,11 @@ class FrameServiceTest {
             frameService.deleteFrame(PUBLIC_ID, FRAME_ID);
 
             ArgumentCaptor<Collection<String>> captor = ArgumentCaptor.captor();
-            then(frameAssetManager).should().deleteAfterCommit(captor.capture());
+            then(frameComponentAssembler).should().scheduleDeletion(captor.capture());
             assertThat(captor.getValue())
                     .containsExactly("uploads/k1.png", "uploads/bg.png", "uploads/preview.png");
+            // 발행본이 프레임을 FK 로 참조한다 — 프레임보다 먼저
+            then(frameVersionCleaner).should().deleteForFrames(List.of(FRAME_ID));
             then(frameRepository).should().delete(frame);
             then(frameSubscriptionPolicy).shouldHaveNoInteractions();
         }
@@ -381,7 +383,7 @@ class FrameServiceTest {
                     .isEqualTo(GlobalErrorCode.NOT_FOUND);
 
             then(frameRepository).should(never()).delete(any(Frame.class));
-            then(frameAssetManager).shouldHaveNoInteractions();
+            then(frameVersionCleaner).shouldHaveNoInteractions();
         }
     }
 

@@ -26,10 +26,10 @@ public class FrameService {
 
     private final FrameRepository frameRepository;
     private final UserRepository userRepository;
-    private final FrameAssetManager frameAssetManager;
     private final FrameComponentAssembler frameComponentAssembler;
     private final FrameSubscriptionPolicy frameSubscriptionPolicy;
     private final WorkspaceService workspaceService;
+    private final FrameVersionCleaner frameVersionCleaner;
 
     public FrameResponse createFrame(String publicId, FrameCreateRequest request) {
         User user = getUser(publicId);
@@ -97,8 +97,17 @@ public class FrameService {
         Frame frame = getFrameById(frameId);
         validateOwner(frame, user);   // 삭제는 소유권만 — 숨겨진 프레임도 정리는 가능해야 한다
 
-        frameAssetManager.deleteAfterCommit(frameComponentAssembler.collectAllKeys(frame));
+        frameComponentAssembler.scheduleDeletion(frameComponentAssembler.collectAllKeys(frame));
+        frameVersionCleaner.deleteForFrames(List.of(frame.getId()));   // 발행본이 프레임을 FK 로 참조한다
         frameRepository.delete(frame);   // 컴포넌트는 cascade + orphanRemoval
+    }
+
+    /** 발행처럼 "내 프레임만" 다루는 기능의 관문 — 단건 조회·수정과 같다(시스템·남의 프레임은 404) */
+    @Transactional(readOnly = true)
+    public Frame getOwnedReadableFrame(User user, Long frameId) {
+        Frame frame = getFrameById(frameId);
+        assertReadable(frame, user);
+        return frame;
     }
 
     private User getUser(String publicId) {

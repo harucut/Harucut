@@ -1,7 +1,9 @@
 package com.harucut.workspace.service;
 
+import com.harucut.asset.repository.AssetRepository;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.storage.service.S3Deleter;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.dto.WorkspaceResponse;
@@ -31,6 +33,8 @@ public class WorkspaceService {
     private final WorkspaceMembershipRepository membershipRepository;
     private final UserRepository userRepository;
     private final PersonalWorkspaceCreator personalWorkspaceCreator;
+    private final AssetRepository assetRepository;
+    private final S3Deleter s3Deleter;
 
     /**
      * 사용자의 개인 공간. 없으면 만든다 — V2 migration 이 기존 사용자를 백필하지만, flyway 가 꺼진 운영에서는
@@ -93,6 +97,13 @@ public class WorkspaceService {
      * 먼저 지운 뒤에 불려야 한다 — FK 때문에 순서가 의미를 가진다.
      */
     public void deleteForUser(Long userId) {
+        // 개인 공간의 자산이 공간을 FK 로 참조한다 — 자산 행을 먼저 지우고 S3 객체는 커밋 후 지운다.
+        // 자산을 참조하던 프레임·발행본은 앞선 탈퇴 핸들러가 이미 지웠다
+        workspaceRepository.findByPersonalOwnerUserId(userId).ifPresent(personal -> {
+            List<String> keys = assetRepository.findKeysByWorkspaceId(personal.getId());
+            assetRepository.deleteByWorkspaceId(personal.getId());
+            s3Deleter.deleteAfterCommit(keys);
+        });
         membershipRepository.deleteByUserId(userId);
         workspaceRepository.deletePersonalByOwner(userId);
     }

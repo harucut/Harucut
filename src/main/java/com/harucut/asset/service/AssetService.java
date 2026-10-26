@@ -104,11 +104,45 @@ public class AssetService {
     }
 
     /**
+     * 행사 참가자의 촬영 입력(CAPTURE_INPUT) 업로드 의도. 공간이 아니라 행사·회차 폴더에 쓴다 —
+     * 참가자에게는 publicId 가 없다(ADR-0007 §5). 회차·세션 검사는 호출자가 끝냈다.
+     */
+    public UploadIntentResponse createCaptureInputIntent(String eventPublicId, Long eventId, String runPublicId,
+                                                         Long runId, Long participantId, int slotIndex,
+                                                         ContentType contentType, long fileSize) {
+        if (!AssetPurpose.CAPTURE_INPUT.accepts(contentType)) {
+            throw new BusinessException(GlobalErrorCode.UNSUPPORTED_MEDIA_TYPE, "촬영 입력은 JPEG·PNG 만 받습니다.");
+        }
+        String assetPublicId = Asset.newPublicId();
+        String extension = contentType.getExtensions().contains("jpg") ? "jpg" : "png";
+        String key = S3Keys.UPLOAD_ROOT + "events/" + eventPublicId + "/runs/" + runPublicId + "/inputs/"
+                + assetPublicId + "." + extension;
+        Asset asset = transactions.execute(status -> assetRepository.save(Asset.captureInput(assetPublicId,
+                eventId, participantId, runId, slotIndex, key, contentType.getMimeType(), fileSize)));
+
+        PresignedPut put = fileStorageService.presignPut(asset.getS3Key(), asset.getContentType(),
+                asset.getDeclaredSize(), properties.upload().putTtl(), properties.upload().conditionalPut());
+        return new UploadIntentResponse(asset.getPublicId(), put.url(), "PUT", put.headers(), put.expiresAt());
+    }
+
+    /** 참가자 촬영 입력의 완료 확인 — 그 참가자의 입력만. 검증 규칙은 complete 와 같다 */
+    public CompleteResult completeCaptureInput(Long participantId, String assetPublicId) {
+        Asset asset = readOnly.execute(status -> assetRepository.findByPublicId(assetPublicId)
+                .filter(found -> found.getPurpose() == AssetPurpose.CAPTURE_INPUT
+                        && participantId.equals(found.getParticipantId()))
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND)));
+        return judgeAndRecord(asset);
+    }
+
+    /**
      * 업로드 완료 확인. 멱등이다 — 이미 판정이 끝났으면 그 결과를 그대로 돌려준다.
      * 객체가 아직 없으면 409 ASSET-001 이고 상태를 바꾸지 않는다(올리는 중일 수 있다).
      */
     public CompleteResult complete(String publicId, String assetPublicId) {
-        Asset asset = readOnly.execute(status -> findAccessible(publicId, assetPublicId));
+        return judgeAndRecord(readOnly.execute(status -> findAccessible(publicId, assetPublicId)));
+    }
+
+    private CompleteResult judgeAndRecord(Asset asset) {
         if (asset.getStatus() != AssetStatus.PENDING_UPLOAD) {
             return result(asset);
         }

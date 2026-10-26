@@ -59,6 +59,22 @@ public class ComposeJob extends BaseEntity {
     @Column(name = "storage_root", nullable = false, length = 255)
     private String storageRoot;
 
+    // ── 행사 참가자 작업의 범위(P2A). 개인 작업은 전부 NULL ──
+    @Column(name = "event_id")
+    private Long eventId;
+
+    @Column(name = "participant_id")
+    private Long participantId;
+
+    @Column(name = "capture_run_id")
+    private Long captureRunId;
+
+    @Column(name = "experience_version_id")
+    private Long experienceVersionId;
+
+    @Column(name = "frame_version_id")
+    private Long frameVersionId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private ComposeStatus status;
@@ -129,6 +145,31 @@ public class ComposeJob extends BaseEntity {
         }
         return new ComposeJob(user, personalScope(user.getId()), S3Keys.userRoot(user.getPublicId()),
                 frameId, idempotencyKey, sourceKeys, spec);
+    }
+
+    /**
+     * 행사 참가자 작업. User 가 없고, 멱등 범위는 P:{participantId}, 결과는 회차 폴더에 쓴다.
+     * frameId 는 추적용으로 발행본의 원본 프레임 id 를 넣는다 — 합성은 spec 스냅샷만 본다.
+     */
+    public static ComposeJob forParticipant(Long participantId, String storageRoot, Long frameId, String idempotencyKey,
+                                            List<String> sourceKeys, ComposeSpec spec, Long eventId,
+                                            Long captureRunId, Long experienceVersionId, Long frameVersionId) {
+        if (sourceKeys == null || sourceKeys.size() != 4
+                || sourceKeys.stream().anyMatch(key -> key == null || key.isBlank())) {
+            throw new IllegalArgumentException("원본 사진 key는 정확히 4개여야 한다");
+        }
+        ComposeJob job = new ComposeJob(null, participantScope(participantId), storageRoot, frameId,
+                idempotencyKey, sourceKeys, spec);
+        job.eventId = eventId;
+        job.participantId = participantId;
+        job.captureRunId = captureRunId;
+        job.experienceVersionId = experienceVersionId;
+        job.frameVersionId = frameVersionId;
+        return job;
+    }
+
+    public static String participantScope(Long participantId) {
+        return "P:" + participantId;
     }
 
     public static String personalScope(Long userId) {

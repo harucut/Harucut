@@ -64,7 +64,21 @@ public final class SecurityPaths {
             "/api/harucut/reactivate"
     };
 
+    /**
+     * 행사 참가·부스·결과 경로 — 회원 체인이 아니라 {@code EventSecurityConfig} 의 전용 체인이 받는다.
+     * 자격은 쿠키가 아니라 헤더다(참가자 토큰·부스 토큰·결과 토큰).
+     */
+    public static final String[] EVENT = {
+            "/api/public/events/**", "/api/participant/**", "/api/booth/**",
+            "/api/public/booth-pairings/**", "/api/public/results/**"
+    };
+
+    /** 행사 체인 안에서 자격 없이 여는 경로(행사 조회·BYOD 세션 발급·부스 페어링 교환). */
+    public static final String[] EVENT_OPEN = {"/api/public/events/**", "/api/public/booth-pairings/**"};
+
     private static final List<PathPattern> PARSED_PUBLIC = parse(PUBLIC);
+    private static final List<PathPattern> PARSED_EVENT = parse(EVENT);
+    private static final List<PathPattern> PARSED_EVENT_OPEN = parse(EVENT_OPEN);
     private static final List<PathPattern> PARSED_AUTHENTICATED_ONLY = parse(AUTHENTICATED_ONLY);
 
     private SecurityPaths() {
@@ -80,6 +94,14 @@ public final class SecurityPaths {
 
     public static boolean isPublic(String pathTemplate) {
         return matches(PARSED_PUBLIC, pathTemplate);
+    }
+
+    public static boolean isEvent(String pathTemplate) {
+        return matches(PARSED_EVENT, pathTemplate);
+    }
+
+    public static boolean isEventOpen(String pathTemplate) {
+        return matches(PARSED_EVENT_OPEN, pathTemplate);
     }
 
     public static boolean isAuthenticatedOnly(String pathTemplate) {

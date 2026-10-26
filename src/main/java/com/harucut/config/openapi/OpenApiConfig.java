@@ -17,6 +17,9 @@ public class OpenApiConfig {
 
     public static final String COOKIE_SCHEME = "cookieAuth";
     public static final String BEARER_SCHEME = "bearerAuth";
+    public static final String PARTICIPANT_SCHEME = "participantToken";
+    public static final String BOOTH_SCHEME = "boothToken";
+    public static final String RESULT_SCHEME = "resultAccess";
 
     private static final String ACCESS_TOKEN_COOKIE = "accessToken";
 
@@ -31,7 +34,15 @@ public class OpenApiConfig {
                         new Server().url("https://api.harucut.com").description("운영")))
                 .components(new Components()
                         .addSecuritySchemes(COOKIE_SCHEME, cookieScheme())
-                        .addSecuritySchemes(BEARER_SCHEME, bearerScheme()));
+                        .addSecuritySchemes(BEARER_SCHEME, bearerScheme())
+                        .addSecuritySchemes(PARTICIPANT_SCHEME, headerScheme("X-Participant-Token",
+                                "행사 참가자 세션 토큰. `POST /api/public/events/{slug}/sessions` 응답의 token 원문을 그대로 싣는다. 쿠키가 아니다."))
+                        .addSecuritySchemes(BOOTH_SCHEME, headerScheme("X-Booth-Token",
+                                "등록된 부스 기기의 토큰. 페어링 교환 응답에서 한 번만 받는다."))
+                        .addSecuritySchemes(RESULT_SCHEME, new SecurityScheme()
+                                .type(SecurityScheme.Type.HTTP)
+                                .scheme("bearer")
+                                .description("결과 토큰. 결과 링크 `/r#<token>` 의 fragment 를 `Authorization: Bearer <token>` 으로 싣는다.")));
 
         return openAPI;
     }
@@ -60,6 +71,8 @@ public class OpenApiConfig {
                 tag("공지", "게시된 공지 목록과 단건"),
                 tag("공간", "프레임·자산·초안·행사가 속하는 공간. 개인 공간과 조직 공간"),
                 tag("행사 운영", "운영자(조직 공간 OWNER·ADMIN) — 행사 만들기·설정·게시·일시중지·촬영 종료"),
+                tag("행사 참가", "로그인 없는 참가자 — 행사 조회 → 세션 → 동의 → 회차 → 촬영 업로드 → 합성 → 결과 토큰. 자격은 `X-Participant-Token` 헤더"),
+                tag("행사 결과 수령", "결과 링크(`/r#<token>`)로 여는 결과 상태·다운로드. 자격은 Bearer 결과 토큰"),
                 tag("자산", "공통 이미지 자산 — 업로드 의도 → S3 PUT → 완료 검증. VERIFIED 만 프레임에 쓴다"),
                 tag("파일 업로드", "S3 presigned URL 발급. 업로드는 프론트가 S3로 직접 한다"),
                 tag("프레임", "네컷 사진의 틀. 만들고 저장하고 불러온다"),
@@ -93,6 +106,14 @@ public class OpenApiConfig {
                 .in(SecurityScheme.In.COOKIE)
                 .name(ACCESS_TOKEN_COOKIE)
                 .description("운영 인증 경로. 로그인 응답의 `Set-Cookie: accessToken=...` 을 브라우저가 자동으로 싣는다.");
+    }
+
+    private SecurityScheme headerScheme(String header, String description) {
+        return new SecurityScheme()
+                .type(SecurityScheme.Type.APIKEY)
+                .in(SecurityScheme.In.HEADER)
+                .name(header)
+                .description(description);
     }
 
     private SecurityScheme bearerScheme() {

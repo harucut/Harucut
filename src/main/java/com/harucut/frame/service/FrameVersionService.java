@@ -102,6 +102,16 @@ public class FrameVersionService {
         return FrameVersionResponse.full(version, withUrls(objectMapper.readValue(version.getSpecJson(), FrameSpecV2.class)));
     }
 
+    /**
+     * 행사 참가자용 — 소유권을 묻지 않는다. 호출자가 "이 회차의 경험 버전이 이 발행본을 제공하는가"를 이미 확인했다.
+     */
+    @Transactional(readOnly = true)
+    public FrameVersionResponse view(Long frameVersionId) {
+        FrameVersion version = frameVersionRepository.findById(frameVersionId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        return FrameVersionResponse.full(version, withUrls(objectMapper.readValue(version.getSpecJson(), FrameSpecV2.class)));
+    }
+
     private FrameVersionResponse doPublish(Frame frame, Publisher publisher) {
         frameComponentAssembler.assertComposable(frame);
         Map<Long, Asset> referenced = new LinkedHashMap<>();

@@ -215,6 +215,10 @@
   "status" : 415,
   "message" : "Unsupported media type."
 }, {
+  "code" : "GEN-061",
+  "status" : 429,
+  "message" : "Too many requests."
+}, {
   "code" : "GEN-091",
   "status" : 500,
   "message" : "An internal server error occurred."
@@ -226,6 +230,30 @@
   "code" : "NOTICE-001",
   "status" : 404,
   "message" : "The requested notice does not exist or is not published."
+}, {
+  "code" : "PART-001",
+  "status" : 401,
+  "message" : "The participant session is missing, expired or revoked."
+}, {
+  "code" : "PART-002",
+  "status" : 403,
+  "message" : "Required participation consent is missing."
+}, {
+  "code" : "PART-003",
+  "status" : 409,
+  "message" : "The capture run is not active."
+}, {
+  "code" : "PART-004",
+  "status" : 403,
+  "message" : "The frame is not offered to this capture run."
+}, {
+  "code" : "PART-005",
+  "status" : 409,
+  "message" : "The capture input cannot be used."
+}, {
+  "code" : "PART-006",
+  "status" : 403,
+  "message" : "This action is not allowed for a booth session."
 }, {
   "code" : "PAY-001",
   "status" : 502,
@@ -250,6 +278,18 @@
   "code" : "PAY-008",
   "status" : 400,
   "message" : "Invalid webhook signature."
+}, {
+  "code" : "RESULT-001",
+  "status" : 401,
+  "message" : "The result token is invalid or revoked."
+}, {
+  "code" : "RESULT-002",
+  "status" : 410,
+  "message" : "The result retention period has ended."
+}, {
+  "code" : "RESULT-003",
+  "status" : 409,
+  "message" : "The result is not ready yet."
 }, {
   "code" : "SUBS-002",
   "status" : 403,

@@ -117,6 +117,38 @@
         },
         "type" : "object"
       },
+      "CaptureUploadRequest" : {
+        "description" : "촬영 입력 업로드 의도",
+        "properties" : {
+          "captureRunId" : {
+            "description" : "회차 public id",
+            "minLength" : 1,
+            "type" : "string"
+          },
+          "contentType" : {
+            "description" : "JPEG · PNG",
+            "enum" : [ "JPEG", "PNG", "WEBP", "GIF" ],
+            "example" : "JPEG",
+            "type" : "string"
+          },
+          "fileSize" : {
+            "description" : "바이트 크기(10MB 이하)",
+            "format" : "int64",
+            "maximum" : 10485760,
+            "minimum" : 0,
+            "type" : "integer"
+          },
+          "slotIndex" : {
+            "description" : "몇 번째 칸(0~3)",
+            "format" : "int32",
+            "maximum" : 3,
+            "minimum" : 0,
+            "type" : "integer"
+          }
+        },
+        "required" : [ "captureRunId", "contentType", "fileSize", "slotIndex" ],
+        "type" : "object"
+      },
       "ChangePasswordRequest" : {
         "description" : "비밀번호 변경 요청 (로그인 상태)",
         "properties" : {
@@ -371,6 +403,28 @@
         },
         "type" : "object"
       },
+      "ComposeAccepted" : {
+        "description" : "접수한 행사 합성 — 결과 토큰 원문은 이 응답에서만 볼 수 있다",
+        "properties" : {
+          "jobId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "resultExpiresAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "resultToken" : {
+            "description" : "결과 링크 토큰(/r#<token>). 같은 키 재요청이면 새 토큰이 하나 더 발급된다",
+            "type" : "string"
+          },
+          "status" : {
+            "enum" : [ "PENDING", "DONE", "FAILED" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ComposeJobResponse" : {
         "description" : "합성 작업 상태",
         "properties" : {
@@ -401,30 +455,25 @@
         "type" : "object"
       },
       "ComposeRequest" : {
-        "description" : "네컷 합성 요청",
+        "description" : "행사 합성 접수",
         "properties" : {
-          "backgroundColor" : {
-            "description" : "배경색 덮어쓰기 (선택). `#RRGGBB` 형식.\n\n**단색(COLOR) 배경 프레임에서만 쓸 수 있다** — 이미지 배경 프레임에 보내면 400 이다.\n생략하면 프레임에 저장된 배경 그대로 합성한다.\n\n⚠️ 같은 `idempotencyKey` 로 색만 바꿔 다시 보내면 **무시된다** —\n기존 작업이 그대로 재생되므로, 색을 바꿨으면 키도 새로 만들어야 한다.",
-            "example" : "#FFE4E1",
-            "pattern" : "^#[0-9a-fA-F]{6}$",
+          "captureRunId" : {
+            "minLength" : 1,
             "type" : "string"
           },
-          "frameId" : {
-            "description" : "합성에 쓸 프레임 ID. 내 프레임이거나 시스템 프레임이어야 한다.\n**단건 조회와 같은 관문을 통과한다** — 보관 기간이 지났거나 한도 밖으로 밀려나\n조회가 막힌 프레임은 합성도 안 된다.",
-            "example" : 7,
+          "frameVersionId" : {
+            "description" : "이 회차에 제공된 프레임 발행본",
             "format" : "int64",
             "type" : "integer"
           },
           "idempotencyKey" : {
-            "description" : "중복 합성 방지용 키. 최대 64자.\n\n**합성 버튼을 누를 때마다 새로 만들고, 네트워크 재시도에는 같은 값을 다시 보낸다.**\n같은 키로 다시 오면 새로 합성하지 않고 **기존 작업의 상태를 그대로** 돌려준다\n(더블클릭도 여기서 걸린다).",
-            "example" : "550e8400-e29b-41d4-a716-446655440000",
+            "description" : "요청마다 새 UUID. 같은 키 재요청은 기존 작업을 돌려준다",
             "maxLength" : 64,
             "minLength" : 0,
             "type" : "string"
           },
-          "sourceKeys" : {
-            "description" : "원본 사진 4장의 S3 key. **정확히 4개**이고, **촬영 순서가 곧 슬롯 순서**다.\n\n업로드 API 에 `type: FOURCUT_SOURCE` 로 올린 뒤 받은 key 를 쓴다.\n본인 경로가 아니면 403 이다 — URL 로 감싸도 서버가 key 로 정규화하므로 우회되지 않는다.\n\n⚠️ **필터(흑백·밝게 등)는 올리기 전에 픽셀에 구워 넣어야 한다.** 서버는 필터를 모른다.",
-            "example" : [ "uploads/users/AbCdEf12Gh/fourcuts/sources/a.png", "uploads/users/AbCdEf12Gh/fourcuts/sources/b.png", "uploads/users/AbCdEf12Gh/fourcuts/sources/c.png", "uploads/users/AbCdEf12Gh/fourcuts/sources/d.png" ],
+          "sourceAssetIds" : {
+            "description" : "칸 순서대로 촬영 입력 4개",
             "items" : {
               "minLength" : 1,
               "type" : "string"
@@ -434,36 +483,55 @@
             "type" : "array"
           }
         },
-        "required" : [ "frameId", "idempotencyKey", "sourceKeys" ],
+        "required" : [ "captureRunId", "frameVersionId", "idempotencyKey", "sourceAssetIds" ],
         "type" : "object"
       },
       "ConsentItem" : {
-        "description" : "참가 동의 항목",
         "properties" : {
-          "body" : {
-            "description" : "본문 — 사진을 받는 주체·목적·보관 기간",
-            "type" : "string"
-          },
           "code" : {
-            "description" : "항목 코드",
+            "description" : "동의 항목 코드",
             "example" : "photo-collection",
+            "minLength" : 1,
             "type" : "string"
           },
-          "required" : {
-            "description" : "필수 여부",
-            "example" : true,
-            "type" : "boolean"
-          },
-          "title" : {
-            "description" : "제목",
-            "example" : "사진 수집·이용 동의",
+          "decision" : {
+            "description" : "AGREED · DECLINED · WITHDRAWN",
+            "enum" : [ "AGREED", "DECLINED", "WITHDRAWN" ],
+            "example" : "AGREED",
             "type" : "string"
           },
           "version" : {
-            "description" : "항목 버전 — 문구를 바꾸면 올린다",
+            "description" : "항목 버전 — 공개 행사 정보의 값 그대로",
             "example" : 1,
             "format" : "int32",
             "type" : "integer"
+          }
+        },
+        "required" : [ "code", "decision", "version" ],
+        "type" : "object"
+      },
+      "ConsentRequest" : {
+        "description" : "동의 결정",
+        "properties" : {
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/ConsentItem"
+            },
+            "minItems" : 1,
+            "type" : "array"
+          }
+        },
+        "required" : [ "items" ],
+        "type" : "object"
+      },
+      "ConsentResponse" : {
+        "description" : "동의 후 세션 상태",
+        "properties" : {
+          "status" : {
+            "description" : "필수 항목을 모두 현재 버전으로 동의했으면 ACTIVE",
+            "enum" : [ "RESTRICTED", "ACTIVE", "REVOKED" ],
+            "example" : "ACTIVE",
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -648,6 +716,21 @@
           }
         },
         "required" : [ "displayName" ],
+        "type" : "object"
+      },
+      "DownloadUrlResponse" : {
+        "description" : "짧은 다운로드 URL",
+        "properties" : {
+          "expiresAt" : {
+            "description" : "URL 만료 시각",
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "url" : {
+            "description" : "presigned GET URL(기본 5분)",
+            "type" : "string"
+          }
+        },
         "type" : "object"
       },
       "DraftCreateRequest" : {
@@ -1440,6 +1523,24 @@
         },
         "type" : "object"
       },
+      "MyResult" : {
+        "description" : "이 행사에서 만든 내 결과",
+        "properties" : {
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "jobId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "status" : {
+            "enum" : [ "PENDING", "DONE", "FAILED" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "NaverUnlinkRequest" : {
         "description" : "네이버 연동 해제 웹훅 본문. **네이버 서버가 보낸다 — 프론트가 만들 요청이 아니다**",
         "properties" : {
@@ -1533,6 +1634,35 @@
             "description" : "제목",
             "example" : "서비스 점검 안내",
             "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "OfferedFrame" : {
+        "description" : "제공 프레임",
+        "properties" : {
+          "frameVersionId" : {
+            "description" : "프레임 발행본 ID",
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "isDefault" : {
+            "description" : "기본 선택",
+            "type" : "boolean"
+          },
+          "layoutType" : {
+            "description" : "레이아웃",
+            "enum" : [ "CLASSIC", "WIDE", "GRID", "POLAROID" ],
+            "type" : "string"
+          },
+          "previewUrl" : {
+            "description" : "미리보기 이미지 짧은 URL",
+            "type" : "string"
+          },
+          "sortOrder" : {
+            "description" : "표시 순서",
+            "format" : "int32",
+            "type" : "integer"
           }
         },
         "type" : "object"
@@ -1763,6 +1893,18 @@
         },
         "type" : "object"
       },
+      "PendingConsent" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "version" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "PresignedUploadRequest" : {
         "description" : "업로드용 presigned URL 발급 요청",
         "properties" : {
@@ -1818,6 +1960,68 @@
             "description" : "여기로 **PUT** 한다. 본문은 파일 바이트 그대로",
             "example" : "https://harucut-bucket.s3.ap-northeast-2.amazonaws.com/uploads/...?X-Amz-Signature=...",
             "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "PublicEventResponse" : {
+        "description" : "참가 화면이 보는 행사 정보 — 운영 설정·다른 행사·전체 카탈로그는 없다",
+        "properties" : {
+          "allowedLayouts" : {
+            "description" : "허용 레이아웃",
+            "items" : {
+              "enum" : [ "CLASSIC", "WIDE", "GRID", "POLAROID" ],
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "boothEnabled" : {
+            "description" : "부스 참가 허용",
+            "type" : "boolean"
+          },
+          "byodEnabled" : {
+            "description" : "개인 휴대폰 참가 허용",
+            "type" : "boolean"
+          },
+          "captureOpen" : {
+            "description" : "지금 새 참가·촬영을 받는가",
+            "type" : "boolean"
+          },
+          "consentItems" : {
+            "description" : "동의 항목",
+            "items" : {
+              "$ref" : "#/components/schemas/ConsentItem"
+            },
+            "type" : "array"
+          },
+          "eventId" : {
+            "description" : "행사 public id",
+            "type" : "string"
+          },
+          "experienceVersion" : {
+            "description" : "현재 경험 버전 번호",
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "frames" : {
+            "description" : "고를 수 있는 프레임 — 이 목록만 보여 준다",
+            "items" : {
+              "$ref" : "#/components/schemas/OfferedFrame"
+            },
+            "type" : "array"
+          },
+          "name" : {
+            "description" : "행사명",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "상태",
+            "enum" : [ "DRAFT", "LIVE", "CAPTURE_CLOSED", "ARCHIVED" ],
+            "type" : "string"
+          },
+          "theme" : {
+            "$ref" : "#/components/schemas/JsonNode",
+            "description" : "페이지 테마(P2A 자리표시자)"
           }
         },
         "type" : "object"
@@ -1974,6 +2178,31 @@
         },
         "type" : "object"
       },
+      "ResponseComposeAccepted" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ComposeAccepted",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseComposeJobResponse" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -1984,6 +2213,56 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/ComposeJobResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseConsentResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ConsentResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseDownloadUrlResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/DownloadUrlResponse",
             "description" : "응답 본문. 없으면 키 자체가 없다"
           },
           "message" : {
@@ -2251,6 +2530,34 @@
             "description" : "응답 본문. 없으면 키 자체가 없다",
             "items" : {
               "$ref" : "#/components/schemas/MyCouponResponse"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseListMyResult" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "description" : "응답 본문. 없으면 키 자체가 없다",
+            "items" : {
+              "$ref" : "#/components/schemas/MyResult"
             },
             "type" : "array"
           },
@@ -2579,6 +2886,31 @@
         },
         "type" : "object"
       },
+      "ResponsePublicEventResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PublicEventResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseRedeemResponse" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -2614,6 +2946,131 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/ResetTokenResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseResultStatusResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ResultStatusResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseResultTokenResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ResultTokenResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseRunStartResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/RunStartResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseSessionResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/SessionResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseSessionView" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/SessionView",
             "description" : "응답 본문. 없으면 키 자체가 없다"
           },
           "message" : {
@@ -2853,6 +3310,50 @@
         },
         "type" : "object"
       },
+      "ResultStatusResponse" : {
+        "description" : "결과 링크로 본 결과 상태",
+        "properties" : {
+          "eventName" : {
+            "description" : "행사명",
+            "example" : "민지 ♥ 준호 결혼식",
+            "type" : "string"
+          },
+          "expiresAt" : {
+            "description" : "결과 링크 만료 시각(보관 기한)",
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "PENDING(준비 중) · DONE · FAILED · EXPIRED(보관 기한 지남)",
+            "example" : "DONE",
+            "type" : "string"
+          },
+          "theme" : {
+            "$ref" : "#/components/schemas/JsonNode",
+            "description" : "이 결과가 만들어진 경험 버전의 페이지 테마(P2A 는 자리표시자)"
+          },
+          "thumbnailUrl" : {
+            "description" : "DONE 일 때만 — 짧은 썸네일 URL",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ResultTokenResponse" : {
+        "description" : "새로 발급한 결과 토큰 — 원문은 이 응답에서만 볼 수 있다",
+        "properties" : {
+          "resultExpiresAt" : {
+            "description" : "토큰 만료 시각(보관 기한)",
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "resultToken" : {
+            "description" : "결과 토큰. 결과 링크는 /r#<token>",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ReviseTermsRequest" : {
         "description" : "약관 개정 요청",
         "properties" : {
@@ -2864,6 +3365,48 @@
           }
         },
         "required" : [ "content" ],
+        "type" : "object"
+      },
+      "RunStartResponse" : {
+        "description" : "새 촬영 회차",
+        "properties" : {
+          "captureRunId" : {
+            "type" : "string"
+          },
+          "experienceVersion" : {
+            "description" : "서버가 부여한 경험 버전 번호 — 참가자가 고르지 않는다",
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "expiresAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "stateVersion" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "RunView" : {
+        "description" : "촬영 회차",
+        "properties" : {
+          "captureRunId" : {
+            "description" : "회차 public id",
+            "type" : "string"
+          },
+          "expiresAt" : {
+            "description" : "회차 만료 시각",
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "stateVersion" : {
+            "description" : "부스 화면 대조용 상태 버전",
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
         "type" : "object"
       },
       "SampleRequest" : {
@@ -2909,6 +3452,82 @@
           }
         },
         "required" : [ "email" ],
+        "type" : "object"
+      },
+      "SessionRequest" : {
+        "description" : "참가자 세션 발급 요청",
+        "properties" : {
+          "channel" : {
+            "description" : "BYOD 만 받는다(부스는 /api/booth/participant-sessions)",
+            "enum" : [ "BYOD", "BOOTH" ],
+            "example" : "BYOD",
+            "type" : "string"
+          }
+        },
+        "required" : [ "channel" ],
+        "type" : "object"
+      },
+      "SessionResponse" : {
+        "description" : "발급한 참가자 세션 — 토큰 원문은 이 응답에서만 볼 수 있다",
+        "properties" : {
+          "expiresAt" : {
+            "description" : "세션 만료 시각",
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "participantId" : {
+            "description" : "참가자 public id",
+            "type" : "string"
+          },
+          "participantToken" : {
+            "description" : "X-Participant-Token 헤더로 보낼 토큰",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "동의 전에는 RESTRICTED",
+            "enum" : [ "RESTRICTED", "ACTIVE", "REVOKED" ],
+            "example" : "RESTRICTED",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "SessionView" : {
+        "description" : "세션 복원 — 새로고침·재방문",
+        "properties" : {
+          "activeCaptureRun" : {
+            "$ref" : "#/components/schemas/RunView",
+            "description" : "진행 중인 촬영 회차 — 없으면 키가 없다"
+          },
+          "channel" : {
+            "enum" : [ "BYOD", "BOOTH" ],
+            "type" : "string"
+          },
+          "eventId" : {
+            "type" : "string"
+          },
+          "eventSlug" : {
+            "type" : "string"
+          },
+          "expiresAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "participantId" : {
+            "type" : "string"
+          },
+          "pendingConsents" : {
+            "description" : "아직 현재 버전으로 동의하지 않은 필수 항목",
+            "items" : {
+              "$ref" : "#/components/schemas/PendingConsent"
+            },
+            "type" : "array"
+          },
+          "status" : {
+            "enum" : [ "RESTRICTED", "ACTIVE", "REVOKED" ],
+            "type" : "string"
+          }
+        },
         "type" : "object"
       },
       "Slot" : {
@@ -3544,11 +4163,28 @@
         "scheme" : "bearer",
         "type" : "http"
       },
+      "boothToken" : {
+        "description" : "등록된 부스 기기의 토큰. 페어링 교환 응답에서 한 번만 받는다.",
+        "in" : "header",
+        "name" : "X-Booth-Token",
+        "type" : "apiKey"
+      },
       "cookieAuth" : {
         "description" : "운영 인증 경로. 로그인 응답의 `Set-Cookie: accessToken=...` 을 브라우저가 자동으로 싣는다.",
         "in" : "cookie",
         "name" : "accessToken",
         "type" : "apiKey"
+      },
+      "participantToken" : {
+        "description" : "행사 참가자 세션 토큰. `POST /api/public/events/{slug}/sessions` 응답의 token 원문을 그대로 싣는다. 쿠키가 아니다.",
+        "in" : "header",
+        "name" : "X-Participant-Token",
+        "type" : "apiKey"
+      },
+      "resultAccess" : {
+        "description" : "결과 토큰. 결과 링크 `/r#<token>` 의 fragment 를 `Authorization: Bearer <token>` 으로 싣는다.",
+        "scheme" : "bearer",
+        "type" : "http"
       }
     }
   },
@@ -6115,7 +6751,7 @@
     "/api/auth/assets/{assetId}" : {
       "get" : {
         "description" : "VERIFIED 면 짧은 GET URL(기본 5분)이 실린다.",
-        "operationId" : "get_4",
+        "operationId" : "get_5",
         "parameters" : [ {
           "description" : "자산 public id",
           "example" : "As8kLm2Pq9Xz",
@@ -6226,7 +6862,7 @@
     "/api/auth/assets/{assetId}/complete" : {
       "post" : {
         "description" : "S3 객체의 존재·크기, 실제 형식(바이트 머리), 픽셀 수, **끝까지 디코드되는지**를 본다.\n통과하면 `VERIFIED`, 실패하면 `REJECTED` 로 기록하고 **422 + 그 오류 코드**를 주며 본문 `data` 에 자산이 실린다.\n\n멱등이다 — 이미 판정이 끝났으면 그대로 돌려준다(REJECTED 면 같은 422).\nREJECTED 는 다시 검사하지 않는다. 새 intent 로 다시 올릴 것.\n",
-        "operationId" : "complete",
+        "operationId" : "complete_1",
         "parameters" : [ {
           "description" : "자산 public id",
           "example" : "As8kLm2Pq9Xz",
@@ -7878,7 +8514,7 @@
     "/api/auth/status" : {
       "get" : {
         "description" : "소셜 로그인 콜백 페이지에서 로그인 완료를 확인하는 용도로 쓴다.\n쿠키가 유효하면 200, 아니면 401 이다.\n\n**탈퇴 요청 상태(`DELETED_REQUESTED`)에서도 200 이 나온다.** 다른 API 는 전부 403 인데\n여기만 열어둔 이유는, 프론트가 상태를 읽어 복구 안내 화면으로 보낼 수 있어야 하기 때문이다.\n임의의 API 에서 `GEN-021` 을 받으면 이 API 로 상태를 확인할 것 — 로그아웃시키면 안 된다.\n\n값은 토큰에서 읽는다(DB 조회 없음). 즉 **토큰 발급 시점의 상태**다.\n",
-        "operationId" : "status",
+        "operationId" : "status_1",
         "responses" : {
           "200" : {
             "content" : {
@@ -10569,7 +11205,7 @@
     "/api/auth/user/frame/{frameId}/versions/{versionNo}" : {
       "get" : {
         "description" : "`spec` 의 자산 `url` 은 짧은 GET URL(기본 5분)이다.",
-        "operationId" : "get_3",
+        "operationId" : "get_4",
         "parameters" : [ {
           "description" : "프레임 ID",
           "example" : 7,
@@ -13468,6 +14104,1274 @@
         "tags" : [ "소셜 연동 해제" ]
       }
     },
+    "/api/participant/assets/{assetId}/complete" : {
+      "post" : {
+        "description" : "자산 complete 와 같은 검증. 실패는 422 + 코드 + data.",
+        "operationId" : "complete",
+        "parameters" : [ {
+          "description" : "자산 public id",
+          "in" : "path",
+          "name" : "assetId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseAssetResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-001" : {
+                    "summary" : "PART-001 — 참가자 토큰이 없거나 만료·회수",
+                    "value" : {
+                      "code" : "PART-001",
+                      "message" : "The participant session is missing, expired or revoked.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-001` — 참가자 토큰이 없거나 만료·회수 _(The participant session is missing, expired or revoked.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-002" : {
+                    "summary" : "PART-002 — 필수 동의 전",
+                    "value" : {
+                      "code" : "PART-002",
+                      "message" : "Required participation consent is missing.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-002` — 필수 동의 전 _(Required participation consent is missing.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 내 입력이 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 내 입력이 아니다 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "ASSET-001" : {
+                    "summary" : "ASSET-001 — 객체가 없다",
+                    "value" : {
+                      "code" : "ASSET-001",
+                      "message" : "The uploaded object was not found.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `ASSET-001` — 객체가 없다 _(The uploaded object was not found.)_"
+          },
+          "422" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "ASSET-002" : {
+                    "summary" : "ASSET-002 — 크기",
+                    "value" : {
+                      "code" : "ASSET-002",
+                      "message" : "The uploaded object size does not match or exceeds the limit.",
+                      "status" : 422
+                    }
+                  },
+                  "ASSET-003" : {
+                    "summary" : "ASSET-003 — 형식·디코드",
+                    "value" : {
+                      "code" : "ASSET-003",
+                      "message" : "The uploaded object is not a valid image of the declared type.",
+                      "status" : 422
+                    }
+                  },
+                  "ASSET-004" : {
+                    "summary" : "ASSET-004 — 픽셀 상한",
+                    "value" : {
+                      "code" : "ASSET-004",
+                      "message" : "The image exceeds the pixel limit.",
+                      "status" : 422
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `ASSET-002` — 크기 _(The uploaded object size does not match or exceeds the limit.)_\n- `ASSET-003` — 형식·디코드 _(The uploaded object is not a valid image of the declared type.)_\n- `ASSET-004` — 픽셀 상한 _(The image exceeds the pixel limit.)_"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "ASSET-006" : {
+                    "summary" : "ASSET-006 — 검증이 밀려 있다",
+                    "value" : {
+                      "code" : "ASSET-006",
+                      "message" : "Asset verification is busy. Retry shortly.",
+                      "status" : 503
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `ASSET-006` — 검증이 밀려 있다 _(Asset verification is busy. Retry shortly.)_"
+          }
+        },
+        "security" : [ {
+          "participantToken" : [ ]
+        } ],
+        "summary" : "촬영 입력 업로드 완료 확인",
+        "tags" : [ "행사 참가" ]
+      }
+    },
+    "/api/participant/compose-jobs/{jobId}" : {
+      "get" : {
+        "operationId" : "job",
+        "parameters" : [ {
+          "description" : "작업 ID",
+          "in" : "path",
+          "name" : "jobId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseComposeJobResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-001" : {
+                    "summary" : "PART-001 — 참가자 토큰이 없거나 만료·회수",
+                    "value" : {
+                      "code" : "PART-001",
+                      "message" : "The participant session is missing, expired or revoked.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-001` — 참가자 토큰이 없거나 만료·회수 _(The participant session is missing, expired or revoked.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 내 작업이 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 내 작업이 아니다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "participantToken" : [ ]
+        } ],
+        "summary" : "내 합성 작업 상태",
+        "tags" : [ "행사 참가" ]
+      }
+    },
+    "/api/participant/compose-jobs/{jobId}/download" : {
+      "post" : {
+        "description" : "개인 휴대폰 세션만. 결과 API 와 같은 보관·준비 검사(5분 URL).",
+        "operationId" : "download_1",
+        "parameters" : [ {
+          "description" : "작업 ID",
+          "in" : "path",
+          "name" : "jobId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseDownloadUrlResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-001" : {
+                    "summary" : "PART-001 — 참가자 토큰이 없거나 만료·회수",
+                    "value" : {
+                      "code" : "PART-001",
+                      "message" : "The participant session is missing, expired or revoked.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-001` — 참가자 토큰이 없거나 만료·회수 _(The participant session is missing, expired or revoked.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-006" : {
+                    "summary" : "PART-006 — 부스 세션",
+                    "value" : {
+                      "code" : "PART-006",
+                      "message" : "This action is not allowed for a booth session.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-006` — 부스 세션 _(This action is not allowed for a booth session.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 내 작업이 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 내 작업이 아니다 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "RESULT-003" : {
+                    "summary" : "RESULT-003 — 아직 준비 안 됨",
+                    "value" : {
+                      "code" : "RESULT-003",
+                      "message" : "The result is not ready yet.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `RESULT-003` — 아직 준비 안 됨 _(The result is not ready yet.)_"
+          },
+          "410" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "RESULT-002" : {
+                    "summary" : "RESULT-002 — 보관 기한 지남",
+                    "value" : {
+                      "code" : "RESULT-002",
+                      "message" : "The result retention period has ended.",
+                      "status" : 410
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `RESULT-002` — 보관 기한 지남 _(The result retention period has ended.)_"
+          }
+        },
+        "security" : [ {
+          "participantToken" : [ ]
+        } ],
+        "summary" : "내 결과 다운로드 URL",
+        "tags" : [ "행사 참가" ]
+      }
+    },
+    "/api/participant/compose-jobs/{jobId}/result-access" : {
+      "post" : {
+        "description" : "개인 휴대폰 세션만. 이전 토큰은 유지된다.",
+        "operationId" : "resultAccess",
+        "parameters" : [ {
+          "description" : "작업 ID",
+          "in" : "path",
+          "name" : "jobId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseResultTokenResponse"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-001" : {
+                    "summary" : "PART-001 — 참가자 토큰이 없거나 만료·회수",
+                    "value" : {
+                      "code" : "PART-001",
+                      "message" : "The participant session is missing, expired or revoked.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-001` — 참가자 토큰이 없거나 만료·회수 _(The participant session is missing, expired or revoked.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-006" : {
+                    "summary" : "PART-006 — 부스 세션",
+                    "value" : {
+                      "code" : "PART-006",
+                      "message" : "This action is not allowed for a booth session.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-006` — 부스 세션 _(This action is not allowed for a booth session.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 내 작업이 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 내 작업이 아니다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "participantToken" : [ ]
+        } ],
+        "summary" : "공유 링크용 결과 토큰 새로 발급",
+        "tags" : [ "행사 참가" ]
+      }
+    },
+    "/api/participant/events/{eventId}/capture-runs" : {
+      "post" : {
+        "description" : "서버가 현재 경험 버전을 부여한다. 회차는 기본 30분.",
+        "operationId" : "startRun",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseRunStartResponse"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-001" : {
+                    "summary" : "PART-001 — 참가자 토큰이 없거나 만료·회수 / 세션 무효",
+                    "value" : {
+                      "code" : "PART-001",
+                      "message" : "The participant session is missing, expired or revoked.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-001` — 참가자 토큰이 없거나 만료·회수 / 세션 무효 _(The participant session is missing, expired or revoked.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-002" : {
+                    "summary" : "PART-002 — 필수 동의 전",
+                    "value" : {
+                      "code" : "PART-002",
+                      "message" : "Required participation consent is missing.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-002` — 필수 동의 전 _(Required participation consent is missing.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 내 행사가 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 내 행사가 아니다 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "EVENT-001" : {
+                    "summary" : "EVENT-001 — 지금 촬영할 수 없다",
+                    "value" : {
+                      "code" : "EVENT-001",
+                      "message" : "The event is not open for capture.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `EVENT-001` — 지금 촬영할 수 없다 _(The event is not open for capture.)_"
+          }
+        },
+        "security" : [ {
+          "participantToken" : [ ]
+        } ],
+        "summary" : "새 촬영 회차",
+        "tags" : [ "행사 참가" ]
+      }
+    },
+    "/api/participant/events/{eventId}/compose-jobs" : {
+      "post" : {
+        "description" : "202. 결과 토큰 원문은 이 응답에서만 볼 수 있다 — 결과 링크는 `/r#<token>`.\n같은 idempotencyKey 재요청은 기존 작업을 돌려주고 **새 결과 토큰을 하나 더** 발급한다(이전 것도 유효).\n같은 키에 다른 프레임·입력이면 409 `MEDIA-001`.\n",
+        "operationId" : "compose",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ComposeRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "202" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseComposeAccepted"
+                }
+              }
+            },
+            "description" : "Accepted"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "FRAME-004" : {
+                    "summary" : "FRAME-004 — 합성 스펙 크기 초과",
+                    "value" : {
+                      "code" : "FRAME-004",
+                      "message" : "The frame is too large to compose.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `FRAME-004` — 합성 스펙 크기 초과 _(The frame is too large to compose.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-001" : {
+                    "summary" : "PART-001 — 참가자 토큰이 없거나 만료·회수",
+                    "value" : {
+                      "code" : "PART-001",
+                      "message" : "The participant session is missing, expired or revoked.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-001` — 참가자 토큰이 없거나 만료·회수 _(The participant session is missing, expired or revoked.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-002" : {
+                    "summary" : "PART-002 — 필수 동의 전",
+                    "value" : {
+                      "code" : "PART-002",
+                      "message" : "Required participation consent is missing.",
+                      "status" : 403
+                    }
+                  },
+                  "PART-004" : {
+                    "summary" : "PART-004 — 제공되지 않은 프레임",
+                    "value" : {
+                      "code" : "PART-004",
+                      "message" : "The frame is not offered to this capture run.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-002` — 필수 동의 전 _(Required participation consent is missing.)_\n- `PART-004` — 제공되지 않은 프레임 _(The frame is not offered to this capture run.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 내 행사가 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 내 행사가 아니다 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "EVENT-001" : {
+                    "summary" : "EVENT-001 — 지금 촬영할 수 없다",
+                    "value" : {
+                      "code" : "EVENT-001",
+                      "message" : "The event is not open for capture.",
+                      "status" : 409
+                    }
+                  },
+                  "MEDIA-001" : {
+                    "summary" : "MEDIA-001 — 같은 키에 다른 요청",
+                    "value" : {
+                      "code" : "MEDIA-001",
+                      "message" : "The idempotency key was already used with a different request.",
+                      "status" : 409
+                    }
+                  },
+                  "PART-003" : {
+                    "summary" : "PART-003 — 회차가 활성 상태가 아니다",
+                    "value" : {
+                      "code" : "PART-003",
+                      "message" : "The capture run is not active.",
+                      "status" : 409
+                    }
+                  },
+                  "PART-005" : {
+                    "summary" : "PART-005 — 쓸 수 없는 입력(미검증·다른 회차·이미 다른 작업에 묶임)",
+                    "value" : {
+                      "code" : "PART-005",
+                      "message" : "The capture input cannot be used.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-003` — 회차가 활성 상태가 아니다 _(The capture run is not active.)_\n- `PART-005` — 쓸 수 없는 입력(미검증·다른 회차·이미 다른 작업에 묶임) _(The capture input cannot be used.)_\n- `EVENT-001` — 지금 촬영할 수 없다 _(The event is not open for capture.)_\n- `MEDIA-001` — 같은 키에 다른 요청 _(The idempotency key was already used with a different request.)_"
+          }
+        },
+        "security" : [ {
+          "participantToken" : [ ]
+        } ],
+        "summary" : "행사 합성 접수 + 결과 토큰",
+        "tags" : [ "행사 참가" ]
+      }
+    },
+    "/api/participant/events/{eventId}/consents" : {
+      "post" : {
+        "description" : "필수 항목을 모두 현재 버전으로 AGREED 하면 ACTIVE. 필수를 거부·철회하면 RESTRICTED 로 돌아간다.",
+        "operationId" : "consent",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ConsentRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseConsentResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — 현재 행사의 항목·버전이 아니다",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — 현재 행사의 항목·버전이 아니다 _(Invalid input value.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-001" : {
+                    "summary" : "PART-001 — 참가자 토큰이 없거나 만료·회수 / 세션 무효",
+                    "value" : {
+                      "code" : "PART-001",
+                      "message" : "The participant session is missing, expired or revoked.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-001` — 참가자 토큰이 없거나 만료·회수 / 세션 무효 _(The participant session is missing, expired or revoked.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 내 행사가 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 내 행사가 아니다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "participantToken" : [ ]
+        } ],
+        "summary" : "참가 동의 기록",
+        "tags" : [ "행사 참가" ]
+      }
+    },
+    "/api/participant/events/{eventId}/frame-versions/{frameVersionId}" : {
+      "get" : {
+        "description" : "그 회차의 경험 버전이 제공한 프레임만(FrameSpec v2).",
+        "operationId" : "frame",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "프레임 발행본 ID",
+          "in" : "path",
+          "name" : "frameVersionId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        }, {
+          "description" : "회차 public id",
+          "in" : "query",
+          "name" : "captureRunId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseFrameVersionResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-001" : {
+                    "summary" : "PART-001 — 참가자 토큰이 없거나 만료·회수",
+                    "value" : {
+                      "code" : "PART-001",
+                      "message" : "The participant session is missing, expired or revoked.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-001` — 참가자 토큰이 없거나 만료·회수 _(The participant session is missing, expired or revoked.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-004" : {
+                    "summary" : "PART-004 — 이 회차에 제공되지 않은 프레임",
+                    "value" : {
+                      "code" : "PART-004",
+                      "message" : "The frame is not offered to this capture run.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-004` — 이 회차에 제공되지 않은 프레임 _(The frame is not offered to this capture run.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-003" : {
+                    "summary" : "PART-003 — 내 회차가 아니다",
+                    "value" : {
+                      "code" : "PART-003",
+                      "message" : "The capture run is not active.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-003` — 내 회차가 아니다 _(The capture run is not active.)_"
+          }
+        },
+        "security" : [ {
+          "participantToken" : [ ]
+        } ],
+        "summary" : "회차에 제공된 발행 프레임",
+        "tags" : [ "행사 참가" ]
+      }
+    },
+    "/api/participant/events/{eventId}/results" : {
+      "get" : {
+        "description" : "개인 휴대폰 세션만. 공용 부스에는 이전 목록을 열지 않는다.",
+        "operationId" : "results",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseListMyResult"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-001" : {
+                    "summary" : "PART-001 — 참가자 토큰이 없거나 만료·회수",
+                    "value" : {
+                      "code" : "PART-001",
+                      "message" : "The participant session is missing, expired or revoked.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-001` — 참가자 토큰이 없거나 만료·회수 _(The participant session is missing, expired or revoked.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-006" : {
+                    "summary" : "PART-006 — 부스 세션",
+                    "value" : {
+                      "code" : "PART-006",
+                      "message" : "This action is not allowed for a booth session.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-006` — 부스 세션 _(This action is not allowed for a booth session.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 내 행사가 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 내 행사가 아니다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "participantToken" : [ ]
+        } ],
+        "summary" : "이 행사에서 만든 내 결과",
+        "tags" : [ "행사 참가" ]
+      }
+    },
+    "/api/participant/events/{eventId}/upload-intents" : {
+      "post" : {
+        "description" : "용도는 항상 촬영 입력(CAPTURE_INPUT). 갤러리 사진·스티커·글자 이미지 업로드는 이 경로에 없다. PUT URL 은 기본 10분.",
+        "operationId" : "uploadIntent",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CaptureUploadRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseUploadIntentResponse"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-001" : {
+                    "summary" : "PART-001 — 참가자 토큰이 없거나 만료·회수",
+                    "value" : {
+                      "code" : "PART-001",
+                      "message" : "The participant session is missing, expired or revoked.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-001` — 참가자 토큰이 없거나 만료·회수 _(The participant session is missing, expired or revoked.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-002" : {
+                    "summary" : "PART-002 — 필수 동의 전",
+                    "value" : {
+                      "code" : "PART-002",
+                      "message" : "Required participation consent is missing.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-002` — 필수 동의 전 _(Required participation consent is missing.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-003" : {
+                    "summary" : "PART-003 — 회차가 활성 상태가 아니다",
+                    "value" : {
+                      "code" : "PART-003",
+                      "message" : "The capture run is not active.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-003` — 회차가 활성 상태가 아니다 _(The capture run is not active.)_"
+          },
+          "415" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-051" : {
+                    "summary" : "GEN-051 — JPEG·PNG 가 아니다",
+                    "value" : {
+                      "code" : "GEN-051",
+                      "message" : "Unsupported media type.",
+                      "status" : 415
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-051` — JPEG·PNG 가 아니다 _(Unsupported media type.)_"
+          }
+        },
+        "security" : [ {
+          "participantToken" : [ ]
+        } ],
+        "summary" : "촬영 입력 업로드 의도",
+        "tags" : [ "행사 참가" ]
+      }
+    },
+    "/api/participant/session" : {
+      "get" : {
+        "description" : "새로고침·재방문 때 토큰이 아직 유효한지, 남은 필수 동의와 진행 중 회차를 본다.",
+        "operationId" : "session",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseSessionView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-001" : {
+                    "summary" : "PART-001 — 참가자 토큰이 없거나 만료·회수 / 토큰이 없거나 만료·회수",
+                    "value" : {
+                      "code" : "PART-001",
+                      "message" : "The participant session is missing, expired or revoked.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-001` — 참가자 토큰이 없거나 만료·회수 / 토큰이 없거나 만료·회수 _(The participant session is missing, expired or revoked.)_"
+          }
+        },
+        "security" : [ {
+          "participantToken" : [ ]
+        } ],
+        "summary" : "세션 복원",
+        "tags" : [ "행사 참가" ]
+      }
+    },
     "/api/payments/webhook" : {
       "post" : {
         "description" : "**PG 사가 호출한다. 프론트가 부를 API 가 아니다.**\n\n본문을 **파싱하지 않고 원문 문자열 그대로** 받는다. 서명은 원문 바이트를 대상으로\n검증해야 하는데, 객체로 바꿨다가 다시 문자열로 만들면 필드 순서나 공백이 달라져\n서명이 깨지기 때문이다.\n\n현재는 Mock 게이트웨이가 붙어 있어 서명 검증이 항상 통과하고,\n본문 처리는 골격만 있다. 실제 PG 연동 시 채운다.\n",
@@ -13525,6 +15429,326 @@
         },
         "summary" : "결제 웹훅",
         "tags" : [ "결제 웹훅" ]
+      }
+    },
+    "/api/public/events/{slug}" : {
+      "get" : {
+        "description" : "로그인 없이 연다. 게시 전·보관 종료 행사는 404.",
+        "operationId" : "get_3",
+        "parameters" : [ {
+          "description" : "행사 slug",
+          "example" : "wedding-1027",
+          "in" : "path",
+          "name" : "slug",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponsePublicEventResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 행사이거나 게시 전",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 행사이거나 게시 전 _(Resource not found.)_"
+          }
+        },
+        "summary" : "행사 참가 정보",
+        "tags" : [ "행사 참가" ]
+      }
+    },
+    "/api/public/events/{slug}/sessions" : {
+      "post" : {
+        "description" : "RESTRICTED 세션을 준다 — 필수 동의 뒤에 ACTIVE 가 되고, 그때부터 회차·업로드·합성을 할 수 있다.\n토큰은 이후 모든 참가자 API 에 `X-Participant-Token` 헤더로 보낸다(쿠키가 아니다).\n",
+        "operationId" : "createSession",
+        "parameters" : [ {
+          "description" : "행사 slug",
+          "example" : "wedding-1027",
+          "in" : "path",
+          "name" : "slug",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SessionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseSessionResponse"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "EVENT-002" : {
+                    "summary" : "EVENT-002 — 개인 휴대폰 참가를 허용하지 않는 행사",
+                    "value" : {
+                      "code" : "EVENT-002",
+                      "message" : "This participation channel is not allowed for the event.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `EVENT-002` — 개인 휴대폰 참가를 허용하지 않는 행사 _(This participation channel is not allowed for the event.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 행사이거나 게시 전",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 행사이거나 게시 전 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "EVENT-001" : {
+                    "summary" : "EVENT-001 — 지금 촬영할 수 없는 행사",
+                    "value" : {
+                      "code" : "EVENT-001",
+                      "message" : "The event is not open for capture.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `EVENT-001` — 지금 촬영할 수 없는 행사 _(The event is not open for capture.)_"
+          },
+          "429" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-061" : {
+                    "summary" : "GEN-061 — 요청이 너무 잦다",
+                    "value" : {
+                      "code" : "GEN-061",
+                      "message" : "Too many requests.",
+                      "status" : 429
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-061` — 요청이 너무 잦다 _(Too many requests.)_"
+          }
+        },
+        "summary" : "개인 휴대폰 참가 세션 발급",
+        "tags" : [ "행사 참가" ]
+      }
+    },
+    "/api/public/results" : {
+      "get" : {
+        "description" : "`Authorization: Bearer <resultToken>` 으로만 받는다 — 경로·쿼리에 토큰을 싣지 않는다.\n첫 조회로 소모하지 않는다(여러 명이 같은 QR 을 스캔한다). 응답은 캐시되지 않고 리퍼러를 보내지 않는다.\n",
+        "operationId" : "status",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseResultStatusResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "RESULT-001" : {
+                    "summary" : "RESULT-001 — 결과 토큰이 없거나 틀림 / 토큰이 없거나 무효·회수",
+                    "value" : {
+                      "code" : "RESULT-001",
+                      "message" : "The result token is invalid or revoked.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `RESULT-001` — 결과 토큰이 없거나 틀림 / 토큰이 없거나 무효·회수 _(The result token is invalid or revoked.)_"
+          }
+        },
+        "security" : [ {
+          "resultAccess" : [ ]
+        } ],
+        "summary" : "결과 상태",
+        "tags" : [ "행사 결과 수령" ]
+      }
+    },
+    "/api/public/results/download" : {
+      "post" : {
+        "description" : "짧은 GET URL(기본 5분). 요청할 때마다 보관·상태를 다시 본다.",
+        "operationId" : "download",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseDownloadUrlResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "RESULT-001" : {
+                    "summary" : "RESULT-001 — 결과 토큰이 없거나 틀림 / 토큰이 없거나 무효·회수",
+                    "value" : {
+                      "code" : "RESULT-001",
+                      "message" : "The result token is invalid or revoked.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `RESULT-001` — 결과 토큰이 없거나 틀림 / 토큰이 없거나 무효·회수 _(The result token is invalid or revoked.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "RESULT-003" : {
+                    "summary" : "RESULT-003 — 아직 준비되지 않았다",
+                    "value" : {
+                      "code" : "RESULT-003",
+                      "message" : "The result is not ready yet.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `RESULT-003` — 아직 준비되지 않았다 _(The result is not ready yet.)_"
+          },
+          "410" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "RESULT-002" : {
+                    "summary" : "RESULT-002 — 보관 기한이 지났다",
+                    "value" : {
+                      "code" : "RESULT-002",
+                      "message" : "The result retention period has ended.",
+                      "status" : 410
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `RESULT-002` — 보관 기한이 지났다 _(The result retention period has ended.)_"
+          }
+        },
+        "security" : [ {
+          "resultAccess" : [ ]
+        } ],
+        "summary" : "다운로드 URL",
+        "tags" : [ "행사 결과 수령" ]
       }
     },
     "/api/terms" : {
@@ -14450,6 +16674,12 @@
   }, {
     "description" : "운영자(조직 공간 OWNER·ADMIN) — 행사 만들기·설정·게시·일시중지·촬영 종료",
     "name" : "행사 운영"
+  }, {
+    "description" : "로그인 없는 참가자 — 행사 조회 → 세션 → 동의 → 회차 → 촬영 업로드 → 합성 → 결과 토큰. 자격은 `X-Participant-Token` 헤더",
+    "name" : "행사 참가"
+  }, {
+    "description" : "결과 링크(`/r#<token>`)로 여는 결과 상태·다운로드. 자격은 Bearer 결과 토큰",
+    "name" : "행사 결과 수령"
   }, {
     "description" : "공통 이미지 자산 — 업로드 의도 → S3 PUT → 완료 검증. VERIFIED 만 프레임에 쓴다",
     "name" : "자산"

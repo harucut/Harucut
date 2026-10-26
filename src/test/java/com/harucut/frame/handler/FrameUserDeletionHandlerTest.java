@@ -1,5 +1,6 @@
 package com.harucut.frame.handler;
 
+import com.harucut.draft.service.FrameDraftCleaner;
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.repository.FrameRepository;
 import com.harucut.frame.service.FrameVersionCleaner;
@@ -32,6 +33,9 @@ class FrameUserDeletionHandlerTest {
     @Mock
     private FrameVersionCleaner frameVersionCleaner;
 
+    @Mock
+    private FrameDraftCleaner frameDraftCleaner;
+
     @InjectMocks
     private FrameUserDeletionHandler handler;
 
@@ -58,6 +62,21 @@ class FrameUserDeletionHandlerTest {
 
         InOrder order = inOrder(frameRepository);
         order.verify(frameRepository).deleteComponentsByUserId(1L);
+        order.verify(frameRepository).deleteByUserId(1L);
+    }
+
+    @Test
+    @DisplayName("발행본·초안이 프레임보다 먼저 지워진다(FK) — 새 프레임 초안까지 사용자 기준으로")
+    void deletesVersionsAndDraftsBeforeFrames() {
+        Frame frame = mock(Frame.class);
+        given(frame.getId()).willReturn(7L);
+        given(frameRepository.findAllWithComponentsByUserId(1L)).willReturn(List.of(frame));
+
+        handler.handleUserDeletion(1L);
+
+        InOrder order = inOrder(frameVersionCleaner, frameDraftCleaner, frameRepository);
+        order.verify(frameVersionCleaner).deleteForFrames(List.of(7L));
+        order.verify(frameDraftCleaner).deleteForUser(1L);
         order.verify(frameRepository).deleteByUserId(1L);
     }
 }

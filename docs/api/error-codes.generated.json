@@ -119,6 +119,14 @@
   "status" : 409,
   "message" : "Coupons cannot be used on an unlimited subscription."
 }, {
+  "code" : "DRAFT-001",
+  "status" : 409,
+  "message" : "The draft was saved from another device."
+}, {
+  "code" : "DRAFT-002",
+  "status" : 413,
+  "message" : "The draft document is too large."
+}, {
   "code" : "FRAME-001",
   "status" : 404,
   "message" : "The requested system frame does not exist."

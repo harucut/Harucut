@@ -37,6 +37,11 @@
             "format" : "int32",
             "type" : "integer"
           },
+          "key" : {
+            "description" : "S3 key. 편집기 컴포넌트의 `source`(배경은 `key`)에 이 값을 넣고 `assetId` 도 함께 보낸다 —\n서버는 assetId 로 key 를 정하므로 둘이 같으면 그대로 통과한다.",
+            "example" : "uploads/users/AbCdEf12Gh/assets/As8kLm2Pq9Xz.png",
+            "type" : "string"
+          },
           "purpose" : {
             "description" : "용도",
             "enum" : [ "FRAME_ASSET", "TEXT_RENDER", "PAGE_THEME_ASSET", "PROFILE", "CAPTURE_INPUT" ],
@@ -614,6 +619,91 @@
         "required" : [ "displayName" ],
         "type" : "object"
       },
+      "DraftCreateRequest" : {
+        "description" : "서버 초안 생성",
+        "properties" : {
+          "assetIds" : {
+            "description" : "document 가 쓰는 자산 id 목록. 서버가 문서를 해석하지 않으므로 이 목록이 \"아직 쓰는 자산\"의 근거다 —\n빠뜨리면 미참조 자산 정리 배치가 지울 수 있다. 이 공간의 VERIFIED 자산이어야 한다(아니면 400 `FRAME-005`).",
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "document" : {
+            "$ref" : "#/components/schemas/JsonNode",
+            "description" : "편집기 문서. 서버는 해석하지 않는다. 직렬화 256KB 이하(넘으면 413 `DRAFT-002`).\n사진·배경을 dataURL 로 넣지 말고 자산을 먼저 올린 뒤 assetId 로 참조한다."
+          },
+          "frameId" : {
+            "description" : "이 초안의 프레임 ID. 생략하면 새 프레임 초안",
+            "example" : 7,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "workspaceId" : {
+            "description" : "공간 public id. 생략하면 개인 공간",
+            "example" : "Ws1aB2cD3eF4",
+            "type" : "string"
+          }
+        },
+        "required" : [ "document" ],
+        "type" : "object"
+      },
+      "DraftResponse" : {
+        "description" : "서버 초안",
+        "properties" : {
+          "document" : {
+            "$ref" : "#/components/schemas/JsonNode",
+            "description" : "편집기 문서 — 목록 조회에서는 빠진다"
+          },
+          "draftId" : {
+            "description" : "초안 public id",
+            "example" : "Dr3nQ7wE1tYu",
+            "type" : "string"
+          },
+          "frameId" : {
+            "description" : "프레임 ID. 새 프레임 초안이면 null",
+            "example" : 7,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "revision" : {
+            "description" : "다음 저장에 그대로 보낼 revision",
+            "example" : 4,
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "updatedAt" : {
+            "description" : "마지막 저장 시각",
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "DraftUpdateRequest" : {
+        "description" : "서버 초안 저장",
+        "properties" : {
+          "assetIds" : {
+            "description" : "document 가 쓰는 자산 id 목록 — 이번 저장의 목록으로 통째로 바뀐다",
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "document" : {
+            "$ref" : "#/components/schemas/JsonNode",
+            "description" : "편집기 문서 전체(부분 저장 아님)"
+          },
+          "revision" : {
+            "description" : "마지막으로 받은 revision. 서버와 다르면 409 `DRAFT-001`",
+            "example" : 3,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "document", "revision" ],
+        "type" : "object"
+      },
       "EditPolicy" : {
         "properties" : {
           "mode" : {
@@ -929,6 +1019,85 @@
           },
           "type" : "object"
         } ]
+      },
+      "JsonNode" : {
+        "properties" : {
+          "array" : {
+            "type" : "boolean"
+          },
+          "bigDecimal" : {
+            "type" : "boolean"
+          },
+          "bigInteger" : {
+            "type" : "boolean"
+          },
+          "binary" : {
+            "type" : "boolean"
+          },
+          "boolean" : {
+            "type" : "boolean"
+          },
+          "container" : {
+            "type" : "boolean"
+          },
+          "double" : {
+            "type" : "boolean"
+          },
+          "embeddedValue" : {
+            "type" : "boolean"
+          },
+          "empty" : {
+            "type" : "boolean"
+          },
+          "float" : {
+            "type" : "boolean"
+          },
+          "floatingPointNumber" : {
+            "type" : "boolean"
+          },
+          "int" : {
+            "type" : "boolean"
+          },
+          "integralNumber" : {
+            "type" : "boolean"
+          },
+          "long" : {
+            "type" : "boolean"
+          },
+          "missingNode" : {
+            "type" : "boolean"
+          },
+          "nodeType" : {
+            "enum" : [ "ARRAY", "BINARY", "BOOLEAN", "MISSING", "NULL", "NUMBER", "OBJECT", "POJO", "STRING" ],
+            "type" : "string"
+          },
+          "null" : {
+            "type" : "boolean"
+          },
+          "number" : {
+            "type" : "boolean"
+          },
+          "object" : {
+            "type" : "boolean"
+          },
+          "pojo" : {
+            "type" : "boolean"
+          },
+          "short" : {
+            "type" : "boolean"
+          },
+          "string" : {
+            "type" : "boolean"
+          },
+          "textual" : {
+            "deprecated" : true,
+            "type" : "boolean"
+          },
+          "valueNode" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
       },
       "Layer" : {
         "properties" : {
@@ -1622,6 +1791,31 @@
         },
         "type" : "object"
       },
+      "ResponseDraftResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/DraftResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseFrameResponse" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -1684,6 +1878,34 @@
             "description" : "응답 본문. 없으면 키 자체가 없다",
             "items" : {
               "$ref" : "#/components/schemas/CouponAdminResponse"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseListDraftResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "description" : "응답 본문. 없으면 키 자체가 없다",
+            "items" : {
+              "$ref" : "#/components/schemas/DraftResponse"
             },
             "type" : "array"
           },
@@ -3119,7 +3341,7 @@
       },
       "post" : {
         "description" : "만들자마자 활성 상태다.\n\n⚠️ **만든 뒤에는 아무것도 고칠 수 없다.** 이름·상한·마감일 수정 API 가 없고,\n삭제도 없다. 잘못 만들었으면 비활성화하고 새로 발행하는 수밖에 없다.\n\n`code` 는 대문자로 정규화해 저장한다. 소문자로 만들어도 대문자가 되고,\n사용자는 대소문자 아무렇게나 입력해도 찾힌다.\n\n부여 기간은 **1개월 고정**이라 요청에 넣는 자리가 없다.\n",
-        "operationId" : "create",
+        "operationId" : "create_1",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -5593,7 +5815,7 @@
     "/api/auth/assets/{assetId}" : {
       "get" : {
         "description" : "VERIFIED 면 짧은 GET URL(기본 5분)이 실린다.",
-        "operationId" : "get_2",
+        "operationId" : "get_3",
         "parameters" : [ {
           "description" : "자산 public id",
           "example" : "As8kLm2Pq9Xz",
@@ -7887,6 +8109,685 @@
         "tags" : [ "프레임" ]
       }
     },
+    "/api/auth/user/frame-drafts" : {
+      "get" : {
+        "description" : "최근 저장 순. `document` 는 빠진다.",
+        "operationId" : "list_1",
+        "parameters" : [ {
+          "description" : "숫자면 그 프레임의 초안, `new` 면 새 프레임 초안만, 생략하면 전부",
+          "example" : "new",
+          "in" : "query",
+          "name" : "frameId",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseListDraftResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-005" : {
+                    "summary" : "GEN-005 — frameId 가 숫자도 new 도 아니다",
+                    "value" : {
+                      "code" : "GEN-005",
+                      "message" : "Type mismatch error.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-005` — frameId 가 숫자도 new 도 아니다 _(Type mismatch error.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "내 초안 목록",
+        "tags" : [ "프레임 초안" ]
+      },
+      "post" : {
+        "description" : "revision 1 로 시작한다. 이후 저장은 PUT 에 마지막 revision 을 보낸다.",
+        "operationId" : "create",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/DraftCreateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseDraftResponse"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "FRAME-005" : {
+                    "summary" : "FRAME-005 — assetIds 에 쓸 수 없는 자산(남의 것·미검증)",
+                    "value" : {
+                      "code" : "FRAME-005",
+                      "message" : "The referenced asset cannot be used in this frame.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `FRAME-005` — assetIds 에 쓸 수 없는 자산(남의 것·미검증) _(The referenced asset cannot be used in this frame.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — frameId·workspaceId 가 없거나 내 것이 아님",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — frameId·workspaceId 가 없거나 내 것이 아님 _(Resource not found.)_"
+          },
+          "413" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "DRAFT-002" : {
+                    "summary" : "DRAFT-002 — 문서가 256KB 를 넘는다",
+                    "value" : {
+                      "code" : "DRAFT-002",
+                      "message" : "The draft document is too large.",
+                      "status" : 413
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `DRAFT-002` — 문서가 256KB 를 넘는다 _(The draft document is too large.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "초안 만들기",
+        "tags" : [ "프레임 초안" ]
+      }
+    },
+    "/api/auth/user/frame-drafts/{draftId}" : {
+      "delete" : {
+        "description" : "없거나 이미 지운 초안은 404 다.",
+        "operationId" : "delete",
+        "parameters" : [ {
+          "description" : "초안 public id",
+          "in" : "path",
+          "name" : "draftId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 초안이거나 내 것이 아님",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 초안이거나 내 것이 아님 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "초안 삭제",
+        "tags" : [ "프레임 초안" ]
+      },
+      "get" : {
+        "operationId" : "get",
+        "parameters" : [ {
+          "description" : "초안 public id",
+          "in" : "path",
+          "name" : "draftId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseDraftResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 초안이거나 내 것이 아님",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 초안이거나 내 것이 아님 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "초안 하나",
+        "tags" : [ "프레임 초안" ]
+      },
+      "put" : {
+        "description" : "`revision` 이 서버와 같을 때만 저장하고 1 올린다. 다르면 **409 `DRAFT-001`** 이고\n`data` 에 서버의 `{ revision, updatedAt }` 이 실린다 — 다시 불러오거나 그 revision 으로 덮어쓴다.\n",
+        "operationId" : "update",
+        "parameters" : [ {
+          "description" : "초안 public id",
+          "in" : "path",
+          "name" : "draftId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/DraftUpdateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseDraftResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "FRAME-005" : {
+                    "summary" : "FRAME-005 — assetIds 에 쓸 수 없는 자산",
+                    "value" : {
+                      "code" : "FRAME-005",
+                      "message" : "The referenced asset cannot be used in this frame.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `FRAME-005` — assetIds 에 쓸 수 없는 자산 _(The referenced asset cannot be used in this frame.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 초안이거나 내 것이 아님",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 초안이거나 내 것이 아님 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "DRAFT-001" : {
+                    "summary" : "DRAFT-001 — 다른 기기가 먼저 저장했다",
+                    "value" : {
+                      "code" : "DRAFT-001",
+                      "message" : "The draft was saved from another device.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `DRAFT-001` — 다른 기기가 먼저 저장했다 _(The draft was saved from another device.)_"
+          },
+          "413" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "DRAFT-002" : {
+                    "summary" : "DRAFT-002 — 문서가 256KB 를 넘는다",
+                    "value" : {
+                      "code" : "DRAFT-002",
+                      "message" : "The draft document is too large.",
+                      "status" : 413
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `DRAFT-002` — 문서가 256KB 를 넘는다 _(The draft document is too large.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "초안 저장",
+        "tags" : [ "프레임 초안" ]
+      }
+    },
     "/api/auth/user/frame/{frameId}" : {
       "delete" : {
         "description" : "프레임과 컴포넌트, 그리고 딸린 S3 이미지(프리뷰·배경·사진·구운 텍스트)를 함께 지운다.\n**되돌릴 수 없다.**\n\n조회·수정과 달리 **소유권만 본다.** 보관 기간이나 한도 때문에 목록에서 안 보이는 프레임도\n삭제는 된다 — 안 보인다고 정리조차 못 하면 곤란하기 때문이다.\n",
@@ -8562,7 +9463,7 @@
     "/api/auth/user/frame/{frameId}/versions/{versionNo}" : {
       "get" : {
         "description" : "`spec` 의 자산 `url` 은 짧은 GET URL(기본 5분)이다.",
-        "operationId" : "get_1",
+        "operationId" : "get_2",
         "parameters" : [ {
           "description" : "프레임 ID",
           "example" : 7,
@@ -11677,7 +12578,7 @@
     },
     "/fixture/plain" : {
       "get" : {
-        "operationId" : "get",
+        "operationId" : "get_1",
         "responses" : {
           "200" : {
             "content" : {
@@ -12056,6 +12957,9 @@
   }, {
     "description" : "네컷 사진의 틀. 만들고 저장하고 불러온다",
     "name" : "프레임"
+  }, {
+    "description" : "편집기 문서의 서버 초안. revision 이 같을 때만 저장된다",
+    "name" : "프레임 초안"
   }, {
     "description" : "원본 사진 + 프레임 → 완성 이미지. 접수(202) 후 폴링한다",
     "name" : "네컷 합성"

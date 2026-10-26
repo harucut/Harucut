@@ -92,7 +92,7 @@ class AssetControllerTest extends SecurityBeansMockSupport {
     @DisplayName("검증에 실패하면 422 + 그 코드, 본문 data 에 REJECTED 자산이 실린다")
     void rejectedComplete() {
         AssetResponse rejected = new AssetResponse("As8kLm2Pq9Xz", AssetPurpose.FRAME_ASSET, AssetStatus.REJECTED,
-                "image/png", null, null, null, "ASSET-003", null, null);
+                "image/png", "uploads/users/x/assets/As8kLm2Pq9Xz.png", null, null, null, "ASSET-003", null, null);
         given(assetService.complete(PUBLIC_ID, "As8kLm2Pq9Xz"))
                 .willReturn(new AssetService.CompleteResult(rejected, AssetErrorCode.INVALID_IMAGE));
 
@@ -107,7 +107,7 @@ class AssetControllerTest extends SecurityBeansMockSupport {
     @DisplayName("검증에 성공하면 200 과 VERIFIED")
     void verifiedComplete() {
         AssetResponse verified = new AssetResponse("As8kLm2Pq9Xz", AssetPurpose.FRAME_ASSET, AssetStatus.VERIFIED,
-                "image/png", 2048L, 64, 32, null, "https://s3/get", Instant.parse("2026-10-26T01:05:00Z"));
+                "image/png", "uploads/users/x/assets/As8kLm2Pq9Xz.png", 2048L, 64, 32, null, "https://s3/get", Instant.parse("2026-10-26T01:05:00Z"));
         given(assetService.complete(PUBLIC_ID, "As8kLm2Pq9Xz"))
                 .willReturn(new AssetService.CompleteResult(verified, null));
 
@@ -115,7 +115,8 @@ class AssetControllerTest extends SecurityBeansMockSupport {
                 .hasStatusOk()
                 .bodyJson()
                 .hasPathSatisfying("$.data.status", v -> assertThat(v).isEqualTo("VERIFIED"))
-                .hasPathSatisfying("$.data.width", v -> assertThat(v).isEqualTo(64));
+                .hasPathSatisfying("$.data.width", v -> assertThat(v).isEqualTo(64))
+                .hasPathSatisfying("$.data.key", v -> assertThat(v).isEqualTo("uploads/users/x/assets/As8kLm2Pq9Xz.png"));
     }
 
     @Test

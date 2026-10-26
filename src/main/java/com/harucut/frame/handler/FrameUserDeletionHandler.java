@@ -1,6 +1,7 @@
 package com.harucut.frame.handler;
 
 import com.harucut.auth.service.UserDeletionHandler;
+import com.harucut.draft.service.FrameDraftCleaner;
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.repository.FrameRepository;
 import com.harucut.frame.service.FrameComponentAssembler;
@@ -18,6 +19,7 @@ public class FrameUserDeletionHandler implements UserDeletionHandler {
     private final FrameRepository frameRepository;
     private final FrameComponentAssembler frameComponentAssembler;
     private final FrameVersionCleaner frameVersionCleaner;
+    private final FrameDraftCleaner frameDraftCleaner;
 
     // JPQL 벌크 DELETE는 cascade/orphanRemoval을 우회하므로 컴포넌트를 직접, 먼저 지운다 (FK)
     @Transactional
@@ -31,6 +33,7 @@ public class FrameUserDeletionHandler implements UserDeletionHandler {
         // 자산이 된 key 는 건너뛴다 — 개인 공간 자산은 탈퇴 마지막 단계(WorkspaceService)가 한꺼번에 지운다
         frameComponentAssembler.scheduleDeletion(keys);
         frameVersionCleaner.deleteForFrames(frames.stream().map(Frame::getId).toList());
+        frameDraftCleaner.deleteForUser(userId);   // 새 프레임 초안(frame_id NULL)까지 — 프레임보다 먼저(FK)
         frameRepository.deleteComponentsByUserId(userId);
         frameRepository.deleteByUserId(userId);
     }

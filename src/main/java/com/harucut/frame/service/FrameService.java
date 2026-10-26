@@ -2,6 +2,7 @@ package com.harucut.frame.service;
 
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.draft.service.FrameDraftCleaner;
 import com.harucut.frame.dto.FrameCreateRequest;
 import com.harucut.frame.dto.FrameResponse;
 import com.harucut.frame.entity.Frame;
@@ -30,6 +31,7 @@ public class FrameService {
     private final FrameSubscriptionPolicy frameSubscriptionPolicy;
     private final WorkspaceService workspaceService;
     private final FrameVersionCleaner frameVersionCleaner;
+    private final FrameDraftCleaner frameDraftCleaner;
 
     public FrameResponse createFrame(String publicId, FrameCreateRequest request) {
         User user = getUser(publicId);
@@ -98,7 +100,8 @@ public class FrameService {
         validateOwner(frame, user);   // 삭제는 소유권만 — 숨겨진 프레임도 정리는 가능해야 한다
 
         frameComponentAssembler.scheduleDeletion(frameComponentAssembler.collectAllKeys(frame));
-        frameVersionCleaner.deleteForFrames(List.of(frame.getId()));   // 발행본이 프레임을 FK 로 참조한다
+        frameVersionCleaner.deleteForFrames(List.of(frame.getId()));   // 발행본·초안이 프레임을 FK 로 참조한다
+        frameDraftCleaner.deleteForFrames(List.of(frame.getId()));
         frameRepository.delete(frame);   // 컴포넌트는 cascade + orphanRemoval
     }
 

@@ -1,6 +1,7 @@
 package com.harucut.frame.service;
 
 import com.harucut.common.exception.BusinessException;
+import com.harucut.draft.service.FrameDraftCleaner;
 import com.harucut.frame.dto.FrameCreateRequest;
 import com.harucut.frame.dto.FrameResponse;
 import com.harucut.frame.entity.Frame;
@@ -22,6 +23,7 @@ public class FrameAdminService {
 
     private final FrameRepository frameRepository;
     private final FrameVersionCleaner frameVersionCleaner;
+    private final FrameDraftCleaner frameDraftCleaner;
     private final FrameComponentAssembler frameComponentAssembler;
 
     public FrameResponse createSystemFrame(FrameCreateRequest request) {
@@ -41,6 +43,7 @@ public class FrameAdminService {
         Frame frame = findSystemFrame(frameId);
         frameComponentAssembler.scheduleDeletion(frameComponentAssembler.collectAllKeys(frame));
         frameVersionCleaner.deleteForFrames(List.of(frame.getId()));
+        frameDraftCleaner.deleteForFrames(List.of(frame.getId()));
         frameRepository.delete(frame);
     }
 

@@ -1,6 +1,7 @@
 package com.harucut.frame.service;
 
 import com.harucut.common.exception.BusinessException;
+import com.harucut.draft.service.FrameDraftCleaner;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.dto.FrameCreateRequest;
 import com.harucut.frame.dto.FrameResponse;
@@ -46,13 +47,16 @@ class FrameAdminServiceTest {
     private FrameVersionCleaner frameVersionCleaner;
 
     @Mock
+    private FrameDraftCleaner frameDraftCleaner;
+
+    @Mock
     private FrameComponentAssembler frameComponentAssembler;
 
     private FrameAdminService adminService;
 
     @BeforeEach
     void setUp() {
-        adminService = new FrameAdminService(frameRepository, frameVersionCleaner, frameComponentAssembler);
+        adminService = new FrameAdminService(frameRepository, frameVersionCleaner, frameDraftCleaner, frameComponentAssembler);
     }
 
     @Test

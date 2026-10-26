@@ -46,6 +46,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,6 +63,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -107,6 +109,7 @@ class ExportIntegrationTest {
     @Autowired private EntityManager entityManager;
     @Autowired private EntitlementRepository entitlementRepository;
     @Autowired private WorkspaceRepository workspaceRepository;
+    @Autowired private JdbcTemplate jdbcTemplate;
 
     @MockitoBean private FileStorageService fileStorageService;
     @MockitoBean private S3Deleter s3Deleter;
@@ -246,9 +249,12 @@ class ExportIntegrationTest {
     void recoveryDeletesObjectOfRunningExport() {
         ExportDtos.Export running = exportService.create(owner.getPublicId(), event.getPublicId(), new ExportDtos.ExportRequest(null, null));
         Long runningId = id(running);
-        exportJobRepository.claim(runningId);   // 업로드 완료 뒤 DONE 기록 전에 멈춘 상태
+        exportJobRepository.claim(runningId, LocalDateTime.now());   // 업로드 완료 뒤 DONE 기록 전에 멈춘 상태
         String key = exportJobRepository.findById(runningId).orElseThrow().getS3Key();
         entityManager.flush();
+        // 오래 멈춰 있다가 복구되는 경우 — 만든 지(그리고 마지막 갱신이) 3일 지났어도 재삭제 대상이어야 한다
+        jdbcTemplate.update("update export_job set created_at = ?, updated_at = ? where export_job_id = ?",
+                LocalDateTime.now().minusDays(3), LocalDateTime.now().minusDays(3), runningId);
         entityManager.clear();
 
         exportWorker.recover();

@@ -88,7 +88,7 @@ public class ExportWorker {
 
     /** 묶음 하나를 만든다. 이미 누가 선점했거나 무효가 됐으면 아무것도 하지 않는다 */
     public void run(Long exportJobId) {
-        Boolean claimed = transaction.execute(status -> exportJobRepository.claim(exportJobId) == 1);
+        Boolean claimed = transaction.execute(status -> exportJobRepository.claim(exportJobId, LocalDateTime.now(clock)) == 1);
         if (!Boolean.TRUE.equals(claimed)) {
             return;
         }
@@ -122,7 +122,7 @@ public class ExportWorker {
             uploaded = true;
             long size = counted.count;
             Boolean completed = transaction.execute(status ->
-                    exportJobRepository.complete(exportJobId, size, LocalDateTime.now(clock).plus(ttl)) == 1);
+                    exportJobRepository.complete(exportJobId, size, LocalDateTime.now(clock).plus(ttl), LocalDateTime.now(clock)) == 1);
             if (!Boolean.TRUE.equals(completed)) {
                 // 압축하는 동안 무효가 됐다(사진 삭제 등) — 방금 올린 객체를 지운다
                 fileStorageService.delete(export.getS3Key());
@@ -140,7 +140,7 @@ public class ExportWorker {
                 }
             }
             String reason = e.getClass().getSimpleName();
-            transaction.executeWithoutResult(status -> exportJobRepository.fail(exportJobId, reason));
+            transaction.executeWithoutResult(status -> exportJobRepository.fail(exportJobId, reason, LocalDateTime.now(clock)));
         }
     }
 
@@ -151,7 +151,7 @@ public class ExportWorker {
     public void recover() {
         transaction.executeWithoutResult(status -> exportJobRepository.findAllByStatus(ExportStatus.RUNNING)
                 .forEach(export -> {
-                    if (exportJobRepository.fail(export.getId(), "SERVER_RESTARTED") == 1) {
+                    if (exportJobRepository.fail(export.getId(), "SERVER_RESTARTED", LocalDateTime.now(clock)) == 1) {
                         s3Deleter.deleteAfterCommit(List.of(export.getS3Key()));
                     }
                 }));
@@ -165,7 +165,7 @@ public class ExportWorker {
         transaction.executeWithoutResult(status -> exportJobRepository
                 .findAllByStatusAndExpiresAtBefore(ExportStatus.DONE, LocalDateTime.now(clock))
                 .forEach(export -> {
-                    if (exportJobRepository.expire(export.getId()) == 1) {
+                    if (exportJobRepository.expire(export.getId(), LocalDateTime.now(clock)) == 1) {
                         s3Deleter.deleteAfterCommit(List.of(export.getS3Key()));
                     }
                 }));

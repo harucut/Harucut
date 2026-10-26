@@ -104,9 +104,11 @@ public class EventRetentionService {
                 List<ComposeJob> jobs = composeJobRepository.findPurgeable(event.getId(), cutoff, PageRequest.of(0, batchSize));
                 LocalDateTime now = now();
                 for (ComposeJob job : jobs) {
-                    job.markPurged(now);
-                    s3Deleter.deleteAfterCommit(List.of(job.getResultKey(), ComposeService.thumbnailKeyFor(job)));
-                    exportService.invalidateContaining(job.getId());
+                    // purged_at 만 원자적으로 — 엔티티를 고쳐 저장하면 그사이 커밋된 삭제 요청(deleted_at)을 덮는다
+                    if (composeJobRepository.markPurged(job.getId(), now) == 1) {
+                        s3Deleter.deleteAfterCommit(List.of(job.getResultKey(), ComposeService.thumbnailKeyFor(job)));
+                        exportService.invalidateContaining(job.getId());
+                    }
                 }
                 return jobs.size();
             });

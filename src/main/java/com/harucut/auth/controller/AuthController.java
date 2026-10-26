@@ -1,9 +1,11 @@
 package com.harucut.auth.controller;
 
+import com.harucut.auth.dto.AppLoginExchangeRequest;
 import com.harucut.auth.dto.LoginRequest;
 import com.harucut.auth.dto.LoginResponse;
 import com.harucut.auth.dto.LoginResult;
 import com.harucut.auth.dto.RegisterRequest;
+import com.harucut.auth.oauth2.app.AppLoginService;
 import com.harucut.auth.service.LoginService;
 import com.harucut.auth.service.RegisterService;
 import com.harucut.common.response.Response;
@@ -27,6 +29,7 @@ public class AuthController {
 
     private final RegisterService registerService;
     private final LoginService loginService;
+    private final AppLoginService appLoginService;
 
     @Operation(
             summary = "이메일 회원가입",
@@ -66,6 +69,34 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<Response<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
         LoginResult result = loginService.login(request);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, result.accessTokenCookie().toString())
+                .header(HttpHeaders.SET_COOKIE, result.refreshTokenCookie().toString())
+                .body(Response.ok(new LoginResponse(result.userStatus())));
+    }
+
+    @Operation(
+            summary = "앱 로그인 코드 교환",
+            description = """
+                    앱 셸이 시스템 브라우저(Custom Tabs·ASWebAuthenticationSession)로 소셜 로그인을 한 뒤, 받은 일회용 코드를 **WebView 안에서**
+                    세션 쿠키로 바꾼다. 응답은 이메일 로그인과 **같은 쿠키·같은 본문**이다.
+
+                    흐름:
+                    1. 셸이 PKCE verifier 를 만들고 `/oauth2/authorization/{provider}?client=app&code_challenge=<S256>` 를 시스템 브라우저로 연다
+                       (`code_challenge_method` 는 없거나 `S256`).
+                    2. 로그인이 끝나면 서버가 `harucut://oauth2/callback?code=...` 로 돌려보낸다. PKCE 값이 없거나 모양이 틀리면 `?error=invalid_request`,
+                       소셜 인증 실패·취소는 `?error=oauth2`.
+                    3. 셸이 WebView 안에서 이 API 를 `code`·`codeVerifier` 와 함께 부른다.
+
+                    코드는 60초·1회용이고 검증값이 틀려도 소모된다.
+                    """)
+    @ApiErrors({
+            "AUTH-041: 코드가 없거나 만료·사용됐거나 PKCE 검증값이 맞지 않음"
+    })
+    @PostMapping("/oauth2/exchange")
+    public ResponseEntity<Response<LoginResponse>> exchange(@Valid @RequestBody AppLoginExchangeRequest request) {
+        LoginResult result = appLoginService.exchange(request.code(), request.codeVerifier());
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, result.accessTokenCookie().toString())

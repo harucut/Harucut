@@ -79,6 +79,10 @@
   "status" : 429,
   "message" : "Too many verification requests."
 }, {
+  "code" : "AUTH-041",
+  "status" : 400,
+  "message" : "The app login code is invalid or expired."
+}, {
   "code" : "AUTH-090",
   "status" : 500,
   "message" : "Failed to send verification email."

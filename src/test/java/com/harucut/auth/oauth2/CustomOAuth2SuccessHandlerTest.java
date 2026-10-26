@@ -3,6 +3,8 @@ package com.harucut.auth.oauth2;
 import com.harucut.auth.cookie.CookieManager;
 import com.harucut.auth.cookie.CookieProperties;
 import com.harucut.auth.jwt.IssuedToken;
+import com.harucut.auth.oauth2.app.AppLoginFixtures;
+import com.harucut.auth.oauth2.app.AppLoginService;
 import com.harucut.auth.security.AuthenticatedUser;
 import com.harucut.auth.service.JwtTokenService;
 import com.harucut.auth.service.RefreshTokenService;
@@ -33,6 +35,8 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.then;
 
 @ExtendWith(MockitoExtension.class)
@@ -41,6 +45,7 @@ class CustomOAuth2SuccessHandlerTest {
 
     private static final String FRONTEND_URL = "http://localhost:5173";
     private static final String PUBLIC_ID = "abc123456789";
+    private static final String APP_CALLBACK = "harucut://oauth2/callback";
 
     private static final IssuedToken ACCESS = new IssuedToken("access-token-value", Duration.ofMinutes(30));
     private static final IssuedToken REFRESH = new IssuedToken("refresh-token-value", Duration.ofDays(14));
@@ -50,6 +55,9 @@ class CustomOAuth2SuccessHandlerTest {
 
     @Mock
     private RefreshTokenService refreshTokenService;
+
+    @Mock
+    private AppLoginService appLoginService;
 
     private CustomOAuth2SuccessHandler handler;
     private MockHttpServletRequest request;
@@ -61,7 +69,9 @@ class CustomOAuth2SuccessHandlerTest {
                 jwtTokenService,
                 refreshTokenService,
                 new CookieManager(new CookieProperties("localhost", false, "Lax")),
-                FRONTEND_URL);
+                appLoginService,
+                FRONTEND_URL,
+                APP_CALLBACK);
         request = new MockHttpServletRequest();
         response = new MockHttpServletResponse();
     }
@@ -163,6 +173,34 @@ class CustomOAuth2SuccessHandlerTest {
 
         assertThat(response.getRedirectedUrl()).isEqualTo(FRONTEND_URL + "/oauth2/callback");
         then(refreshTokenService).should().save(PUBLIC_ID, REFRESH);
+    }
+
+    @Nested
+    @DisplayName("앱 로그인(client=app)")
+    class AppLogin {
+
+        @Test
+        @DisplayName("쿠키 없이 일회용 코드를 앱 스킴으로 — 시스템 브라우저의 쿠키는 WebView 로 넘어가지 않는다")
+        void redirectsWithCode() throws IOException {
+            given(appLoginService.issue(PUBLIC_ID, AppLoginFixtures.CHALLENGE)).willReturn("one-time");
+            MockHttpServletRequest callback = AppLoginFixtures.callback(Map.of("client", "app", "code_challenge", AppLoginFixtures.CHALLENGE));
+
+            handler.onAuthenticationSuccess(callback, response, authentication(oidcUser()));
+
+            assertThat(response.getRedirectedUrl()).isEqualTo(APP_CALLBACK + "?code=one-time");
+            assertThat(response.getHeaders(HttpHeaders.SET_COOKIE)).isEmpty();
+            then(refreshTokenService).should(never()).save(any(), any());
+        }
+
+        @Test
+        @DisplayName("PKCE 값이 없으면 코드를 주지 않고 error=invalid_request")
+        void noChallenge() throws IOException {
+            handler.onAuthenticationSuccess(AppLoginFixtures.callback(Map.of("client", "app")), response, authentication(oAuth2User()));
+
+            assertThat(response.getRedirectedUrl()).isEqualTo(APP_CALLBACK + "?error=invalid_request");
+            then(appLoginService).should(never()).issue(any(), any());
+            assertThat(response.getHeaders(HttpHeaders.SET_COOKIE)).isEmpty();
+        }
     }
 
     private void givenTokens() {

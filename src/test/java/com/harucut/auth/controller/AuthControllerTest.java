@@ -6,6 +6,7 @@ import com.harucut.auth.dto.RegisterRequest;
 import com.harucut.auth.security.CustomAccessDeniedHandler;
 import com.harucut.auth.security.CustomAuthenticationEntryPoint;
 import com.harucut.auth.service.JwtTokenService;
+import com.harucut.auth.oauth2.app.AppLoginService;
 import com.harucut.auth.service.LoginService;
 import com.harucut.auth.service.RegisterService;
 import com.harucut.config.SecurityConfig;
@@ -47,6 +48,9 @@ class AuthControllerTest extends SecurityBeansMockSupport {
 
     @MockitoBean
     private LoginService loginService;
+
+    @MockitoBean
+    private AppLoginService appLoginService;
 
     @MockitoBean
     private JwtTokenService jwtTokenService;

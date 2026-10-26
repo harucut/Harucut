@@ -4,6 +4,8 @@ import com.harucut.auth.oauth2.CustomOAuth2FailureHandler;
 import com.harucut.auth.oauth2.CustomOAuth2SuccessHandler;
 import com.harucut.auth.oauth2.CustomOAuth2UserService;
 import com.harucut.auth.oauth2.CustomOidcUserService;
+import com.harucut.auth.oauth2.app.AppAwareAuthorizationRequestResolver;
+import com.harucut.auth.oauth2.app.RememberingAuthorizationRequestRepository;
 import com.harucut.auth.security.CustomAccessDeniedHandler;
 import com.harucut.auth.security.CustomAuthenticationEntryPoint;
 import com.harucut.auth.security.JwtAuthenticationFilter;
@@ -18,6 +20,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -38,6 +41,7 @@ public class SecurityConfig {
     private final CustomOAuth2UserService oAuth2UserService;
     private final CustomOidcUserService oidcUserService;
     private final CustomOAuth2SuccessHandler oAuth2SuccessHandler;
+    private final ClientRegistrationRepository clientRegistrationRepository;
     private final CustomOAuth2FailureHandler oAuth2FailureHandler;
 
     @Bean
@@ -53,6 +57,10 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
                 .oauth2Login(oauth2 -> oauth2
+                        // 앱 로그인(client=app·PKCE) 표시를 인가 요청에 싣고, 콜백에서 꺼낸 인가 요청을 핸들러가 볼 수 있게 남긴다
+                        .authorizationEndpoint(authorization -> authorization
+                                .authorizationRequestResolver(new AppAwareAuthorizationRequestResolver(clientRegistrationRepository))
+                                .authorizationRequestRepository(new RememberingAuthorizationRequestRepository()))
                         .userInfoEndpoint(userInfo -> userInfo
                                 .userService(oAuth2UserService)
                                 .oidcUserService(oidcUserService))

@@ -106,6 +106,25 @@
         "required" : [ "composeQuota" ],
         "type" : "object"
       },
+      "AppLoginExchangeRequest" : {
+        "description" : "앱 로그인 코드 교환 — 시스템 브라우저에서 받은 일회용 코드와 셸이 만들어 둔 PKCE verifier",
+        "properties" : {
+          "code" : {
+            "description" : "harucut://oauth2/callback?code= 로 받은 일회용 코드(60초, 1회용)",
+            "maxLength" : 128,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "codeVerifier" : {
+            "description" : "시작할 때 보낸 code_challenge 의 원래 값(PKCE code_verifier)",
+            "minLength" : 1,
+            "pattern" : "^[A-Za-z0-9._~-]{43,128}$",
+            "type" : "string"
+          }
+        },
+        "required" : [ "code", "codeVerifier" ],
+        "type" : "object"
+      },
       "AssetResponse" : {
         "description" : "자산",
         "properties" : {
@@ -25137,6 +25156,68 @@
         },
         "summary" : "로그아웃",
         "tags" : [ "인증 · 토큰" ]
+      }
+    },
+    "/api/harucut/oauth2/exchange" : {
+      "post" : {
+        "description" : "앱 셸이 시스템 브라우저(Custom Tabs·ASWebAuthenticationSession)로 소셜 로그인을 한 뒤, 받은 일회용 코드를 **WebView 안에서**\n세션 쿠키로 바꾼다. 응답은 이메일 로그인과 **같은 쿠키·같은 본문**이다.\n\n흐름:\n1. 셸이 PKCE verifier 를 만들고 `/oauth2/authorization/{provider}?client=app&code_challenge=<S256>` 를 시스템 브라우저로 연다\n   (`code_challenge_method` 는 없거나 `S256`).\n2. 로그인이 끝나면 서버가 `harucut://oauth2/callback?code=...` 로 돌려보낸다. PKCE 값이 없거나 모양이 틀리면 `?error=invalid_request`,\n   소셜 인증 실패·취소는 `?error=oauth2`.\n3. 셸이 WebView 안에서 이 API 를 `code`·`codeVerifier` 와 함께 부른다.\n\n코드는 60초·1회용이고 검증값이 틀려도 소모된다.\n",
+        "operationId" : "exchange",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AppLoginExchangeRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseLoginResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-041" : {
+                    "summary" : "AUTH-041 — 코드가 없거나 만료·사용됐거나 PKCE 검증값이 맞지 않음",
+                    "value" : {
+                      "code" : "AUTH-041",
+                      "message" : "The app login code is invalid or expired.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-041` — 코드가 없거나 만료·사용됐거나 PKCE 검증값이 맞지 않음 _(The app login code is invalid or expired.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          }
+        },
+        "summary" : "앱 로그인 코드 교환",
+        "tags" : [ "인증 · 가입 · 로그인" ]
       }
     },
     "/api/harucut/reactivate" : {

@@ -1774,7 +1774,7 @@
             "type" : "string"
           },
           "threshold" : {
-            "enum" : [ "80", "95", "100" ],
+            "description" : "넘은 비율(%) — 80·95·100 중 하나(정수)",
             "example" : 80,
             "format" : "int32",
             "type" : "integer"

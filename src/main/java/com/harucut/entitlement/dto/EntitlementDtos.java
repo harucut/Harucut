@@ -137,7 +137,7 @@ public final class EntitlementDtos {
                              List<Alert> alerts) {
 
         @Schema(name = "EventUsageAlert")
-        public record Alert(@Schema(example = "80", allowableValues = {"80", "95", "100"}) int threshold, OffsetDateTime reachedAt) {
+        public record Alert(@Schema(description = "넘은 비율(%) — 80·95·100 중 하나(정수)", example = "80") int threshold, OffsetDateTime reachedAt) {
         }
 
         @Schema(name = "EventUsageEntitlement")

@@ -5,6 +5,7 @@ import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.event.entity.Event;
 import com.harucut.event.entity.EventGrant;
 import com.harucut.event.enums.PhotoPermission;
+import com.harucut.event.exception.PhotoErrorCode;
 import com.harucut.event.repository.EventGrantRepository;
 import com.harucut.event.repository.EventRepository;
 import com.harucut.workspace.enums.WorkspaceRole;
@@ -60,6 +61,22 @@ public class EventAccessPolicy {
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
         if (!isOperator(event, userId)) {
             throw new BusinessException(GlobalErrorCode.NOT_FOUND);
+        }
+        return event;
+    }
+
+    /**
+     * 사진 관문 — 행사를 볼 수 없으면 404(존재를 숨긴다), 볼 수는 있지만 이 권한이 없으면 403 PHOTO-001.
+     */
+    @Transactional(readOnly = true)
+    public Event requirePhoto(Long userId, String eventPublicId, PhotoPermission permission) {
+        Event event = eventRepository.findByPublicId(eventPublicId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        if (!canSee(event, userId)) {
+            throw new BusinessException(GlobalErrorCode.NOT_FOUND);
+        }
+        if (!photoPermissions(event, userId).contains(permission)) {
+            throw new BusinessException(PhotoErrorCode.PERMISSION_REQUIRED);
         }
         return event;
     }

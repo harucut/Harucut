@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.harucut.event.enums.EventStatus;
 import com.harucut.frame.enums.FrameType;
 import io.swagger.v3.oas.annotations.media.Schema;
-import tools.jackson.databind.JsonNode;
 
 import java.util.List;
 
@@ -21,7 +20,7 @@ public record PublicEventResponse(
         @Schema(description = "허용 레이아웃") List<FrameType> allowedLayouts,
         @Schema(description = "고를 수 있는 프레임 — 이 목록만 보여 준다") List<OfferedFrame> frames,
         @Schema(description = "동의 항목") List<EventSettings.ConsentItem> consentItems,
-        @Schema(description = "페이지 테마(P2A 자리표시자)") JsonNode theme
+        @Schema(description = "페이지 테마 — 기본값이 채워지고 자산은 URL") ResolvedPageTheme theme
 ) {
 
     @Schema(description = "제공 프레임")

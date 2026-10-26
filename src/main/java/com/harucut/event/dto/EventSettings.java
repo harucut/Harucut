@@ -2,7 +2,6 @@ package com.harucut.event.dto;
 
 import com.harucut.frame.enums.FrameType;
 import io.swagger.v3.oas.annotations.media.Schema;
-import tools.jackson.databind.JsonNode;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -47,8 +46,7 @@ public record EventSettings(
         @Schema(description = "참가 동의 항목 — 사진 수신 주체·목적·보관 안내를 담는다. 하나 이상")
         List<ConsentItem> consentItems,
 
-        @Schema(description = "페이지 테마(P2A 는 자리표시자 — 서버는 해석하지 않는다)")
-        JsonNode theme
+        @Schema(description = "페이지 테마 — 게시 때 형식·자산·이용권 기능을 검사한다") PageTheme theme
 ) {
 
     @Schema(description = "제공 프레임 발행본")

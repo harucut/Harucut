@@ -96,7 +96,6 @@ public class EventService {
         return response(saved, workspace);
     }
 
-    @Transactional(readOnly = true)
     /**
      * 행사 복제 (ADR-0008 §3, R5 7절) — 설정 초안(레이아웃·제공 프레임·동의 항목·테마)과 참가 방식·보관 일수만 새 DRAFT 로.
      * 일정은 복제하지 않는다(다시 정하고 게시). 사진·참가자·세션·결과 토큰·고객 초대·권한·동의 기록·부스는 복제하지 않는다.
@@ -118,6 +117,7 @@ public class EventService {
         return response(saved, operated.workspace());
     }
 
+    @Transactional(readOnly = true)
     public List<EventResponse> list(String publicId, String workspacePublicId) {
         User user = getUser(publicId);
         Workspace workspace = workspaceService.requireRole(workspacePublicId, user.getId(), OPERATOR_ROLES);

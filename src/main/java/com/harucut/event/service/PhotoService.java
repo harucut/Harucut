@@ -31,6 +31,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Objects;
 import java.util.Locale;
 
 /**
@@ -92,10 +93,15 @@ public class PhotoService {
         Long actorId = userId(actorPublicId);
         Event event = policy.requirePhoto(actorId, eventPublicId, PhotoPermission.DELETE_PHOTOS);
         ComposeJob job = photoOf(event, photoId);
-        job.markDeleted(LocalDateTime.now(clock));
+        // deleted_at 만 원자적으로 — 엔티티를 고쳐 저장하면 그사이 커밋된 완료(DONE·resultKey)를 낡은 값으로 덮는다
+        if (composeJobRepository.markDeleted(job.getId(), LocalDateTime.now(clock)) != 1) {
+            throw new BusinessException(GlobalErrorCode.NOT_FOUND);   // 동시에 다른 삭제가 먼저 했다
+        }
         exportService.invalidateContaining(job.getId());   // 이 사진을 담은 묶음은 더는 받을 수 없다
-        if (job.getResultKey() != null) {
-            s3Deleter.deleteAfterCommit(List.of(job.getResultKey(), ComposeService.thumbnailKeyFor(job)));
+        // 읽은 뒤 완료됐을 수 있다 — 잠금 읽기로 지금 결과 key 를 다시 본다. 아직 없으면 완료 쪽이 지운다(ComposeService.completeJob)
+        String resultKey = composeJobRepository.lockResultKey(job.getId()).stream().filter(Objects::nonNull).findFirst().orElse(null);
+        if (resultKey != null) {
+            s3Deleter.deleteAfterCommit(List.of(resultKey, ComposeService.thumbnailKeyFor(job)));
         }
         auditLogService.record(actorId, event.getWorkspaceId(), event.getId(), "PHOTO_DELETED", "PHOTO",
                 job.getId().toString(), null);

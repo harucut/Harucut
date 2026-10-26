@@ -35,6 +35,7 @@ public class EventUsageController {
             description = """
                     운영자(OWNER·ADMIN) 또는 그 행사 사진 권한이 있는 사람. 적용 이용권의 합성 한도·사용·예약·남은 수와 기간·기능.
                     적용 이용권이 없으면 entitlement 키가 없고 수치는 0. 계약 금액은 싣지 않는다.
+                    행사 배분이면 최상위 수치는 이 행사의 배분량이고, 공간 OWNER·ADMIN 에게는 기업 총량(parent)도 준다.
                     """)
     @ApiErrors("GEN-031: 없는 행사이거나 볼 수 없다")
     @GetMapping("/api/auth/events/{eventId}/usage")
@@ -45,6 +46,7 @@ public class EventUsageController {
         Event event = eventRepository.findByPublicId(eventId)
                 .filter(found -> policy.canSee(found, userId))
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
-        return Response.ok(entitlementService.usage(event));
+        // 기업 총량(parent)은 공간 OWNER·ADMIN 에게만
+        return Response.ok(entitlementService.usage(event, policy.accessOf(event, userId).admin()));
     }
 }

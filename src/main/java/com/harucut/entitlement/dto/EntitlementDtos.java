@@ -117,7 +117,20 @@ public final class EntitlementDtos {
     public record Entitlement(String entitlementId, EntitlementScope scope, String workspaceId, String eventId,
                               EntitlementSource source, String contractId, Terms terms, int used, int reserved,
                               OffsetDateTime validFrom, OffsetDateTime validTo, EntitlementStatus status,
-                              String grantorNote, String revokeReason) {
+                              String grantorNote, String revokeReason,
+                              @Schema(description = "행사 배분이면 부모(기업 총량) 이용권 public id") String parentEntitlementId,
+                              @Schema(description = "부모일 때 활성 자식 배분량 합 — 남은 배분 가능량 = terms.composeQuota − allocatedQuota") int allocatedQuota) {
+    }
+
+    @Schema(name = "AllocationRequest", description = "기업 총량에서 행사 하나에 배분 — 기간·기능·조건은 부모를 따른다")
+    public record AllocationRequest(
+            @NotBlank @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "행사 public id(부모와 같은 공간)") String eventId,
+            @NotNull @Min(1) @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "300") Integer composeQuota) {
+    }
+
+    @Schema(name = "AllocationResizeRequest", description = "배분량 바꾸기 — 늘리면 합 검사(ENT-005), 줄이면 사용·예약 아래 금지(ENT-006)")
+    public record AllocationResizeRequest(
+            @NotNull @Min(1) @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "400") Integer composeQuota) {
     }
 
     @Schema(name = "EntitlementRevokeRequest")
@@ -134,7 +147,13 @@ public final class EntitlementDtos {
     public record EventUsage(Applied entitlement, int composeQuota, int used, int reserved, int remaining,
                              Integer retentionDays, Integer maxBoothDevices,
                              @Schema(description = "한도 알림 — 확정 사용량이 처음 넘은 비율(80·95·100)과 그 시각. 넘은 것만, 오름차순. 없으면 빈 목록")
-                             List<Alert> alerts) {
+                             List<Alert> alerts,
+                             @Schema(description = "행사 배분일 때 기업 총량 — 공간 OWNER·ADMIN 에게만. 실제로 찍을 수 있는 양 = min(remaining, parent.remaining)")
+                             Parent parent) {
+
+        @Schema(name = "EventUsageParent", description = "기업 총량(부모 이용권)")
+        public record Parent(int composeQuota, int used, int reserved, int remaining) {
+        }
 
         @Schema(name = "EventUsageAlert")
         public record Alert(@Schema(description = "넘은 비율(%) — 80·95·100 중 하나(정수)", example = "80") int threshold, OffsetDateTime reachedAt) {

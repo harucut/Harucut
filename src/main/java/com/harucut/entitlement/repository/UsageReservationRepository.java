@@ -7,11 +7,12 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.Optional;
+import java.util.List;
 
 public interface UsageReservationRepository extends JpaRepository<UsageReservation, Long> {
 
-    Optional<UsageReservation> findByComposeJobId(Long composeJobId);
+    // 작업의 예약 — 행사 배분이면 부모·자식 두 행
+    List<UsageReservation> findAllByComposeJobId(Long composeJobId);
 
     long countByEntitlementIdAndStatus(Long entitlementId, ReservationStatus status);
 

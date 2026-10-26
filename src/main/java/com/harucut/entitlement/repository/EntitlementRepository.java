@@ -43,6 +43,28 @@ public interface EntitlementRepository extends JpaRepository<Entitlement, Long> 
     @Query("update Entitlement e set e.reserved = e.reserved - 1 where e.id = :id and e.reserved > 0")
     int release(@Param("id") Long id);
 
+    // 행사 배분 — 부모의 활성 자식 배분량 합을 늘린다. 합이 부모 한도를 넘으면 0(ENT-005). 범위를 잠그지 않는 원자 갱신(행 잠금만)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update Entitlement e set e.allocatedQuota = e.allocatedQuota + :amount where e.id = :id "
+            + "and e.status = com.harucut.entitlement.enums.EntitlementStatus.ACTIVE "
+            + "and e.allocatedQuota + :amount <= e.composeQuota")
+    int allocate(@Param("id") Long id, @Param("amount") int amount);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update Entitlement e set e.allocatedQuota = e.allocatedQuota - :amount where e.id = :id and e.allocatedQuota >= :amount")
+    int deallocate(@Param("id") Long id, @Param("amount") int amount);
+
+    // 배분량 바꾸기 — 이미 사용·예약한 양 아래로는 0(ENT-006)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update Entitlement e set e.composeQuota = :quota where e.id = :id and e.used + e.reserved <= :quota")
+    int resize(@Param("id") Long id, @Param("quota") int quota);
+
+    List<Entitlement> findAllByParentEntitlementId(Long parentEntitlementId);
+
+    // 부모 행만 잠근다(PK 행 잠금) — 배분량을 줄일 때 자식보다 부모를 먼저 잡아 잠금 순서(부모 → 자식)를 지킨다
+    @Query(value = "select entitlement_id from entitlement where entitlement_id = :id for update", nativeQuery = true)
+    List<Long> lockById(@Param("id") Long id);
+
     // 한도 알림 — 확정 사용량이 그 비율 이상이고 아직 기록하지 않았을 때만 1(동시에 확정돼도 한 번)
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update Entitlement e set e.notified80At = :now where e.id = :id and e.notified80At is null "

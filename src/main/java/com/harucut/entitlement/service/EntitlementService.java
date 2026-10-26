@@ -81,20 +81,34 @@ public class EntitlementService {
      */
     @Transactional(readOnly = true)
     public void requireRemaining(Event event) {
-        if (applicable(event).filter(e -> e.remaining() > 0).isEmpty()) {
+        Entitlement entitlement = applicable(event).orElseThrow(() -> new BusinessException(EntitlementErrorCode.QUOTA_REACHED));
+        // 행사 배분이면 기업 총량(부모)도 남아 있어야 한다 — 어느 쪽이 막혀도 같은 ENT-002
+        if (chain(entitlement).stream().anyMatch(e -> e.remaining() <= 0)) {
             throw new BusinessException(EntitlementErrorCode.QUOTA_REACHED);
         }
     }
 
+    // 예약·확인 순서 — 부모(기업 총량) → 자식(행사 배분). 잠금 순서가 늘 같아 둘 사이 교착이 없다
+    private List<Entitlement> chain(Entitlement entitlement) {
+        if (!entitlement.isAllocation()) {
+            return List.of(entitlement);
+        }
+        Entitlement parent = entitlementRepository.findById(entitlement.getParentEntitlementId()).orElseThrow();
+        return List.of(parent, entitlement);
+    }
+
     /** 새 행사 합성 작업의 예약 1건 — 작업 저장과 같은 트랜잭션. 한도가 없으면 409 ENT-002(트랜잭션 전체가 롤백된다) */
     public void reserve(Long composeJobId, Event event) {
-        Entitlement entitlement = applicable(event)
+        Entitlement applied = applicable(event)
                 .orElseThrow(() -> new BusinessException(EntitlementErrorCode.QUOTA_REACHED));
-        if (entitlementRepository.reserve(entitlement.getId(), now()) != 1) {
-            throw new BusinessException(EntitlementErrorCode.QUOTA_REACHED);
+        // 행사 배분이면 부모 → 자식 순서로 둘 다. 하나라도 0 행이면 ENT-002 로 트랜잭션 전체가 롤백된다(부모만 차감되는 일 없음)
+        for (Entitlement entitlement : chain(applied)) {
+            if (entitlementRepository.reserve(entitlement.getId(), now()) != 1) {
+                throw new BusinessException(EntitlementErrorCode.QUOTA_REACHED);
+            }
+            reservationRepository.save(new UsageReservation(composeJobId, entitlement.getId()));
+            ledgerRepository.save(new UsageLedger(now(), entitlement.getId(), composeJobId, LedgerKind.RESERVE, 1));
         }
-        reservationRepository.save(new UsageReservation(composeJobId, entitlement.getId()));
-        ledgerRepository.save(new UsageLedger(now(), entitlement.getId(), composeJobId, LedgerKind.RESERVE, 1));
     }
 
     /** 성공 확정 — 결과 전이를 이긴 트랜잭션에서만 부른다. 예약이 없는 작업(이용권 전 행사·개인 합성)은 아무것도 하지 않는다 */
@@ -108,18 +122,23 @@ public class EntitlementService {
     }
 
     private void settle(Long composeJobId, ReservationStatus to) {
-        if (reservationRepository.settle(composeJobId, to) != 1) {
+        // 작업의 예약 전부(부모·자식)를 한 번에 — 한 범위만 확정되는 일이 없다
+        if (reservationRepository.settle(composeJobId, to) == 0) {
             return;   // 예약이 없거나 이미 종결됐다
         }
-        UsageReservation reservation = reservationRepository.findByComposeJobId(composeJobId).orElseThrow();
-        if (to == ReservationStatus.COMMITTED) {
-            entitlementRepository.commit(reservation.getEntitlementId());
-            recordAlerts(reservation.getEntitlementId());
-        } else {
-            entitlementRepository.release(reservation.getEntitlementId());
+        List<UsageReservation> reservations = reservationRepository.findAllByComposeJobId(composeJobId).stream()
+                .sorted(Comparator.comparing(UsageReservation::getId))   // 예약한 순서(부모 → 자식) 그대로
+                .toList();
+        for (UsageReservation reservation : reservations) {
+            if (to == ReservationStatus.COMMITTED) {
+                entitlementRepository.commit(reservation.getEntitlementId());
+                recordAlerts(reservation.getEntitlementId());
+            } else {
+                entitlementRepository.release(reservation.getEntitlementId());
+            }
+            ledgerRepository.save(new UsageLedger(now(), reservation.getEntitlementId(), composeJobId,
+                    to == ReservationStatus.COMMITTED ? LedgerKind.COMMIT : LedgerKind.RELEASE, 1));
         }
-        ledgerRepository.save(new UsageLedger(now(), reservation.getEntitlementId(), composeJobId,
-                to == ReservationStatus.COMMITTED ? LedgerKind.COMMIT : LedgerKind.RELEASE, 1));
     }
 
     // 확정 사용량이 80·95·100% 를 처음 넘으면 그 시각을 남기고 감사 로그(ADR-0009 §4-1). 메일은 보내지 않는다
@@ -144,15 +163,27 @@ public class EntitlementService {
                 Map.of("threshold", threshold, "used", entitlement.getUsed(), "composeQuota", entitlement.getComposeQuota())));
     }
 
+    /** @param includeParent 공간 OWNER·ADMIN 일 때만 true — 기업 총량(parent)은 운영 담당·행사 고객에게 보이지 않는다 */
+    @Transactional(readOnly = true)
+    public EntitlementDtos.EventUsage usage(Event event, boolean includeParent) {
+        return applicable(event)
+                .map(e -> {
+                    EntitlementDtos.EventUsage.Parent parent = !includeParent || !e.isAllocation() ? null
+                            : entitlementRepository.findById(e.getParentEntitlementId())
+                            .map(p -> new EntitlementDtos.EventUsage.Parent(p.getComposeQuota(), p.getUsed(), p.getReserved(), p.remaining()))
+                            .orElse(null);
+                    return new EntitlementDtos.EventUsage(
+                            new EntitlementDtos.EventUsage.Applied(e.getScope(), offset(e.getValidFrom()), offset(e.getValidTo()),
+                                    e.getFeatures()),
+                            e.getComposeQuota(), e.getUsed(), e.getReserved(), e.remaining(), e.getRetentionDays(),
+                            e.getMaxBoothDevices(), alerts(e), parent);
+                })
+                .orElseGet(() -> new EntitlementDtos.EventUsage(null, 0, 0, 0, 0, null, null, List.of(), null));
+    }
+
     @Transactional(readOnly = true)
     public EntitlementDtos.EventUsage usage(Event event) {
-        return applicable(event)
-                .map(e -> new EntitlementDtos.EventUsage(
-                        new EntitlementDtos.EventUsage.Applied(e.getScope(), offset(e.getValidFrom()), offset(e.getValidTo()),
-                                e.getFeatures()),
-                        e.getComposeQuota(), e.getUsed(), e.getReserved(), e.remaining(), e.getRetentionDays(),
-                        e.getMaxBoothDevices(), alerts(e)))
-                .orElseGet(() -> new EntitlementDtos.EventUsage(null, 0, 0, 0, 0, null, null, List.of()));
+        return usage(event, false);
     }
 
     // 넘은 것만, 비율 오름차순

@@ -28,6 +28,7 @@ import java.util.Optional;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.mock;
@@ -46,9 +47,9 @@ class ExportWorkerTest {
         S3Client s3Client = mock(S3Client.class);
         ExportJob export = ExportJob.pending(1L, "Ev1", 2L, 1);
 
-        given(exportJobRepository.claim(7L)).willReturn(1);
+        given(exportJobRepository.claim(eq(7L), any())).willReturn(1);
         given(exportJobRepository.findById(7L)).willReturn(Optional.of(export));
-        given(exportJobRepository.complete(anyLong(), anyLong(), any())).willThrow(new IllegalStateException("db down"));
+        given(exportJobRepository.complete(anyLong(), anyLong(), any(), any())).willThrow(new IllegalStateException("db down"));
         given(itemRepository.findAllByExportJobIdOrderBySortOrderAsc(7L)).willReturn(List.of());
         given(composeJobRepository.findAllById(any())).willReturn(List.of());
         given(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class)))
@@ -65,6 +66,6 @@ class ExportWorkerTest {
         then(s3Client).should().completeMultipartUpload(any(CompleteMultipartUploadRequest.class));
         then(fileStorageService).should().delete(export.getS3Key());
         then(s3Client).should(never()).abortMultipartUpload(any(AbortMultipartUploadRequest.class));
-        then(exportJobRepository).should().fail(7L, "IllegalStateException");
+        then(exportJobRepository).should().fail(eq(7L), eq("IllegalStateException"), any());
     }
 }

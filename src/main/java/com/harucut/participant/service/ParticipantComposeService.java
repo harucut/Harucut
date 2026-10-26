@@ -63,7 +63,8 @@ public class ParticipantComposeService {
 
         participantService.requireActive(principal);
         CaptureRun run = participantService.activeRun(principal, request.captureRunId());
-        participantService.requireCaptureOpen(event);
+        // 보관 종료와 같은 행사 행 잠금으로 줄을 선다 — 검사를 통과한 접수가 커밋 전에 보관 종료되지 않게
+        participantService.requireCaptureOpenLocked(event);
         if (!participantService.offers(run.getExperienceVersionId(), request.frameVersionId())) {
             throw new BusinessException(ParticipantErrorCode.FRAME_NOT_OFFERED);
         }

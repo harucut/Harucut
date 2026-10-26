@@ -122,6 +122,35 @@ class SnapshotLimitMysqlTest {
         assertThat(failures).hasSize(1);   // 하나는 BOOTH 기기 상한
     }
 
+    @Test
+    @DisplayName("보관 정리 배치가 보관 일수를 잠금 읽기로 읽는 동안, 설정 저장은 그 배치가 커밋할 때까지 기다린다")
+    void retentionSaveWaitsForPurgeBatch() throws Exception {
+        User owner = userRepository.save(User.localUser("owner@retention.test", "e", "오너"));
+        WorkspaceResponse org = workspaceService.createOrganization(owner.getPublicId(), "보관 공간");
+        EventResponse event = eventService.create(owner.getPublicId(), org.workspaceId(),
+                new EventSettings("보관 행사", "retention-lock", null, null, null, null, null, null, null, null, null, null));
+        Long eventId = eventRepository.findByPublicId(event.eventId()).orElseThrow().getId();
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        CompletableFuture<Void> batch = CompletableFuture.runAsync(() -> transaction.executeWithoutResult(status -> {
+            assertThat(eventRepository.lockRetentionDays(eventId)).containsExactly(30);
+            locked.countDown();
+            await(release);
+        }));
+        assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+        CompletableFuture<EventResponse> save = CompletableFuture.supplyAsync(() -> eventService.patch(owner.getPublicId(),
+                event.eventId(), new EventPatchRequest(event.settingsVersion(), objectMapper.valueToTree(Map.of("resultRetentionDays", 60)))));
+        Thread.sleep(500);
+        assertThat(save).isNotDone();   // 배치 트랜잭션이 끝날 때까지 기다린다
+        release.countDown();
+        batch.get(20, TimeUnit.SECONDS);
+        assertThat(save.get(20, TimeUnit.SECONDS).settings().resultRetentionDays()).isEqualTo(60);
+        Integer after = transaction.execute(status -> eventRepository.lockRetentionDays(eventId).getFirst());
+        assertThat(after).isEqualTo(60);   // 다음 배치는 새 값을 본다
+    }
+
     private Long grant(WorkspaceResponse org, Contract.Terms terms) {
         Long workspaceId = workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId();
         LocalDateTime now = LocalDateTime.now();

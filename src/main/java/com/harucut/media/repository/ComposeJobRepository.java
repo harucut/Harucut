@@ -30,7 +30,7 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
      */
     @Query("""
             select j, p.channel from ComposeJob j, Participant p
-            where p.id = j.participantId and j.eventId = :eventId and j.deletedAt is null
+            where p.id = j.participantId and j.eventId = :eventId and j.deletedAt is null and j.purgedAt is null
               and (:status is null or j.status = :status)
               and (:channel is null or p.channel = :channel)
               and (:frameVersionId is null or j.frameVersionId = :frameVersionId)
@@ -48,6 +48,27 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
                                    @Param("cursorAt") LocalDateTime cursorAt,
                                    @Param("cursorId") Long cursorId,
                                    Pageable pageable);
+
+    // 보관 종료 대상 — 그 행사에서 기한(cutoff) 전에 만든, 아직 보이는 결과
+    @Query("select j from ComposeJob j where j.eventId = :eventId and j.createdAt < :cutoff "
+            + "and j.purgedAt is null and j.deletedAt is null and j.resultKey is not null")
+    List<ComposeJob> findPurgeable(@Param("eventId") Long eventId, @Param("cutoff") LocalDateTime cutoff, Pageable pageable);
+
+    // 재삭제 대상 — 최근(since 이후)에 삭제 요청·보관 종료된 행사 결과. 커밋 뒤 삭제가 서버 중단·S3 오류로 빠졌을 수 있다
+    @Query("select j from ComposeJob j where j.eventId is not null and j.resultKey is not null "
+            + "and (j.deletedAt >= :since or j.purgedAt >= :since)")
+    List<ComposeJob> findRecentlyRemovedResults(@Param("since") LocalDateTime since);
+
+    // 행사에 아직 보일 결과·진행 중 작업이 남았는가 — 없으면 보관 종료할 수 있다.
+    // 잠금 읽기(FOR UPDATE)라 스냅샷이 아니라 최신 커밋을 보고, 아직 커밋되지 않은 접수가 있으면 끝날 때까지 기다린다
+    @Query(value = "select compose_job_id from compose_job where event_id = :eventId and purged_at is null and deleted_at is null "
+            + "and status in ('PENDING', 'DONE') limit 1 for update", nativeQuery = true)
+    List<Long> lockVisibleJobIds(@Param("eventId") Long eventId);
+
+    // 보관 종료 표시 — purged_at 만 원자적으로(삭제 표시와 같은 이유: 엔티티 전체 UPDATE 가 다른 변경을 덮지 않게)
+    @Modifying(flushAutomatically = true)
+    @Query("update ComposeJob j set j.purgedAt = :now where j.id = :id and j.purgedAt is null")
+    int markPurged(@Param("id") Long id, @Param("now") LocalDateTime now);
 
     // 사진함 삭제 요청 — deleted_at 만 바꾼다. 엔티티 저장(전체 컬럼 UPDATE)은 같은 시각에 커밋된 워커의 DONE·resultKey 를
     // 낡은 값으로 덮을 수 있어 쓰지 않는다

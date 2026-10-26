@@ -1,6 +1,7 @@
 package com.harucut.frame.service;
 
 import com.harucut.workspace.entity.Workspace;
+import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.workspace.service.WorkspaceService;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
@@ -25,6 +26,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -71,14 +73,21 @@ class FrameServiceTest {
     @Mock
     private WorkspaceService workspaceService;
 
+    @Mock
+    private WorkspaceRepository workspaceRepository;
+
+    @Mock
+    private PlatformTransactionManager transactionManager;
+
     private FrameService frameService;
 
     private User user;
 
     @BeforeEach
     void setUp() {
-        frameService = new FrameService(frameRepository, userRepository,
-                frameComponentAssembler, frameSubscriptionPolicy, workspaceService, frameVersionCleaner, frameDraftCleaner);
+        frameService = new FrameService(frameRepository, workspaceRepository, userRepository,
+                frameComponentAssembler, frameSubscriptionPolicy, workspaceService, frameVersionCleaner, frameDraftCleaner,
+                transactionManager);
         user = User.localUser("user@harucut.com", "encoded", "하루컷");
         ReflectionTestUtils.setField(user, "id", 1L);
     }
@@ -94,10 +103,13 @@ class FrameServiceTest {
             Frame frame = ownedFrame(CREATED);
             FrameResponse expected = response(1L);
             given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
+            given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(frameRepository.countPersonalByUser(user)).willReturn(2L);
             Workspace personal = Workspace.personal(1L);
             ReflectionTestUtils.setField(personal, "id", 77L);
             given(workspaceService.personalWorkspaceOf(1L)).willReturn(personal);
+            // 개인 공간도 id 로 바꿔 공간 → 사용자 순서로 잠근 뒤 권한을 본다
+            given(workspaceService.requireRole(eq(personal.getPublicId()), eq(1L), any())).willReturn(personal);
             given(frameComponentAssembler.assembleOwned(user, request, 77L)).willReturn(frame);
             given(frameRepository.save(frame)).willReturn(frame);
             given(frameComponentAssembler.toFrameResponse(frame)).willReturn(expected);
@@ -117,7 +129,7 @@ class FrameServiceTest {
             Frame frame = ownedFrame(CREATED);
             Workspace org = Workspace.organization("웨딩팀");
             ReflectionTestUtils.setField(org, "id", 88L);
-            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
+            given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(workspaceService.requireRole(eq("WsOrg"), eq(1L), any())).willReturn(org);
             given(frameRepository.countByWorkspaceId(88L)).willReturn(5L);
             given(frameComponentAssembler.assembleOwned(user, request, 88L)).willReturn(frame);
@@ -134,8 +146,11 @@ class FrameServiceTest {
         @DisplayName("한도 초과면 SUBS-003이 전파되고 조립·저장 어느 것도 일어나지 않는다")
         void limitExceeded() {
             given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
+            given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(frameRepository.countPersonalByUser(user)).willReturn(3L);
-            given(workspaceService.personalWorkspaceOf(1L)).willReturn(Workspace.personal(1L));
+            Workspace personal = Workspace.personal(1L);
+            given(workspaceService.personalWorkspaceOf(1L)).willReturn(personal);
+            given(workspaceService.requireRole(eq(personal.getPublicId()), eq(1L), any())).willReturn(personal);
             willThrow(new BusinessException(SubscriptionErrorCode.PLAN_FRAME_RETENTION_EXCEEDED))
                     .given(frameSubscriptionPolicy).assertFrameRetentionLimit(1L, 3);
 

@@ -24,6 +24,11 @@ public interface WorkspaceRepository extends JpaRepository<Workspace, Long> {
 
     Optional<Workspace> findByPublicId(String publicId);
 
+    // 공간 단위 상한(조직 공간 프레임 개수)을 동시 생성에도 지킬 때 — SELECT … FOR UPDATE(행 잠금만)
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select w from Workspace w where w.publicId = :publicId")
+    Optional<Workspace> lockByPublicId(@Param("publicId") String publicId);
+
     List<Workspace> findAllByIdIn(Collection<Long> ids);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)

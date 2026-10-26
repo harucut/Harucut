@@ -13,10 +13,14 @@ import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.entity.Workspace;
 import com.harucut.workspace.enums.WorkspaceRole;
+import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.workspace.service.WorkspaceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.EnumSet;
@@ -35,18 +39,38 @@ public class FrameService {
     private static final Set<WorkspaceRole> FRAME_READ_ROLES = EnumSet.allOf(WorkspaceRole.class);
 
     private final FrameRepository frameRepository;
+    private final WorkspaceRepository workspaceRepository;
     private final UserRepository userRepository;
     private final FrameComponentAssembler frameComponentAssembler;
     private final FrameSubscriptionPolicy frameSubscriptionPolicy;
     private final WorkspaceService workspaceService;
     private final FrameVersionCleaner frameVersionCleaner;
     private final FrameDraftCleaner frameDraftCleaner;
+    private final PlatformTransactionManager transactionManager;
 
+    /**
+     * 개수 상한을 동시 생성에도 지키려고, 생성 트랜잭션의 첫 조회로 상한의 주인(지정한 공간·사용자) 행을 잠근다.
+     * 잠금 읽기는 스냅샷을 만들지 않으므로 그 뒤 일반 읽기(세기)는 잠금을 얻은 뒤의 커밋까지 본다(REPEATABLE READ).
+     * 프레임 행 범위를 잠금 읽기로 세면 다른 사용자·공간과 같은 빈 구간 gap lock 으로 교착될 수 있어 그렇게 하지 않는다.
+     * <p>개인 공간 지연 생성(REQUIRES_NEW)은 잠금 전에 따로 끝낸다 — 사용자 행을 잡은 채 만들면 그 insert 의 FK 검사가
+     * 같은 사용자 행을 기다리고, 바깥은 생성이 끝나기를 기다려 잠금 시간 초과까지 멈춘다. 그래서 이 메서드는 트랜잭션을 열지 않는다.
+     * <p>잠금 순서는 늘 「공간 → 사용자」: workspaceId 를 뺀 요청도 미리 개인 공간 id 로 바꿔 같은 순서로 잠근다. 사용자만 잠그면
+     * frame insert 의 FK 검사(fk_frame_workspace)가 공간 행을 기다리고, 그 공간을 먼저 잠근 같은 사용자의 다른 요청과 교착된다
+     */
+    @Transactional(propagation = Propagation.SUPPORTS)
     public FrameResponse createFrame(String publicId, FrameCreateRequest request) {
-        User user = getUser(publicId);
-        Workspace workspace = request.workspaceId() == null
-                ? workspaceService.personalWorkspaceOf(user.getId())
-                : workspaceService.requireRole(request.workspaceId(), user.getId(), FRAME_EDIT_ROLES);
+        String workspacePublicId = request.workspaceId() != null
+                ? request.workspaceId()
+                : workspaceService.personalWorkspaceOf(getUser(publicId).getId()).getPublicId();
+        return new TransactionTemplate(transactionManager)
+                .execute(status -> createFrameLocked(publicId, workspacePublicId, request));
+    }
+
+    private FrameResponse createFrameLocked(String publicId, String workspacePublicId, FrameCreateRequest request) {
+        workspaceRepository.lockByPublicId(workspacePublicId);
+        User user = userRepository.lockByPublicId(publicId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        Workspace workspace = workspaceService.requireRole(workspacePublicId, user.getId(), FRAME_EDIT_ROLES);
         if (workspace.isPersonal()) {
             frameSubscriptionPolicy.assertFrameRetentionLimit(user.getId(), (int) frameRepository.countPersonalByUser(user));
         } else {

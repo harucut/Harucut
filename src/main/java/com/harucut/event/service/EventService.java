@@ -251,7 +251,7 @@ public class EventService {
             }
         }
 
-        EventSettings typed = objectMapper.treeToValue(settings, EventSettings.class);
+        EventSettings typed = settingsResolver.typed(settings, EventSettings.class);
         LocalDateTime starts = settings.has("captureStartsAt") ? local(typed.captureStartsAt()) : event.getCaptureStartsAt();
         LocalDateTime ends = settings.has("captureEndsAt") ? local(typed.captureEndsAt()) : event.getCaptureEndsAt();
         if (starts != null && ends != null && !ends.isAfter(starts)) {

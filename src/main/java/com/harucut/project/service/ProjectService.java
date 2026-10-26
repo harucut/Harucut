@@ -11,7 +11,10 @@ import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.entity.Workspace;
 import com.harucut.workspace.enums.WorkspaceRole;
+import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.workspace.service.WorkspaceService;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +41,8 @@ public class ProjectService {
     private static final Set<WorkspaceRole> OPERATOR_ROLES = EnumSet.of(WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
 
     private final ProjectRepository projectRepository;
+    private final WorkspaceRepository workspaceRepository;
+    private final EntityManager entityManager;
     private final WorkspaceService workspaceService;
     private final UserRepository userRepository;
     private final EffectiveSettingsResolver settingsResolver;
@@ -67,6 +72,10 @@ public class ProjectService {
         User user = user(userPublicId);
         Project project = projectRepository.findByPublicId(projectPublicId)
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        // 기본값은 읽고 머지해 다시 쓴다 — 두 관리자의 동시 PATCH 가 서로를 지우지 않게 줄 세운다. 순서는 「공간 → 프로젝트」(#32 잠금 표).
+        // 프로젝트는 이미 읽었으므로 잠금 읽기로 다시 읽는다(refresh) — 잠금을 기다리는 동안 커밋된 변경을 본다
+        workspaceRepository.lockById(project.getWorkspaceId());
+        entityManager.refresh(project, LockModeType.PESSIMISTIC_WRITE);
         Workspace workspace = workspaceService.requireRole(project.getWorkspaceId(), user.getId(), OPERATOR_ROLES);
         if (body.has("name")) {
             project.rename(name(body.get("name").isNull() ? null : body.get("name").asString()));
@@ -102,6 +111,8 @@ public class ProjectService {
     /** body 가 곧 머지 패치 — 상속 가능한 필드만, null 이면 지움 */
     public ProjectDtos.WorkspaceDefaults patchWorkspaceDefaults(String userPublicId, String workspacePublicId, JsonNode body) {
         User user = user(userPublicId);
+        // 읽고 머지해 다시 쓴다 — 공간 행을 잠금 읽기로 처음 읽어 동시 PATCH 를 줄 세운다(나중 쓰기가 앞 변경을 지우지 않게)
+        workspaceRepository.lockByPublicId(workspacePublicId);
         Workspace workspace = organization(workspacePublicId, user);
         if (!body.isObject()) {
             throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "기본값은 객체여야 합니다.");

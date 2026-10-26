@@ -215,6 +215,21 @@ class ProjectIntegrationTest {
         assertCode(() -> projectService.patch(owner.getPublicId(), foreign.projectId(), json(Map.of("name", "x"))), GlobalErrorCode.NOT_FOUND);
     }
 
+    @Test
+    @DisplayName("맞지 않는 값({\"resultRetentionDays\":\"invalid\"} 등)은 500 이 아니라 400 GEN-002 — 공간·프로젝트 기본값, 행사 PATCH")
+    void malformedValuesAreBadRequest() {
+        ProjectDtos.Project project = projectService.create(owner.getPublicId(), org.workspaceId(), new ProjectDtos.CreateRequest("봄", null));
+        EventResponse event = eventService.create(owner.getPublicId(), org.workspaceId(), new EventSettings("행사", "malformed-1",
+                null, null, null, null, null, null, null, null, null, null, null));
+
+        assertCode(() -> projectService.patchWorkspaceDefaults(owner.getPublicId(), org.workspaceId(),
+                objectMapper.readTree("{\"resultRetentionDays\":\"invalid\"}")), GlobalErrorCode.INVALID_INPUT_VALUE);
+        assertCode(() -> projectService.patch(owner.getPublicId(), project.projectId(),
+                objectMapper.readTree("{\"brandDefaults\":{\"allowedLayouts\":\"CLASSIC\"}}")), GlobalErrorCode.INVALID_INPUT_VALUE);
+        assertCode(() -> patch(event, "{\"resultRetentionDays\":\"invalid\"}"), GlobalErrorCode.INVALID_INPUT_VALUE);
+        assertCode(() -> patch(event, "{\"captureStartsAt\":\"not-a-time\"}"), GlobalErrorCode.INVALID_INPUT_VALUE);
+    }
+
     private EventResponse ready(String slug, String projectId) {
         EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(), new EventSettings("행사", slug,
                 null, null, null, null, null, null, null, null, null, null, projectId));

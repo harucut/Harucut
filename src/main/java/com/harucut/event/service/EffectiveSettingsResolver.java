@@ -4,6 +4,7 @@ import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.event.dto.InheritableSettings;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -124,9 +125,21 @@ public class EffectiveSettingsResolver {
                 merged.set(name, value);
             }
         }
-        InheritableSettings typed = objectMapper.treeToValue(merged, InheritableSettings.class);
+        InheritableSettings typed = typed(merged, InheritableSettings.class);
         validate(typed);
         return objectMapper.writeValueAsString(typed);
+    }
+
+    /**
+     * 받은 JSON 트리를 타입으로 — 맞지 않는 값({"resultRetentionDays":"invalid"} 등)은 400 GEN-002.
+     * 본문을 JsonNode 로 받으면 HttpMessageNotReadable 이 아니라 여기서 터지므로, 그대로 두면 500 이 된다
+     */
+    public <T> T typed(JsonNode node, Class<T> type) {
+        try {
+            return objectMapper.treeToValue(node, type);
+        } catch (JacksonException e) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "값의 형식이 맞지 않습니다: " + e.getOriginalMessage());
+        }
     }
 
     public InheritableSettings read(String json) {

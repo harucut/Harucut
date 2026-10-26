@@ -37,6 +37,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -188,9 +189,14 @@ public class ComposeService {
                     thumbnailKey, DisplayNames.resolve(null, resultKey, LocalDateTime.now(clock))));
             composeJobRepository.attachMedia(jobId, media.getId());
         }
-        // 행사 작업이면 사용량 예약을 확정한다 — 전이를 이긴 이 트랜잭션에서만(늦은 통지는 위에서 false 로 끝났다)
         if (job.getEventId() != null) {
+            // 사용량 예약을 확정한다 — 전이를 이긴 이 트랜잭션에서만(늦은 통지는 위에서 false 로 끝났다)
             entitlementService.commit(jobId);
+            // 합성 중에 사진함에서 삭제 요청됐다 — 방금 만든 결과·썸네일을 남기지 않는다.
+            // 잠금 읽기(FOR UPDATE)라 엇갈려 커밋된 삭제 요청을 놓치지 않는다(삭제 쪽도 잠금 읽기로 결과 key 를 다시 본다)
+            if (composeJobRepository.lockDeletedAt(jobId).stream().anyMatch(Objects::nonNull)) {
+                s3Deleter.deleteAfterCommit(List.of(resultKey, thumbnailKey));
+            }
         }
         // 원본은 성공 시 삭제 — 결과만 보관함에 남는다.
         // 원본은 합성 재료일 뿐 사용자의 보관 대상이 아니라 저장 비용만 먹는다

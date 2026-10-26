@@ -59,6 +59,25 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
             + "and j.status in (com.harucut.media.enums.ComposeStatus.PENDING, com.harucut.media.enums.ComposeStatus.DONE)")
     boolean hasVisibleResults(@Param("eventId") Long eventId);
 
+    // 보관 종료 표시 — purged_at 만 원자적으로(삭제 표시와 같은 이유: 엔티티 전체 UPDATE 가 다른 변경을 덮지 않게)
+    @Modifying(flushAutomatically = true)
+    @Query("update ComposeJob j set j.purgedAt = :now where j.id = :id and j.purgedAt is null")
+    int markPurged(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    // 사진함 삭제 요청 — deleted_at 만 바꾼다. 엔티티 저장(전체 컬럼 UPDATE)은 같은 시각에 커밋된 워커의 DONE·resultKey 를
+    // 낡은 값으로 덮을 수 있어 쓰지 않는다
+    @Modifying(flushAutomatically = true)
+    @Query("update ComposeJob j set j.deletedAt = :now where j.id = :id and j.deletedAt is null")
+    int markDeleted(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    // 자기 UPDATE 뒤의 잠금 읽기(FOR UPDATE) — 영속성 컨텍스트를 거치지 않고 최신 커밋 값을 본다.
+    // 삭제 요청과 완료 통지가 엇갈려도 나중에 커밋하는 쪽이 상대의 변경을 보고 결과 객체를 정리한다
+    @Query(value = "select result_key from compose_job where compose_job_id = :id for update", nativeQuery = true)
+    List<String> lockResultKey(@Param("id") Long id);
+
+    @Query(value = "select deleted_at from compose_job where compose_job_id = :id for update", nativeQuery = true)
+    List<Object> lockDeletedAt(@Param("id") Long id);
+
     // 부스 화면이 지금 회차의 합성 상태를 본다 — 회차에 작업이 여럿이면 마지막 것
     Optional<ComposeJob> findFirstByCaptureRunIdOrderByIdDesc(Long captureRunId);
 

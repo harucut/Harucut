@@ -155,8 +155,9 @@ public class EventRetentionService {
             if (event == null) {
                 return false;
             }
+            // 상시 캠페인은 운영자가 촬영을 끝내야(CAPTURE_CLOSED) 대상이 된다 — 종료 시각으로 저절로 닫지 않는다(ADR-0009 §4)
             boolean captureOver = event.getStatus() == EventStatus.CAPTURE_CLOSED
-                    || (event.getCaptureEndsAt() != null && !now().isBefore(event.getCaptureEndsAt()));
+                    || (!event.isAlwaysOn() && event.getCaptureEndsAt() != null && !now().isBefore(event.getCaptureEndsAt()));
             if (!captureOver || !composeJobRepository.lockVisibleJobIds(eventId).isEmpty()) {
                 return false;
             }

@@ -1,5 +1,6 @@
 package com.harucut.entitlement.service;
 
+import com.harucut.audit.service.AuditLogService;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.entitlement.dto.EntitlementDtos;
 import com.harucut.entitlement.entity.Entitlement;
@@ -22,7 +23,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -40,6 +44,7 @@ public class EntitlementService {
     private final EntitlementRepository entitlementRepository;
     private final UsageReservationRepository reservationRepository;
     private final UsageLedgerRepository ledgerRepository;
+    private final AuditLogService auditLogService;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -109,11 +114,34 @@ public class EntitlementService {
         UsageReservation reservation = reservationRepository.findByComposeJobId(composeJobId).orElseThrow();
         if (to == ReservationStatus.COMMITTED) {
             entitlementRepository.commit(reservation.getEntitlementId());
+            recordAlerts(reservation.getEntitlementId());
         } else {
             entitlementRepository.release(reservation.getEntitlementId());
         }
         ledgerRepository.save(new UsageLedger(now(), reservation.getEntitlementId(), composeJobId,
                 to == ReservationStatus.COMMITTED ? LedgerKind.COMMIT : LedgerKind.RELEASE, 1));
+    }
+
+    // 확정 사용량이 80·95·100% 를 처음 넘으면 그 시각을 남기고 감사 로그(ADR-0009 §4-1). 메일은 보내지 않는다
+    private void recordAlerts(Long entitlementId) {
+        LocalDateTime now = now();
+        List<Integer> reached = new ArrayList<>();
+        if (entitlementRepository.markAlert80(entitlementId, now) == 1) {
+            reached.add(80);
+        }
+        if (entitlementRepository.markAlert95(entitlementId, now) == 1) {
+            reached.add(95);
+        }
+        if (entitlementRepository.markAlert100(entitlementId, now) == 1) {
+            reached.add(100);
+        }
+        if (reached.isEmpty()) {
+            return;
+        }
+        Entitlement entitlement = entitlementRepository.findById(entitlementId).orElseThrow();
+        reached.forEach(threshold -> auditLogService.record(null, entitlement.getWorkspaceId(), entitlement.getEventId(),
+                "ENTITLEMENT_USAGE_ALERT", "ENTITLEMENT", entitlement.getPublicId(),
+                Map.of("threshold", threshold, "used", entitlement.getUsed(), "composeQuota", entitlement.getComposeQuota())));
     }
 
     @Transactional(readOnly = true)
@@ -123,8 +151,23 @@ public class EntitlementService {
                         new EntitlementDtos.EventUsage.Applied(e.getScope(), offset(e.getValidFrom()), offset(e.getValidTo()),
                                 e.getFeatures()),
                         e.getComposeQuota(), e.getUsed(), e.getReserved(), e.remaining(), e.getRetentionDays(),
-                        e.getMaxBoothDevices()))
-                .orElseGet(() -> new EntitlementDtos.EventUsage(null, 0, 0, 0, 0, null, null));
+                        e.getMaxBoothDevices(), alerts(e)))
+                .orElseGet(() -> new EntitlementDtos.EventUsage(null, 0, 0, 0, 0, null, null, List.of()));
+    }
+
+    // 넘은 것만, 비율 오름차순
+    private List<EntitlementDtos.EventUsage.Alert> alerts(Entitlement e) {
+        List<EntitlementDtos.EventUsage.Alert> alerts = new ArrayList<>();
+        if (e.getNotified80At() != null) {
+            alerts.add(new EntitlementDtos.EventUsage.Alert(80, offset(e.getNotified80At())));
+        }
+        if (e.getNotified95At() != null) {
+            alerts.add(new EntitlementDtos.EventUsage.Alert(95, offset(e.getNotified95At())));
+        }
+        if (e.getNotified100At() != null) {
+            alerts.add(new EntitlementDtos.EventUsage.Alert(100, offset(e.getNotified100At())));
+        }
+        return alerts;
     }
 
     private LocalDateTime now() {

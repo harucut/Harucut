@@ -1,5 +1,6 @@
 package com.harucut.event.dto;
 
+import com.harucut.event.enums.EventKind;
 import com.harucut.frame.enums.FrameType;
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -49,7 +50,10 @@ public record EventSettings(
         @Schema(description = "페이지 테마 — 게시 때 형식·자산·이용권 기능을 검사한다") PageTheme theme,
 
         @Schema(description = "프로젝트 public id(선택) — 같은 공간의 보관되지 않은 프로젝트. 게시 뒤에는 바꿀 수 없다(PROJECT-002). "
-                + "PATCH 에서 null 이면 프로젝트에서 뺀다", example = "Pj3kL9mN2qRs") String projectId
+                + "PATCH 에서 null 이면 프로젝트에서 뺀다", example = "Pj3kL9mN2qRs") String projectId,
+
+        @Schema(description = "행사 종류 — SCHEDULED(정해진 기간, 기본)·ALWAYS_ON(상시 캠페인: 종료 시각을 두지 않고 close-capture 로 끝낸다). "
+                + "게시 전 초안에서만 바꿀 수 있다(게시 뒤 400 GEN-002). 상속하지 않는다", example = "SCHEDULED") EventKind kind
 ) {
 
     @Schema(description = "제공 프레임 발행본")

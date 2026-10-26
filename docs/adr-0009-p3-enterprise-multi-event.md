@@ -165,6 +165,15 @@
 - 사용량 응답에 `alerts: [{ "threshold": 80, "reachedAt": "2026-…+09:00" }, …]` — 넘은 것만, threshold 오름차순. 메일은 범위 밖.
 - 한도 초과 처리는 P3 에서 「촬영 중단」(ENT-002)만 — 자동 과금·운영자 승인은 결제(P4) 이후 계약 옵션으로.
 
+### 4-2. 구현에서 정한 것 (P3-3)
+
+- `kind` 는 EventSettings 의 필드(만들기·PATCH 요청, 행사 응답·effective-settings). 상속하지 않는다(sources 는 늘 EVENT, 기본값에 넣으면 400).
+  만들 때 안 보내면 SCHEDULED, PATCH 의 null 도 SCHEDULED. 게시한 행사의 kind 변경은 400 `GEN-002`. 복제는 kind 를 가져간다.
+- 게시 위반 항목은 지금 모양 그대로 `{ field: "captureEndsAt", reason }` — 초안 저장은 막지 않는다.
+- 한도 알림은 이용권의 `notified_80_at`·`_95_at`·`_100_at`. 합성 성공 확정(예약 COMMIT) 트랜잭션에서 비율마다 조건부 UPDATE
+  (`… is null and used*100 >= quota*비율`)로 한 번만 채우고, 채운 것마다 감사 로그 `ENTITLEMENT_USAGE_ALERT { threshold, used, composeQuota }`.
+  공간 범위 이용권이면 그 공간 행사들의 usage 에 같은 alerts 가 보인다.
+
 ## 5. 기업 총량과 행사 배분 (P3-4)
 
 - 이용권에 `parent_entitlement_id` — 행사 배분량(EVENT 범위)이 기업 총량(WORKSPACE 범위)의 자식이 된다. 자식의 유효기간·기능은 부모를 따른다.

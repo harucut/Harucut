@@ -42,4 +42,20 @@ public interface EntitlementRepository extends JpaRepository<Entitlement, Long> 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update Entitlement e set e.reserved = e.reserved - 1 where e.id = :id and e.reserved > 0")
     int release(@Param("id") Long id);
+
+    // 한도 알림 — 확정 사용량이 그 비율 이상이고 아직 기록하지 않았을 때만 1(동시에 확정돼도 한 번)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update Entitlement e set e.notified80At = :now where e.id = :id and e.notified80At is null "
+            + "and e.composeQuota > 0 and e.used * 100 >= e.composeQuota * 80")
+    int markAlert80(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update Entitlement e set e.notified95At = :now where e.id = :id and e.notified95At is null "
+            + "and e.composeQuota > 0 and e.used * 100 >= e.composeQuota * 95")
+    int markAlert95(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update Entitlement e set e.notified100At = :now where e.id = :id and e.notified100At is null "
+            + "and e.composeQuota > 0 and e.used >= e.composeQuota")
+    int markAlert100(@Param("id") Long id, @Param("now") LocalDateTime now);
 }

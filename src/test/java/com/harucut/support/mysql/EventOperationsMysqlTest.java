@@ -76,7 +76,7 @@ class EventOperationsMysqlTest {
         User owner = userRepository.save(User.localUser("owner@clone.test", "e", "오너"));
         WorkspaceResponse org = workspaceService.createOrganization(owner.getPublicId(), "웨딩홀");
         EventResponse source = eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings("원본", "clone-source", null, null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("원본", "clone-source", null, null, null, null, null, null, null, null, null, null, null, null));
 
         EventResponse copy = eventService.cloneEvent(owner.getPublicId(), source.eventId(), "복제본", "clone-copy");
 
@@ -91,7 +91,7 @@ class EventOperationsMysqlTest {
         User owner = userRepository.save(User.localUser("owner@lock.test", "e", "오너"));
         WorkspaceResponse org = workspaceService.createOrganization(owner.getPublicId(), "공간");
         EventResponse event = eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings("행사", "lock-event", null, null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("행사", "lock-event", null, null, null, null, null, null, null, null, null, null, null, null));
         Long eventId = eventRepository.findByPublicId(event.eventId()).orElseThrow().getId();
         Participant participant = participantRepository.save(Participant.byod(eventId));
         Long frameId = frameService.createFrame(owner.getPublicId(), new FrameCreateRequest("프레임", null,

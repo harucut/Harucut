@@ -125,7 +125,7 @@ class ArchiveComposeMysqlTest {
                         null, null, new BackgroundAttributes.Color("#FFFFFF"), null, List.of(), null, org.workspaceId())).frameId())
                 .frameVersionId();
         EventResponse created = eventService.create(operator.getPublicId(), org.workspaceId(),
-                new EventSettings("행사", "archive-race", null, null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("행사", "archive-race", null, null, null, null, null, null, null, null, null, null, null, null));
         eventService.patch(operator.getPublicId(), created.eventId(), new EventPatchRequest(created.settingsVersion(),
                 objectMapper.valueToTree(Map.of(
                         "allowedLayouts", List.of("CLASSIC"),

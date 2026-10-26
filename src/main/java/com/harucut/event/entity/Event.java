@@ -2,6 +2,7 @@ package com.harucut.event.entity;
 
 import com.harucut.common.entity.BaseEntity;
 import com.harucut.common.utils.PublicIds;
+import com.harucut.event.enums.EventKind;
 import com.harucut.event.enums.EventStatus;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -80,6 +81,11 @@ public class Event extends BaseEntity {
     @Column(name = "project_id")
     private Long projectId;
 
+    // 행사 종류(ADR-0009 §4) — 게시 전에만 바꾼다
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private EventKind kind = EventKind.SCHEDULED;
+
     private Event(Long workspaceId, String slug, String name, Long createdByUserId, String settingsDraft) {
         this.publicId = PublicIds.generate();
         this.workspaceId = workspaceId;
@@ -95,6 +101,14 @@ public class Event extends BaseEntity {
 
     public static Event draft(Long workspaceId, String slug, String name, Long createdByUserId, String settingsDraft) {
         return new Event(workspaceId, slug, name, createdByUserId, settingsDraft);
+    }
+
+    public void changeKind(EventKind kind) {
+        this.kind = kind;
+    }
+
+    public boolean isAlwaysOn() {
+        return kind == EventKind.ALWAYS_ON;
     }
 
     public void assignProject(Long projectId) {
@@ -162,7 +176,8 @@ public class Event extends BaseEntity {
         return status == EventStatus.LIVE
                 && !paused
                 && (captureStartsAt == null || !now.isBefore(captureStartsAt))
-                && (captureEndsAt == null || now.isBefore(captureEndsAt));
+                // 상시 캠페인은 종료 시각을 보지 않는다 — close-capture 로만 끝난다(이미 저장된 값이 있어도)
+                && (captureEndsAt == null || kind == EventKind.ALWAYS_ON || now.isBefore(captureEndsAt));
     }
 
     private void requireLive(String action) {

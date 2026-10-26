@@ -131,7 +131,7 @@ class ProjectIntegrationTest {
                         com.harucut.event.dto.InheritableSettings.class)));
 
         EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(), new EventSettings("행사", "inherit-1",
-                null, null, null, null, null, null, null, null, null, null, project.projectId()));
+                null, null, null, null, null, null, null, null, null, null, project.projectId(), null));
         assertThat(created.settings().projectId()).isEqualTo(project.projectId());
         assertThat(created.settings().resultRetentionDays()).isEqualTo(60);
         assertThat(created.settings().byodEnabled()).isTrue();   // 어디에도 없으면 서버 기본값
@@ -198,7 +198,7 @@ class ProjectIntegrationTest {
         // 이미 그 프로젝트인 행사는 그대로 둔다(다시 같은 값을 보내도 된다)
         assertThat(patch(event, Map.of("projectId", project.projectId())).settings().projectId()).isEqualTo(project.projectId());
         assertCode(() -> eventService.create(owner.getPublicId(), org.workspaceId(), new EventSettings("x", "rules-2",
-                null, null, null, null, null, null, null, null, null, null, project.projectId())), ProjectErrorCode.PROJECT_ARCHIVED);
+                null, null, null, null, null, null, null, null, null, null, project.projectId(), null)), ProjectErrorCode.PROJECT_ARCHIVED);
         assertCode(() -> eventService.cloneEvent(owner.getPublicId(), event.eventId(), "복제", "rules-3"), ProjectErrorCode.PROJECT_ARCHIVED);
 
         eventService.publish(owner.getPublicId(), event.eventId());
@@ -211,7 +211,7 @@ class ProjectIntegrationTest {
         ProjectDtos.Project foreign = projectService.create(stranger.getPublicId(), strangerOrg.workspaceId(),
                 new ProjectDtos.CreateRequest("남의 것", null));
         assertCode(() -> eventService.create(owner.getPublicId(), org.workspaceId(), new EventSettings("x", "rules-4",
-                null, null, null, null, null, null, null, null, null, null, foreign.projectId())), GlobalErrorCode.INVALID_INPUT_VALUE);
+                null, null, null, null, null, null, null, null, null, null, foreign.projectId(), null)), GlobalErrorCode.INVALID_INPUT_VALUE);
         assertCode(() -> projectService.patch(owner.getPublicId(), foreign.projectId(), json(Map.of("name", "x"))), GlobalErrorCode.NOT_FOUND);
     }
 
@@ -220,7 +220,7 @@ class ProjectIntegrationTest {
     void malformedValuesAreBadRequest() {
         ProjectDtos.Project project = projectService.create(owner.getPublicId(), org.workspaceId(), new ProjectDtos.CreateRequest("봄", null));
         EventResponse event = eventService.create(owner.getPublicId(), org.workspaceId(), new EventSettings("행사", "malformed-1",
-                null, null, null, null, null, null, null, null, null, null, null));
+                null, null, null, null, null, null, null, null, null, null, null, null));
 
         assertCode(() -> projectService.patchWorkspaceDefaults(owner.getPublicId(), org.workspaceId(),
                 objectMapper.readTree("{\"resultRetentionDays\":\"invalid\"}")), GlobalErrorCode.INVALID_INPUT_VALUE);
@@ -232,7 +232,7 @@ class ProjectIntegrationTest {
 
     private EventResponse ready(String slug, String projectId) {
         EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(), new EventSettings("행사", slug,
-                null, null, null, null, null, null, null, null, null, null, projectId));
+                null, null, null, null, null, null, null, null, null, null, projectId, null));
         return patch(created, Map.of(
                 "allowedLayouts", List.of("CLASSIC"),
                 "frames", List.of(Map.of("frameVersionId", frameVersionId, "layoutType", "CLASSIC", "isDefault", true)),

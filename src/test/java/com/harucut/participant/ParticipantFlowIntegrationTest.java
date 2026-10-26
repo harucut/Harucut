@@ -51,6 +51,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 
 /*
@@ -219,6 +220,16 @@ class ParticipantFlowIntegrationTest {
                 .headers().containsHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN);
         // 회원 쿠키 경로가 아니다 — 행사 체인의 매처 밖 경로는 열리지 않는다
         assertThat(mvc.get().uri("/api/public/booth-pairings/anything").exchange()).hasStatus(403);
+    }
+
+    @Test
+    @DisplayName("틀린 결과 토큰이 같은 IP 에서 한도를 넘으면 429 GEN-061 — 토큰이 없는 요청은 세지 않는다")
+    void wrongResultTokensAreRateLimited() {
+        given(rateLimiter.tryAcquire(eq("result-token-miss"), anyString(), anyInt(), any())).willReturn(false);
+
+        assertCode(mvc.get().uri("/api/public/results")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer guessed").exchange(), 429, "GEN-061");
+        assertCode(mvc.get().uri("/api/public/results").exchange(), 401, "RESULT-001");
     }
 
     @Test

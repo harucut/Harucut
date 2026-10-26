@@ -5,6 +5,7 @@ import com.harucut.booth.repository.BoothDeviceRepository;
 import com.harucut.common.exception.ErrorCode;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.common.response.Response;
+import com.harucut.participant.config.ParticipationProperties;
 import com.harucut.participant.exception.ParticipantErrorCode;
 import com.harucut.participant.repository.ParticipantRepository;
 import com.harucut.participant.repository.ParticipantSessionRepository;
@@ -48,6 +49,8 @@ public class EventSecurityConfig {
                                                 ParticipantRepository participantRepository,
                                                 ResultAccessRepository resultAccessRepository,
                                                 BoothDeviceRepository boothDeviceRepository,
+                                                RateLimiter rateLimiter,
+                                                ParticipationProperties participationProperties,
                                                 PlatformTransactionManager transactionManager,
                                                 Clock clock,
                                                 ObjectMapper objectMapper) throws Exception {
@@ -71,7 +74,8 @@ public class EventSecurityConfig {
                         .authenticationEntryPoint((request, response, e) -> write(objectMapper, response, codeFor(request)))
                         .accessDeniedHandler((request, response, e) -> write(objectMapper, response, codeFor(request))))
                 .addFilterBefore(new EventCredentialFilter(sessionRepository, participantRepository,
-                        resultAccessRepository, boothDeviceRepository, readOnly, clock), UsernamePasswordAuthenticationFilter.class)
+                        resultAccessRepository, boothDeviceRepository,
+                        rateLimiter, participationProperties.publicRequestsPerMinute(), readOnly, clock), UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/public/events/*").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/public/events/*/sessions").permitAll()
@@ -85,6 +89,9 @@ public class EventSecurityConfig {
 
     // 자격이 없거나 무효일 때 경로에 맞는 코드
     private static ErrorCode codeFor(HttpServletRequest request) {
+        if (Boolean.TRUE.equals(request.getAttribute(EventCredentialFilter.RATE_LIMITED))) {
+            return GlobalErrorCode.TOO_MANY_REQUESTS;
+        }
         String path = request.getRequestURI();
         if (path.startsWith("/api/participant/")) {
             return ParticipantErrorCode.SESSION_INVALID;

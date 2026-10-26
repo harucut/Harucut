@@ -1,6 +1,6 @@
 # ADR-0007 · P2A 행사 데이터와 인증 — Event·Participant·CaptureRun·BoothDevice·ResultAccess 계약
 
-- **상태**: 합의됨 (프론트 의견 반영 2026-10-26)
+- **상태**: 합의됨 (프론트 의견 반영 2026-10-26) · 구현 반영 2026-10-26 — **본문과 다른 곳은 §12 가 우선한다**
 - **날짜**: 2026-10-26
 - **관련**: R5 4·6·7·13·14·15·16·17절, ADR-0006(P1), `docs/api/p2a-openapi-draft.yaml`
 - **프론트 경로**: `/e/{slug}`(행사 입장), `/booth`(부스), `/r#<token>`(개인 결과) — harucut_FE #514
@@ -181,3 +181,53 @@ R5 17절 「멱등 scope·User FK의 호환 이관」 순서를 따른다:
 
 계약·이용권·사용량 원장(P2B), 행사 사진함·고객 열람·ZIP(P2B), 페이지 테마·화이트라벨 상세(P2B — P2A 는 settings 의 placeholder),
 참가자 자유 문구(서버 렌더, P2A 후속), 이메일 복구, 계정 연결 UI(모델의 linked_user_id 만), attemptNo·조건부 출력·checksum(별도 계약).
+
+## 12. 구현 반영 (2026-10-26 — P2A-2·P2A-3·공간 프레임·P2A-4)
+
+구현하면서 바뀌거나 구체화된 것. 본문과 다르면 이 절이 맞다.
+
+### 12-1. 조직 공간과 공간 프레임
+- 행사는 **조직 공간(ORGANIZATION)에만** 만든다. `POST /api/auth/workspaces { name }` 으로 만들고 만든 사람이 OWNER 다.
+  개인 공간은 회원 탈퇴 때 지워지는데, 행사 자료를 개인 탈퇴로 연쇄 삭제하지 않기 위해서다. 탈퇴는 개인 공간 프레임·자산만 지운다.
+- 행사용 프레임은 `FrameCreateRequest.workspaceId` 로 그 공간에 만든다(생성 때만, 이동 없음).
+- 조직 공간 프레임은 **공간의 것**이다.
+  - `GET /api/auth/user/frame` 은 개인 프레임 + 시스템만. 조직 프레임은 `GET /api/auth/workspaces/{workspaceId}/frames`(멤버 누구나).
+  - 권한은 기존 프레임 경로 그대로, 판정만 공간 역할: 조회·발행본 목록은 멤버, 수정·삭제·발행·초안은 OWNER·ADMIN·DESIGNER. 아니면 404.
+  - 개인 요금제 한도·보관 판정·사용량에서 빠지고, 공간당 상한(`frame.limits.max-frames-per-workspace`, 기본 200, `FRAME-007`).
+  - 여러 멤버가 고치므로 저장 시 uploads/ key 는 「고치는 사람 폴더 · 이 프레임이 이미 쓰던 key · 이 공간의 검증 자산 key」 중 하나면 받는다.
+    발행 때 조직 프레임의 예전 key 를 발행자 폴더로 다시 묻지 않는다.
+  - `FrameResponse.workspaceId` 추가.
+- 행사 frames 고르기: `GET /api/auth/workspaces/{workspaceId}/frame-versions` → 공간·시스템 프레임의 **최신 발행본**
+  `{ frameVersionId, frameId, versionNo, frameType, title, previewUrl, source: SYSTEM|WORKSPACE, publishedAt }`. 발행 안 된 프레임은 없다.
+  **운영 절차**: 시스템 프레임은 배포 뒤 관리자가 `POST /api/admin/frames/{id}/versions` 로 발행해야 고를 수 있다.
+
+### 12-2. 보안 체인
+- 경로 목록은 `SecurityPaths.EVENT`(체인과 OpenAPI 문서가 같은 목록을 읽는다). 체인에 CORS 를 켠다(회원 체인과 같은 출처) — 사용자 정의 헤더의 preflight.
+- 자격 실패 코드: 참가자 401 `PART-001`, 결과 401 `RESULT-001`, **부스 403 `BOOTH-003`**(401 이 아니다).
+- 틀린 결과 토큰은 같은 IP 에서 분당 30회를 넘으면 429 `GEN-061`(토큰을 낸 요청만 센다).
+- 빈도 제한 키는 `request.getRemoteAddr()` 다. **운영 전제**: BFF 가 `X-Forwarded-For` 를 넘기고 백엔드가 신뢰 프록시 대역만 믿도록
+  설정(`server.forward-headers-strategy` + internal proxies). 그렇지 않으면 모든 참가자가 BFF IP 하나를 공유한다.
+
+### 12-3. 부스
+- 연결 코드 `XXXX-XXXX`(base32)는 **앞 4자 lookup + 뒤 4자 비밀**이다. lookup 으로 거래를 찾고 비밀은 SHA-256 으로만 둔다 —
+  코드 전체를 해시로만 두면 틀린 코드는 어느 거래에도 닿지 않아 「실패 5회면 그 거래 종료」를 셀 수 없다.
+  열린 거래끼리는 lookup 이 겹치지 않게 발급한다. 실패 횟수는 요청이 실패해도 남는다(롤백하지 않는다).
+- `booth_pairing` 은 `code_hash` 대신 `lookup char(4)` + `secret_hash char(64)`.
+- `GET /api/booth/capture-runs/current` 응답에 **resultToken 을 싣지 않는다** — 결과 토큰은 해시로만 저장해 다시 보여 줄 수 없고,
+  폴링마다 발급하면 토큰 행이 쌓인다. 부스는 합성 접수 응답의 resultToken 을 쓴다. 다시 필요하면
+  `POST /api/booth/capture-runs/{id}/result-access { stateVersion }` 로 명시적으로 새로 발급한다.
+- 활성 회차가 없으면 current 는 200 이고 `data` 가 없다. close 응답은 `{ captureRunId, stateVersion(+1), status }`.
+- 회수는 토큰 삭제·열린 코드 닫기·진행 중 회차 종료·그 기기로 만든 참가자 세션 회수까지 한다. 회수한 기기는 다시 연결하지 않는다.
+- 닫지 않고 시간만 지난 부스 회차는 다음 회차를 시작할 때 EXPIRED 로 비운다.
+- 기기 이름 1~50자(위반 `GEN-003`), 행사당 회수되지 않은 기기 20대(`event.participation.max-booth-devices-per-event`, `BOOTH-006` 403).
+
+### 12-4. 그 밖
+- migration 번호: 참가자·결과는 V9, 부스는 V10(본문 §3 의 「V3」는 초안 번호). V7 부터 운영 Flyway 활성화가 먼저다.
+- 참가자 DTO 의 OpenAPI 스키마 이름: `EventComposeRequest`, `ParticipantConsentItem`(다른 DTO 와 단순 이름이 겹쳐 합쳐지던 것).
+  부스 DTO 는 `Booth*`. `SchemaNameUniquenessTest` 가 「스키마 이름 하나 = 클래스 하나」를 강제한다.
+- 공개 행사·부스 me 의 `consentItems` 는 운영자 항목 그대로(code·version·title·required·body).
+
+| 추가 코드 | HTTP | 뜻 |
+|---|---|---|
+| FRAME-007 | 403 | 조직 공간 프레임 수 상한 |
+| BOOTH-006 | 403 | 행사당 부스 기기 수 상한 |

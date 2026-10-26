@@ -1,5 +1,7 @@
 package com.harucut.common.exception;
 
+import com.harucut.terms.service.TermsConsentGuard;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -19,6 +21,10 @@ import static org.springframework.mock.http.server.reactive.MockServerHttpReques
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("test")
 class GlobalExceptionHandlerTest {
+
+    // WebMvcConfig 의 약관 동의 인터셉터가 요구한다 — 기본값 false 라 동의 강제는 걸리지 않는다
+    @MockitoBean
+    private TermsConsentGuard termsConsentGuard;
 
     @Autowired
     private MockMvcTester mockMvc;

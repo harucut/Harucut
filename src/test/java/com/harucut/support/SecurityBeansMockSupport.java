@@ -4,6 +4,7 @@ import com.harucut.auth.oauth2.CustomOAuth2FailureHandler;
 import com.harucut.auth.oauth2.CustomOAuth2SuccessHandler;
 import com.harucut.auth.oauth2.CustomOAuth2UserService;
 import com.harucut.auth.oauth2.CustomOidcUserService;
+import com.harucut.terms.service.TermsConsentGuard;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
@@ -25,4 +26,9 @@ public abstract class SecurityBeansMockSupport {
 
     @MockitoBean
     protected CustomOAuth2FailureHandler oAuth2FailureHandler;
+
+    // WebMvcConfig 의 약관 동의 인터셉터가 요구한다. mock 기본값 false = "빠진 동의 없음"이라
+    // 개별 컨트롤러 테스트는 동의 강제와 무관하게 돈다. 강제 자체는 TermsConsentInterceptorTest 가 본다
+    @MockitoBean
+    protected TermsConsentGuard termsConsentGuard;
 }

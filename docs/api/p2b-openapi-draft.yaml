@@ -1,0 +1,271 @@
+# P2B 계약 초안 — ADR-0008. 구현 전 합의용이다. 구현 뒤 정본은 docs/api/openapi.generated.json 이다.
+# 응답은 공통 봉투 { code, status, message?, data? } 의 data 만 적는다. 인증: /api/auth/** 회원(cookieAuth|bearerAuth), /api/admin/** 플랫폼 ADMIN.
+openapi: 3.1.0
+info: { title: Harucut P2B draft, version: draft-2026-10-26 }
+paths:
+  # ── P2B-1 멤버·고객 ─────────────────────────
+  /api/auth/workspaces/{workspaceId}/invitations:
+    post:
+      summary: 공간 멤버 초대 (OWNER·ADMIN, OWNER 초대는 OWNER 만)
+      requestBody: { content: { application/json: { schema: { type: object, required: [role], properties: { role: { $ref: '#/components/schemas/WorkspaceRole' }, email: { type: string, description: 표시용 메모 } } } } } }
+      responses: { '201': { content: { application/json: { schema: { $ref: '#/components/schemas/InvitationIssued' } } } } }
+    get:
+      summary: 열린 초대 목록 (OWNER·ADMIN) — 토큰은 없다
+      responses: { '200': { content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Invitation' } } } } } }
+  /api/auth/workspaces/{workspaceId}/invitations/{invitationId}/revoke:
+    post: { summary: 초대 회수, responses: { '200': { description: OK } } }
+  /api/auth/events/{eventId}/invitations:
+    post:
+      summary: 행사 고객 초대 (OWNER·ADMIN) — 수락하면 EventGrant 만 생긴다(공간 멤버 아님)
+      requestBody: { content: { application/json: { schema: { type: object, required: [permissions], properties: { permissions: { type: array, items: { $ref: '#/components/schemas/PhotoPermission' } }, note: { type: string } } } } } }
+      responses: { '201': { content: { application/json: { schema: { $ref: '#/components/schemas/InvitationIssued' } } } } }
+  /api/auth/invitations/accept:
+    post:
+      summary: 초대 수락 (로그인) — 링크 /invite#<token> 의 token
+      requestBody: { content: { application/json: { schema: { type: object, required: [token], properties: { token: { type: string } } } } } }
+      responses:
+        '200': { content: { application/json: { schema: { $ref: '#/components/schemas/InvitationAccepted' } } } }
+        '400': { description: MEMBER-002 }
+        '409': { description: MEMBER-003 }
+        '410': { description: MEMBER-001 }
+  /api/auth/workspaces/{workspaceId}/members:
+    get:
+      summary: 멤버 목록 (멤버 누구나)
+      responses: { '200': { content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Member' } } } } } }
+  /api/auth/workspaces/{workspaceId}/members/{userId}:
+    patch:
+      summary: 역할 변경 (OWNER·ADMIN, OWNER 관련은 OWNER 만)
+      requestBody: { content: { application/json: { schema: { type: object, required: [role], properties: { role: { $ref: '#/components/schemas/WorkspaceRole' } } } } } }
+      responses: { '200': { content: { application/json: { schema: { $ref: '#/components/schemas/Member' } } } }, '409': { description: MEMBER-004 } }
+    delete:
+      summary: 멤버 회수 (userId 자리에 me 면 본인 탈퇴). 그 사람의 이 공간 EventGrant 도 회수
+      responses: { '200': { description: OK }, '409': { description: MEMBER-004 } }
+  /api/auth/events/{eventId}/grants:
+    get:
+      summary: 행사 권한 목록 (OWNER·ADMIN)
+      responses: { '200': { content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/EventGrant' } } } } } }
+  /api/auth/events/{eventId}/grants/{grantId}:
+    patch:
+      requestBody: { content: { application/json: { schema: { type: object, required: [permissions], properties: { permissions: { type: array, items: { $ref: '#/components/schemas/PhotoPermission' } } } } } } }
+      responses: { '200': { content: { application/json: { schema: { $ref: '#/components/schemas/EventGrant' } } } } }
+    delete: { responses: { '200': { description: OK } } }
+  /api/auth/me/events:
+    get:
+      summary: 내가 접근할 수 있는 행사 — 운영(멤버) + EventGrant
+      responses: { '200': { content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/MyEvent' } } } } } }
+  /api/auth/workspaces/{workspaceId}/audit-logs:
+    get:
+      summary: 감사 로그 (OWNER·ADMIN), 커서
+      parameters: [ { name: cursor, in: query, schema: { type: string } } ]
+      responses: { '200': { content: { application/json: { schema: { $ref: '#/components/schemas/AuditLogPage' } } } } }
+
+  # ── P2B-2 사진함·복제 ─────────────────────────
+  /api/auth/events/{eventId}/photos:
+    get:
+      summary: 사진함 (VIEW_PHOTOS) — 최신순 커서
+      parameters:
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 30, maximum: 100 } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: channel, in: query, schema: { type: string, enum: [BYOD, BOOTH] } }
+        - { name: frameVersionId, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { type: string, enum: [PENDING, DONE, FAILED] } }
+      responses:
+        '200': { content: { application/json: { schema: { $ref: '#/components/schemas/PhotoPage' } } } }
+        '403': { description: PHOTO-001 }
+  /api/auth/events/{eventId}/photos/{photoId}/download:
+    post:
+      summary: 개별 다운로드 (DOWNLOAD_PHOTOS) — 5분 URL
+      responses: { '200': { content: { application/json: { schema: { $ref: '#/components/schemas/DownloadUrl' } } } }, '403': { description: PHOTO-001 } }
+  /api/auth/events/{eventId}/photos/{photoId}:
+    delete:
+      summary: 사진 삭제 요청 (DELETE_PHOTOS) — 목록·ZIP·결과 링크에서 즉시 빠진다
+      responses: { '200': { description: OK }, '403': { description: PHOTO-001 } }
+  /api/auth/events/{eventId}/clone:
+    post:
+      summary: 행사 복제 (OWNER·ADMIN) — 설정·테마·제공 프레임만, 새 DRAFT
+      requestBody: { content: { application/json: { schema: { type: object, required: [name, slug], properties: { name: { type: string }, slug: { type: string } } } } } }
+      responses: { '201': { description: EventResponse(기존 운영자 응답과 같은 모양) }, '409': { description: EVENT-004 } }
+
+  # ── P2B-3 ZIP ─────────────────────────
+  /api/auth/events/{eventId}/exports:
+    post:
+      summary: 묶음 다운로드 작업 (BULK_DOWNLOAD) — photoIds 또는 filter 중 하나
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                photoIds: { type: array, items: { type: integer } }
+                filter: { type: object, properties: { from: { type: string, format: date-time }, to: { type: string, format: date-time }, channel: { type: string, enum: [BYOD, BOOTH] }, frameVersionId: { type: integer } } }
+      responses: { '202': { content: { application/json: { schema: { $ref: '#/components/schemas/Export' } } } }, '400': { description: EXPORT-003 } }
+    get:
+      summary: 내가 만든 최근 묶음
+      responses: { '200': { content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Export' } } } } } }
+  /api/auth/events/{eventId}/exports/{exportId}:
+    get: { responses: { '200': { content: { application/json: { schema: { $ref: '#/components/schemas/Export' } } } } } }
+  /api/auth/events/{eventId}/exports/{exportId}/download:
+    post:
+      summary: 묶음 받기 — 권한·포함 사진을 다시 검사, 5분 URL
+      responses:
+        '200': { content: { application/json: { schema: { $ref: '#/components/schemas/DownloadUrl' } } } }
+        '409': { description: EXPORT-001 }
+        '410': { description: EXPORT-002 }
+
+  # ── P2B-5 계약·이용권·사용량 ─────────────────────────
+  /api/public/inquiries:
+    post:
+      summary: 문의 접수 (로그인 없이, IP 분당 5회)
+      security: []
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/InquiryRequest' } } } }
+      responses: { '201': { content: { application/json: { schema: { type: object, properties: { inquiryId: { type: string } } } } } }, '429': { description: GEN-061 } }
+  /api/auth/events/{eventId}/usage:
+    get:
+      summary: 행사 사용량 (OWNER·ADMIN 또는 그 행사 EventGrant 보유자)
+      responses: { '200': { content: { application/json: { schema: { $ref: '#/components/schemas/EventUsage' } } } } }
+  /api/admin/inquiries:
+    get: { summary: 문의 목록, responses: { '200': { description: OK } } }
+  /api/admin/inquiries/{inquiryId}:
+    patch:
+      requestBody: { content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [NEW, CONTACTED, QUOTED, WON, LOST] }, assigneeNote: { type: string } } } } } }
+      responses: { '200': { description: OK } }
+  /api/admin/contracts:
+    post:
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/ContractRequest' } } } }
+      responses: { '201': { content: { application/json: { schema: { $ref: '#/components/schemas/Contract' } } } } }
+    get: { responses: { '200': { description: OK } } }
+  /api/admin/contracts/{contractId}:
+    patch:
+      summary: 상태 전이(DRAFT→ACTIVE→ENDED, →CANCELLED). ACTIVE 가 되면 이용권 생성
+      requestBody: { content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [ACTIVE, ENDED, CANCELLED] } } } } } }
+      responses: { '200': { content: { application/json: { schema: { $ref: '#/components/schemas/Contract' } } } }, '409': { description: ENT-003 } }
+  /api/admin/entitlements:
+    post:
+      summary: ManualGrant(source MANUAL) — 사유 필수
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/EntitlementRequest' } } } }
+      responses: { '201': { content: { application/json: { schema: { $ref: '#/components/schemas/Entitlement' } } } } }
+    get: { responses: { '200': { description: OK } } }
+  /api/admin/entitlements/{entitlementId}/impact:
+    get:
+      summary: 회수·만료 영향 미리보기
+      responses: { '200': { content: { application/json: { schema: { type: object, properties: { liveEvents: { type: array, items: { type: string } }, openReservations: { type: integer } } } } } } }
+  /api/admin/entitlements/{entitlementId}/revoke:
+    post: { requestBody: { content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string } } } } } }, responses: { '200': { description: OK } } }
+
+components:
+  schemas:
+    WorkspaceRole: { type: string, enum: [OWNER, ADMIN, DESIGNER, VIEWER] }
+    PhotoPermission: { type: string, enum: [VIEW_PHOTOS, DOWNLOAD_PHOTOS, BULK_DOWNLOAD, DELETE_PHOTOS] }
+    InvitationIssued:
+      type: object
+      properties: { invitationId: { type: string }, inviteToken: { type: string, description: '원문은 이 응답에서만. 링크 /invite#<token>' }, expiresAt: { type: string, format: date-time } }
+    Invitation:
+      type: object
+      properties: { invitationId: { type: string }, kind: { type: string, enum: [WORKSPACE, EVENT] }, role: { $ref: '#/components/schemas/WorkspaceRole' }, permissions: { type: array, items: { $ref: '#/components/schemas/PhotoPermission' } }, email: { type: string }, expiresAt: { type: string, format: date-time }, status: { type: string, enum: [OPEN, ACCEPTED, REVOKED, EXPIRED] } }
+    InvitationAccepted:
+      type: object
+      properties: { kind: { type: string, enum: [WORKSPACE, EVENT] }, workspaceId: { type: string }, eventId: { type: string }, role: { $ref: '#/components/schemas/WorkspaceRole' }, permissions: { type: array, items: { $ref: '#/components/schemas/PhotoPermission' } } }
+    Member:
+      type: object
+      properties: { userId: { type: string }, nickname: { type: string }, role: { $ref: '#/components/schemas/WorkspaceRole' }, joinedAt: { type: string, format: date-time } }
+    EventGrant:
+      type: object
+      properties: { grantId: { type: string }, userId: { type: string }, nickname: { type: string }, permissions: { type: array, items: { $ref: '#/components/schemas/PhotoPermission' } }, createdAt: { type: string, format: date-time } }
+    MyEvent:
+      type: object
+      properties:
+        eventId: { type: string }
+        name: { type: string }
+        status: { type: string, enum: [DRAFT, LIVE, CAPTURE_CLOSED, ARCHIVED] }
+        access: { type: object, properties: { role: { $ref: '#/components/schemas/WorkspaceRole' }, permissions: { type: array, items: { $ref: '#/components/schemas/PhotoPermission' } } } }
+    AuditLogPage:
+      type: object
+      properties:
+        items: { type: array, items: { type: object, properties: { action: { type: string }, actorNickname: { type: string }, eventId: { type: string }, targetType: { type: string }, targetId: { type: string }, detail: { type: object }, createdAt: { type: string, format: date-time } } } }
+        nextCursor: { type: string }
+    PhotoPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              photoId: { type: integer, description: 합성 작업 id }
+              status: { type: string, enum: [PENDING, DONE, FAILED] }
+              createdAt: { type: string, format: date-time }
+              channel: { type: string, enum: [BYOD, BOOTH] }
+              frameVersionId: { type: integer }
+              thumbnailUrl: { type: string, description: 'DONE 일 때만, presigned GET 5분' }
+              failure: { type: object, properties: { code: { type: string, enum: [COMPOSE_FAILED, INPUT_MISSING, TIMEOUT] }, retryable: { type: boolean } } }
+        nextCursor: { type: string, description: 없으면 마지막 쪽 }
+    DownloadUrl:
+      type: object
+      properties: { url: { type: string }, expiresAt: { type: string, format: date-time } }
+    Export:
+      type: object
+      properties: { exportId: { type: string }, status: { type: string, enum: [PENDING, RUNNING, DONE, FAILED, EXPIRED] }, photoCount: { type: integer }, sizeBytes: { type: integer }, expiresAt: { type: string, format: date-time }, createdAt: { type: string, format: date-time } }
+    PageTheme:
+      description: 'EventSettings.theme (PATCH 로 쓰는 모양). 공개 응답에는 자산 id 대신 logoUrl·backgroundUrl 이 실리고 빠진 값은 기본값으로 채워진다'
+      type: object
+      properties:
+        schemaVersion: { type: integer, enum: [1] }
+        colors:
+          type: object
+          description: '#RRGGBB. FE 토큰 --ev-background --ev-surface --ev-text --ev-muted-text --ev-primary --ev-on-primary --ev-accent'
+          properties: { background: { type: string }, surface: { type: string }, text: { type: string }, mutedText: { type: string }, primary: { type: string }, onPrimary: { type: string }, accent: { type: string } }
+        font: { type: string, enum: [SYSTEM, PRETENDARD, NANUM_MYEONGJO, GOWUN_DODUM, BLACK_HAN_SANS] }
+        logoAssetId: { type: string, description: 이 공간의 VERIFIED PAGE_THEME_ASSET }
+        backgroundAssetId: { type: string }
+        copy:
+          type: object
+          description: 각 200자 이내 일반 텍스트
+          properties: { welcome: { type: string }, consentIntro: { type: string }, captureGuide: { type: string }, composing: { type: string }, done: { type: string }, expired: { type: string }, closed: { type: string }, error: { type: string } }
+        branding:
+          type: object
+          properties:
+            hideHarucutBranding: { type: boolean, description: '이용권 기능 WHITE_LABEL 필요(게시 검사)' }
+            outputLogo: { type: string, enum: [NONE, ORGANIZER_LOGO], description: 'P2B 는 저장·발행만, 합성 반영은 P5' }
+    InquiryRequest:
+      type: object
+      required: [contactName, email, organizerType, channels, message]
+      properties: { contactName: { type: string, maxLength: 50 }, email: { type: string, format: email }, phone: { type: string }, organizerType: { type: string, enum: [PERSONAL, BUSINESS] }, channels: { type: array, items: { type: string, enum: [BYOD, BOOTH] } }, expectedDate: { type: string, format: date }, expectedCount: { type: integer }, message: { type: string, maxLength: 2000 } }
+    ContractRequest:
+      type: object
+      required: [workspaceId, contractorName, scope, startsAt, endsAt, entitlement]
+      properties:
+        workspaceId: { type: string }
+        contractorName: { type: string }
+        scope: { type: string, enum: [WORKSPACE, EVENT] }
+        eventIds: { type: array, items: { type: string } }
+        amount: { type: integer }
+        currency: { type: string, default: KRW }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        paymentEvidence: { type: object, properties: { kind: { type: string, enum: [PORTONE, BANK_TRANSFER, OTHER] }, reference: { type: string } } }
+        entitlement: { $ref: '#/components/schemas/EntitlementTerms' }
+    Contract:
+      allOf: [ { $ref: '#/components/schemas/ContractRequest' }, { type: object, properties: { contractId: { type: string }, status: { type: string, enum: [DRAFT, ACTIVE, ENDED, CANCELLED] } } } ]
+    EntitlementTerms:
+      type: object
+      properties: { composeQuota: { type: integer }, retentionDays: { type: integer }, maxBoothDevices: { type: integer }, maxLiveEvents: { type: integer }, features: { type: array, items: { type: string, enum: [WHITE_LABEL, CUSTOM_THEME, BULK_DOWNLOAD] } } }
+    EntitlementRequest:
+      allOf:
+        - { $ref: '#/components/schemas/EntitlementTerms' }
+        - type: object
+          required: [scope, workspaceId, validFrom, validTo, grantorNote]
+          properties: { scope: { type: string, enum: [WORKSPACE, EVENT] }, workspaceId: { type: string }, eventId: { type: string }, validFrom: { type: string, format: date-time }, validTo: { type: string, format: date-time }, grantorNote: { type: string, description: 수동 부여 사유 } }
+    Entitlement:
+      allOf: [ { $ref: '#/components/schemas/EntitlementRequest' }, { type: object, properties: { entitlementId: { type: string }, source: { type: string, enum: [CONTRACT, MANUAL] }, used: { type: integer }, reserved: { type: integer }, status: { type: string, enum: [ACTIVE, REVOKED, EXPIRED] } } } ]
+    EventUsage:
+      type: object
+      properties:
+        entitlement: { type: object, description: 적용 이용권이 없으면 키 없음, properties: { scope: { type: string, enum: [WORKSPACE, EVENT] }, validFrom: { type: string, format: date-time }, validTo: { type: string, format: date-time }, features: { type: array, items: { type: string } } } }
+        composeQuota: { type: integer }
+        used: { type: integer }
+        reserved: { type: integer }
+        remaining: { type: integer }
+        retentionDays: { type: integer }
+        maxBoothDevices: { type: integer }

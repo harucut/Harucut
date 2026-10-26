@@ -63,6 +63,8 @@ public class EventService {
     private final FrameRepository frameRepository;
     private final WorkspaceService workspaceService;
     private final EventGrantService eventGrantService;
+    private final ThemeResolver themeResolver;
+    private final EventFeatures eventFeatures;
     private final AuditLogService auditLogService;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
@@ -309,6 +311,8 @@ public class EventService {
         if (!consents.isEmpty() && !anyRequired) {
             violations.add(violation("consentItems", "필수 동의 항목이 하나 이상 있어야 한다"));
         }
+        violations.addAll(themeResolver.violations(draft.theme(), event.getWorkspaceId(),
+                eventFeatures.allows(event, EventFeatures.WHITE_LABEL)));
         return versions;
     }
 

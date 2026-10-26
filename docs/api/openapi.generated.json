@@ -1301,8 +1301,8 @@
             "type" : "string"
           },
           "theme" : {
-            "$ref" : "#/components/schemas/JsonNode",
-            "description" : "페이지 테마(P2A 는 자리표시자 — 서버는 해석하지 않는다)"
+            "$ref" : "#/components/schemas/PageTheme",
+            "description" : "페이지 테마 — 게시 때 형식·자산·이용권 기능을 검사한다"
           },
           "timezone" : {
             "description" : "표시용 시간대",
@@ -2467,6 +2467,120 @@
         },
         "type" : "object"
       },
+      "PageTheme" : {
+        "description" : "행사 페이지 테마(설정에 쓰는 모양). 공개 응답에는 ResolvedPageTheme 이 실린다",
+        "properties" : {
+          "backgroundAssetId" : {
+            "description" : "배경 이미지 — 이 공간의 VERIFIED PAGE_THEME_ASSET id",
+            "type" : "string"
+          },
+          "branding" : {
+            "$ref" : "#/components/schemas/PageThemeBranding"
+          },
+          "colors" : {
+            "$ref" : "#/components/schemas/PageThemeColors"
+          },
+          "copy" : {
+            "$ref" : "#/components/schemas/PageThemeCopy"
+          },
+          "font" : {
+            "description" : "글꼴",
+            "enum" : [ "SYSTEM", "PRETENDARD", "NANUM_MYEONGJO", "GOWUN_DODUM", "BLACK_HAN_SANS" ],
+            "example" : "PRETENDARD",
+            "type" : "string"
+          },
+          "logoAssetId" : {
+            "description" : "로고 — 이 공간의 VERIFIED PAGE_THEME_ASSET id",
+            "type" : "string"
+          },
+          "schemaVersion" : {
+            "description" : "스키마 버전",
+            "enum" : [ "1" ],
+            "example" : 1,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "PageThemeBranding" : {
+        "properties" : {
+          "hideHarucutBranding" : {
+            "description" : "하루컷 UI 표시 숨김 — 이용권 기능 WHITE_LABEL 이 있어야 게시된다",
+            "type" : "boolean"
+          },
+          "outputLogo" : {
+            "description" : "완성 이미지 로고 정책. P2B 는 저장·발행만(합성 반영은 P5)",
+            "enum" : [ "NONE", "ORGANIZER_LOGO" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "PageThemeColors" : {
+        "description" : "#RRGGBB — FE 토큰 --ev-* 와 1:1. 빠진 색은 기본값",
+        "properties" : {
+          "accent" : {
+            "example" : "#C8553D",
+            "type" : "string"
+          },
+          "accentContrast" : {
+            "example" : "#FFFFFF",
+            "type" : "string"
+          },
+          "bg" : {
+            "example" : "#FFF8F3",
+            "type" : "string"
+          },
+          "border" : {
+            "example" : "#E8DED6",
+            "type" : "string"
+          },
+          "card" : {
+            "example" : "#FFFFFF",
+            "type" : "string"
+          },
+          "muted" : {
+            "example" : "#6B6B6B",
+            "type" : "string"
+          },
+          "text" : {
+            "example" : "#2B2B2B",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "PageThemeCopy" : {
+        "description" : "화면별 문구, 각 200자 이내 일반 텍스트(HTML 아님). 빠지면 FE 기본 문구. 부스 대기 화면은 welcome",
+        "properties" : {
+          "captureGuide" : {
+            "type" : "string"
+          },
+          "closed" : {
+            "type" : "string"
+          },
+          "composing" : {
+            "type" : "string"
+          },
+          "consentIntro" : {
+            "type" : "string"
+          },
+          "done" : {
+            "type" : "string"
+          },
+          "error" : {
+            "type" : "string"
+          },
+          "expired" : {
+            "type" : "string"
+          },
+          "welcome" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ParticipantConsentItem" : {
         "description" : "참가자의 항목별 동의 결정",
         "properties" : {
@@ -2775,8 +2889,8 @@
             "type" : "string"
           },
           "theme" : {
-            "$ref" : "#/components/schemas/JsonNode",
-            "description" : "페이지 테마(P2A 자리표시자)"
+            "$ref" : "#/components/schemas/ResolvedPageTheme",
+            "description" : "페이지 테마 — 기본값이 채워지고 자산은 URL"
           }
         },
         "type" : "object"
@@ -2878,6 +2992,48 @@
           "resetToken" : {
             "description" : "비밀번호 재설정에 쓸 1회용 토큰. **10분 안에 써야 한다**",
             "example" : "550e8400-e29b-41d4-a716-446655440000",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ResolvedPageTheme" : {
+        "description" : "참가·부스·결과 화면용 테마. 색·글꼴·브랜딩은 항상 채워져 있다",
+        "properties" : {
+          "backgroundUrl" : {
+            "description" : "배경 이미지 presigned GET(24시간). 없으면 키 없음",
+            "type" : "string"
+          },
+          "branding" : {
+            "$ref" : "#/components/schemas/ResolvedPageThemeBranding"
+          },
+          "colors" : {
+            "$ref" : "#/components/schemas/PageThemeColors"
+          },
+          "copy" : {
+            "$ref" : "#/components/schemas/PageThemeCopy",
+            "description" : "주최자가 쓴 문구만 — 빠진 화면은 FE 기본 문구"
+          },
+          "font" : {
+            "type" : "string"
+          },
+          "logoUrl" : {
+            "description" : "로고 presigned GET(24시간). 없으면 키 없음",
+            "type" : "string"
+          },
+          "schemaVersion" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResolvedPageThemeBranding" : {
+        "properties" : {
+          "hideHarucutBranding" : {
+            "type" : "boolean"
+          },
+          "outputLogo" : {
             "type" : "string"
           }
         },
@@ -4580,8 +4736,8 @@
             "type" : "string"
           },
           "theme" : {
-            "$ref" : "#/components/schemas/JsonNode",
-            "description" : "이 결과가 만들어진 경험 버전의 페이지 테마(P2A 는 자리표시자)"
+            "$ref" : "#/components/schemas/ResolvedPageTheme",
+            "description" : "이 결과가 만들어진 경험 버전의 페이지 테마 — 기본값이 채워지고 자산은 URL"
           },
           "thumbnailUrl" : {
             "description" : "DONE 일 때만 — 짧은 썸네일 URL",

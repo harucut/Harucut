@@ -1,0 +1,217 @@
+[ {
+  "code" : "AUTH-001",
+  "status" : 400,
+  "message" : "Invalid credentials."
+}, {
+  "code" : "AUTH-002",
+  "status" : 400,
+  "message" : "Incorrect password."
+}, {
+  "code" : "AUTH-003",
+  "status" : 400,
+  "message" : "Invalid or expired verification code."
+}, {
+  "code" : "AUTH-004",
+  "status" : 400,
+  "message" : "Failed to register email."
+}, {
+  "code" : "AUTH-005",
+  "status" : 400,
+  "message" : "This account is pending deletion."
+}, {
+  "code" : "AUTH-006",
+  "status" : 400,
+  "message" : "This account has been permanently deleted."
+}, {
+  "code" : "AUTH-007",
+  "status" : 400,
+  "message" : "This account is not a deletion target."
+}, {
+  "code" : "AUTH-008",
+  "status" : 400,
+  "message" : "Social accounts do not have a password."
+}, {
+  "code" : "AUTH-010",
+  "status" : 401,
+  "message" : "Authentication failed."
+}, {
+  "code" : "AUTH-011",
+  "status" : 401,
+  "message" : "Invalid access token."
+}, {
+  "code" : "AUTH-012",
+  "status" : 401,
+  "message" : "Expired access token."
+}, {
+  "code" : "AUTH-020",
+  "status" : 404,
+  "message" : "User not found."
+}, {
+  "code" : "AUTH-030",
+  "status" : 409,
+  "message" : "This email is already in use."
+}, {
+  "code" : "AUTH-040",
+  "status" : 429,
+  "message" : "Too many verification requests."
+}, {
+  "code" : "AUTH-090",
+  "status" : 500,
+  "message" : "Failed to send verification email."
+}, {
+  "code" : "AUTH-091",
+  "status" : 500,
+  "message" : "Failed to unlink OAuth2 provider account."
+}, {
+  "code" : "COUPON-001",
+  "status" : 404,
+  "message" : "The requested coupon does not exist."
+}, {
+  "code" : "COUPON-002",
+  "status" : 409,
+  "message" : "A coupon with this code already exists."
+}, {
+  "code" : "COUPON-003",
+  "status" : 400,
+  "message" : "Coupon grant tier must be PLUS or PRO."
+}, {
+  "code" : "COUPON-004",
+  "status" : 400,
+  "message" : "This coupon is inactive or past its redemption deadline."
+}, {
+  "code" : "COUPON-005",
+  "status" : 409,
+  "message" : "This coupon has reached its maximum number of redemptions."
+}, {
+  "code" : "COUPON-006",
+  "status" : 409,
+  "message" : "You have already redeemed this coupon."
+}, {
+  "code" : "COUPON-007",
+  "status" : 409,
+  "message" : "You already have a reserved coupon grant awaiting activation."
+}, {
+  "code" : "COUPON-008",
+  "status" : 409,
+  "message" : "Coupons cannot be used on an unlimited subscription."
+}, {
+  "code" : "FRAME-001",
+  "status" : 404,
+  "message" : "The requested system frame does not exist."
+}, {
+  "code" : "GEN-001",
+  "status" : 400,
+  "message" : "Bad request."
+}, {
+  "code" : "GEN-002",
+  "status" : 400,
+  "message" : "Invalid input value."
+}, {
+  "code" : "GEN-003",
+  "status" : 400,
+  "message" : "Validation failed."
+}, {
+  "code" : "GEN-004",
+  "status" : 400,
+  "message" : "Missing request parameter."
+}, {
+  "code" : "GEN-005",
+  "status" : 400,
+  "message" : "Type mismatch error."
+}, {
+  "code" : "GEN-006",
+  "status" : 400,
+  "message" : "Failed to parse JSON body."
+}, {
+  "code" : "GEN-011",
+  "status" : 401,
+  "message" : "Unauthorized access."
+}, {
+  "code" : "GEN-021",
+  "status" : 403,
+  "message" : "Access denied."
+}, {
+  "code" : "GEN-031",
+  "status" : 404,
+  "message" : "Resource not found."
+}, {
+  "code" : "GEN-041",
+  "status" : 405,
+  "message" : "Method not allowed."
+}, {
+  "code" : "GEN-051",
+  "status" : 415,
+  "message" : "Unsupported media type."
+}, {
+  "code" : "GEN-091",
+  "status" : 500,
+  "message" : "An internal server error occurred."
+}, {
+  "code" : "MEDIA-001",
+  "status" : 409,
+  "message" : "The idempotency key was already used with a different request."
+}, {
+  "code" : "NOTICE-001",
+  "status" : 404,
+  "message" : "The requested notice does not exist or is not published."
+}, {
+  "code" : "PAY-001",
+  "status" : 502,
+  "message" : "Failed to issue a billing key."
+}, {
+  "code" : "PAY-002",
+  "status" : 402,
+  "message" : "Payment failed."
+}, {
+  "code" : "PAY-003",
+  "status" : 409,
+  "message" : "Already subscribed to a paid plan."
+}, {
+  "code" : "PAY-006",
+  "status" : 409,
+  "message" : "Duplicate payment request."
+}, {
+  "code" : "PAY-007",
+  "status" : 400,
+  "message" : "Invalid target plan tier."
+}, {
+  "code" : "PAY-008",
+  "status" : 400,
+  "message" : "Invalid webhook signature."
+}, {
+  "code" : "SUBS-002",
+  "status" : 403,
+  "message" : "Requested history is beyond the plan's retention period."
+}, {
+  "code" : "SUBS-003",
+  "status" : 403,
+  "message" : "The number of stored frames exceeds the limit for the current plan."
+}, {
+  "code" : "SUBS-004",
+  "status" : 404,
+  "message" : "No active subscription found."
+}, {
+  "code" : "SUBS-005",
+  "status" : 409,
+  "message" : "The subscription's auto-renewal is already canceled."
+}, {
+  "code" : "SUBS-006",
+  "status" : 409,
+  "message" : "There is no auto-renewal to cancel for this subscription."
+}, {
+  "code" : "TERMS-001",
+  "status" : 404,
+  "message" : "The requested terms do not exist or are inactive."
+}, {
+  "code" : "TERMS-002",
+  "status" : 409,
+  "message" : "Terms code already exists."
+}, {
+  "code" : "TERMS-003",
+  "status" : 400,
+  "message" : "Required terms cannot be withdrawn."
+}, {
+  "code" : "TERMS-004",
+  "status" : 403,
+  "message" : "Required terms consent is missing or outdated."
+} ]

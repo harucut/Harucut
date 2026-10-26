@@ -8,6 +8,7 @@ import com.harucut.storage.util.S3Keys;
 import com.harucut.user.entity.User;
 import com.harucut.user.enums.UserStatus;
 import com.harucut.user.repository.UserRepository;
+import com.harucut.workspace.service.WorkspaceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,7 @@ public class UserExitService {
     private final List<UserDeletionHandler> handlers;
     private final List<OAuth2UnlinkService> unlinkServices;
     private final ApplicationEventPublisher eventPublisher;
+    private final WorkspaceService workspaceService;
 
     @Transactional
     public void requestExit(String publicId) {
@@ -58,6 +60,9 @@ public class UserExitService {
         String profileImageKey = user.getProfileImageUrl();
 
         handlers.forEach(handler -> handler.handleUserDeletion(userId));
+        // 핸들러 뒤에 따로 부른다 — 프레임 등 핸들러가 지우는 데이터가 이 공간을 FK 로 참조한다.
+        // 핸들러 목록의 순서는 보장되지 않아서 하나의 핸들러로 끼워 넣지 않았다
+        workspaceService.deleteForUser(userId);
 
         // 핸들러들의 벌크 삭제(clearAutomatically)가 컨텍스트를 비웠다 — 위의 user는 유령이라
         // 그대로 delete()하면 익명화가 조용히 증발한다. 재로드가 필수다.

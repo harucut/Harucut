@@ -10,6 +10,7 @@ import com.harucut.frame.repository.FrameRepository;
 import com.harucut.subscription.exception.SubscriptionErrorCode;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
+import com.harucut.workspace.service.WorkspaceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,12 +29,14 @@ public class FrameService {
     private final FrameAssetManager frameAssetManager;
     private final FrameComponentAssembler frameComponentAssembler;
     private final FrameSubscriptionPolicy frameSubscriptionPolicy;
+    private final WorkspaceService workspaceService;
 
     public FrameResponse createFrame(String publicId, FrameCreateRequest request) {
         User user = getUser(publicId);
         frameSubscriptionPolicy.assertFrameRetentionLimit(user.getId(), (int) frameRepository.countByUser(user));
 
         Frame frame = frameComponentAssembler.assembleOwned(user, request);
+        frame.assignWorkspace(workspaceService.personalWorkspaceOf(user.getId()).getId());
         return frameComponentAssembler.toFrameResponse(frameRepository.save(frame));
     }
 

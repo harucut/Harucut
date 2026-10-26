@@ -57,6 +57,12 @@ public class Frame extends BaseEntity {
     @Column(name = "is_system", nullable = false)
     private boolean isSystem;
 
+    // 속한 공간. 사용자 프레임은 그 사용자의 개인 공간, 시스템 프레임은 NULL(SYSTEM 범위).
+    // P1 의 소유 판정은 아직 user 로 한다 — 이 값은 자산·발행본이 같은 공간인지 볼 때 쓴다.
+    // V2 이전에 만든 행은 NULL 일 수 있다(flyway 꺼진 운영은 백필이 안 돈다)
+    @Column(name = "workspace_id")
+    private Long workspaceId;
+
     @OneToMany(mappedBy = "frame", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<FrameComponent> components = new ArrayList<>();
 
@@ -71,6 +77,13 @@ public class Frame extends BaseEntity {
         this.cellCutouts = normalizeCellCutouts(cellCutouts);
         this.user = user;
         this.isSystem = isSystem;
+    }
+
+    public void assignWorkspace(Long workspaceId) {
+        if (isSystem) {
+            throw new IllegalStateException("시스템 프레임은 공간에 속하지 않는다");
+        }
+        this.workspaceId = workspaceId;
     }
 
     public static Frame owned(User user, String title, String description, String previewKey,

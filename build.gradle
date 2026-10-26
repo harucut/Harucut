@@ -95,6 +95,19 @@ tasks.named('test') {
     finalizedBy jacocoTestReport
 }
 
+// 프론트 계약 산출물(docs/api/*.generated.json)을 지금 코드 기준으로 다시 쓴다. API 를 바꾼 PR 은 이걸 돌려 커밋한다.
+// 평소 test 에서는 같은 테스트가 "파일 = 실제"를 검사한다(ApiContractSnapshotTest)
+tasks.register('updateApiContract', Test) {
+    description = '프론트 계약 산출물(OpenAPI 스펙·에러 코드)을 갱신한다'
+    group = 'documentation'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching 'com.harucut.config.openapi.ApiContractSnapshotTest' }
+    systemProperty 'apiContract.update', 'true'
+    outputs.upToDateWhen { false }
+}
+
 // 실제 MySQL(Testcontainers)에 Flyway migration 을 적용하고 Hibernate validate 로 엔티티와 대조한다.
 // H2 create-drop 으로는 MySQL 의 nullable 유니크·FK 인덱스·DDL 문법을 입증하지 못한다(R5 17절)
 tasks.register('mysqlTest', Test) {

@@ -3,6 +3,7 @@ package com.harucut.frame.service;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.frame.attributes.BackgroundAttributes;
+import com.harucut.frame.config.FrameLimitsProperties;
 import com.harucut.frame.dto.FrameCreateRequest;
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.enums.ComponentType;
@@ -19,6 +20,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
 
@@ -45,6 +47,9 @@ class FrameAssetOwnershipTest {
     @Mock
     private S3Deleter s3Deleter;
 
+    @Mock
+    private FrameAssetResolver frameAssetResolver;
+
     private FrameComponentAssembler assembler;
     private User owner;
     private String myRoot;
@@ -52,7 +57,8 @@ class FrameAssetOwnershipTest {
 
     @BeforeEach
     void setUp() {
-        assembler = new FrameComponentAssembler(new FrameAssetManager(fileStorageService, s3Deleter));
+        assembler = new FrameComponentAssembler(new FrameAssetManager(fileStorageService, s3Deleter),
+                frameAssetResolver, new FrameLimitsProperties(40, 7000), JsonMapper.builder().build());
         owner = User.localUser("owner@harucut.com", "encoded", "하루컷");
         myRoot = S3Keys.userRoot(owner.getPublicId());
         othersKey = S3Keys.userRoot(OTHER) + "fourcuts/job-137.png";

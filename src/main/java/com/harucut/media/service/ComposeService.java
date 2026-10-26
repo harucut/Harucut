@@ -4,6 +4,7 @@ import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.entity.Frame;
+import com.harucut.frame.exception.FrameErrorCode;
 import com.harucut.frame.service.FrameService;
 import com.harucut.media.compose.ComposeMetrics;
 import com.harucut.media.compose.ComposeRequestedEvent;
@@ -29,6 +30,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -50,6 +52,10 @@ public class ComposeService {
     private final ApplicationEventPublisher eventPublisher;
     private final ComposeMetrics composeMetrics;
     private final Clock clock;
+    private final ObjectMapper objectMapper;
+
+    // ComposeJob.spec_json 컬럼 길이와 같아야 한다
+    private static final int SPEC_JSON_MAX_CHARS = 8000;
 
     public ComposeJobResponse requestCompose(String publicId, ComposeRequest request) {
         User user = getUser(publicId);
@@ -72,6 +78,7 @@ public class ComposeService {
 
         Frame frame = frameService.getComposableFrame(user, request.frameId());
         ComposeSpec spec = composeSpecAssembler.assemble(frame, request.backgroundColor());
+        assertSpecFits(spec);
 
         ComposeJob job = composeJobRepository.save(ComposeJob.create(
                 user, frame.getId(), request.idempotencyKey(), sourceKeys, spec));
@@ -123,6 +130,15 @@ public class ComposeService {
         }
         return job.getSpec().background() instanceof BackgroundAttributes.Color color
                 && color.value().equalsIgnoreCase(backgroundColor);
+    }
+
+    // spec_json 은 8000자 컬럼이다. 넘으면 INSERT 가 DB 오류(500)로 죽는다 — 그 전에 설명 가능한 400 으로 끊는다.
+    // 프레임 저장 시점에도 같은 상한을 보지만, 상한이 생기기 전에 저장된 프레임이 여기로 올 수 있다
+    private void assertSpecFits(ComposeSpec spec) {
+        int chars = objectMapper.writeValueAsString(spec).length();
+        if (chars > SPEC_JSON_MAX_CHARS) {
+            throw new BusinessException(FrameErrorCode.SPEC_TOO_LARGE, "합성 스펙 " + chars + "자 > " + SPEC_JSON_MAX_CHARS);
+        }
     }
 
     // 게이지용. 재실행 배치가 30초마다 한 번만 부른다 — 스크레이프마다 세면

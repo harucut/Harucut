@@ -31,8 +31,9 @@ public class FrameAdminService {
 
     public FrameResponse updateSystemFrame(Long frameId, FrameCreateRequest request) {
         Frame frame = findSystemFrame(frameId);
+        FrameVersions.assertExpected(frame, request.version());
         frameComponentAssembler.replaceContent(frame, request);
-        frameRepository.saveAndFlush(frame);
+        FrameVersions.flush(frameRepository, frame);
         return frameComponentAssembler.toFrameResponse(frame);
     }
 

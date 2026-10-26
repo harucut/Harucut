@@ -29,10 +29,11 @@ import java.util.List;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<Response<Void>> handleBusinessException(BusinessException e) {
+    public ResponseEntity<Response<Object>> handleBusinessException(BusinessException e) {
         log.warn("[BusinessException] code={}, detail={}", e.getErrorCode().getCode(), e.getMessage());
 
-        return toResponseEntity(e.getErrorCode());
+        ErrorCode errorCode = e.getErrorCode();
+        return ResponseEntity.status(errorCode.getHttpStatus()).body(Response.error(errorCode, e.getData()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

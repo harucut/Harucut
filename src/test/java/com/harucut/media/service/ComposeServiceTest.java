@@ -32,6 +32,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -94,7 +95,7 @@ class ComposeServiceTest {
         Clock fixed = Clock.fixed(Instant.parse("2026-07-20T10:00:00Z"), ZoneOffset.UTC);
         composeService = new ComposeService(userRepository, composeJobRepository,
                 userMediaRepository, frameService, composeSpecAssembler, s3Deleter,
-                eventPublisher, new ComposeMetrics(new SimpleMeterRegistry()), fixed);
+                eventPublisher, new ComposeMetrics(new SimpleMeterRegistry()), fixed, JsonMapper.builder().build());
         user = User.localUser("owner@harucut.com", "encoded", "소유자");
         ReflectionTestUtils.setField(user, "id", 1L);
     }
@@ -426,6 +427,28 @@ class ComposeServiceTest {
             assertThat(response.status()).isEqualTo(ComposeStatus.FAILED);
             assertThat(response.failureReason()).isEqualTo("원본 유실");
         }
+    }
+
+    @Test
+    @DisplayName("합성 스펙이 spec_json(8000자)을 넘으면 저장 전에 400 FRAME-004 — DB 오류(500)가 아니다")
+    void specTooLargeRejectedBeforeSave() {
+        givenUser();
+        given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY)).willReturn(Optional.empty());
+        Frame frame = frame();
+        given(frameService.getComposableFrame(user, FRAME_ID)).willReturn(frame);
+        List<ComposeSpec.Layer> layers = java.util.stream.IntStream.range(0, 80)
+                .mapToObj(i -> new ComposeSpec.Layer("uploads/users/abc/components/layer-" + i + ".png",
+                        1.0, 2.0, 3.0, 4.0, 1.0, 0.0, i, 1.0))
+                .toList();
+        given(composeSpecAssembler.assemble(frame, null)).willReturn(new ComposeSpec(2000, 6000,
+                new BackgroundAttributes.Color("#FFE4E1"), FrameType.CLASSIC.getLayout().slots(),
+                List.of(false, false, false, false), layers));
+
+        assertThatThrownBy(() -> composeService.requestCompose(PUBLIC_ID, request(SOURCE_KEYS)))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(com.harucut.frame.exception.FrameErrorCode.SPEC_TOO_LARGE);
+        then(composeJobRepository).should(org.mockito.Mockito.never()).save(any());
     }
 
     @Test

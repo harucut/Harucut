@@ -120,7 +120,8 @@ class FrameDtoSerializationTest {
             FrameResponse.ComponentResponse response = new FrameResponse.ComponentResponse(
                     10L, ComponentType.PHOTO, "https://presigned.example/photo.png",
                     "uploads/users/AbCdEf12Gh/components/photo1.png",
-                    120.5, 220.0, 360.0, 480.0, 1.0, 0.0, 3, Map.of());
+                    120.5, 220.0, 360.0, 480.0, 1.0, 0.0, 3, Map.of(),
+                    false, null, null, null, null);
 
             String json = objectMapper.writeValueAsString(response);
 

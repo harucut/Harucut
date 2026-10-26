@@ -157,7 +157,7 @@ class FrameAdminServiceTest {
         Frame second = systemFrame();
         FrameResponse firstResponse = response();
         FrameResponse secondResponse = new FrameResponse(100L, "둘째", "", null, FrameType.WIDE,
-                6000, 4000, COLOR, List.of(false, false, false, false), List.of(), true);
+                6000, 4000, COLOR, List.of(false, false, false, false), List.of(), true, 0L);
         given(frameRepository.findAllWithComponentsBySystem()).willReturn(List.of(first, second));
         given(frameComponentAssembler.toFrameResponse(first)).willReturn(firstResponse);
         given(frameComponentAssembler.toFrameResponse(second)).willReturn(secondResponse);
@@ -188,6 +188,6 @@ class FrameAdminServiceTest {
 
     private static FrameResponse response() {
         return new FrameResponse(FRAME_ID, "기본", "설명", "https://preview", FrameType.CLASSIC,
-                2000, 6000, COLOR, List.of(false, false, false, false), List.of(), true);
+                2000, 6000, COLOR, List.of(false, false, false, false), List.of(), true, 0L);
     }
 }

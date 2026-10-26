@@ -161,6 +161,11 @@
       "ComponentRequest" : {
         "description" : "프레임 컴포넌트 (사진·스티커·텍스트)",
         "properties" : {
+          "assetId" : {
+            "description" : "PHOTO·STICKER 의 이미지를 자산(`FRAME_ASSET`, VERIFIED)으로 지정한다.\n있으면 `source` 대신 이 자산의 key 를 저장한다(`source` 는 여전히 보낸다).\n남의 공간·미검증·용도 불일치면 400 `FRAME-005`.",
+            "example" : "As8kLm2Pq9Xz",
+            "type" : "string"
+          },
           "height" : {
             "description" : "높이. **생략하면 응답에서 0.0 으로 나온다**",
             "example" : 480.0,
@@ -170,6 +175,16 @@
           "id" : {
             "description" : "⚠️ **저장하지 않는다.** 클라이언트가 쓰는 임시 식별자",
             "example" : "comp-1",
+            "type" : "string"
+          },
+          "locked" : {
+            "description" : "편집기 잠금. 저장·재열기용이며 인가 근거가 아니다. 생략하면 false",
+            "example" : false,
+            "type" : "boolean"
+          },
+          "renderedAssetId" : {
+            "description" : "TEXT 의 구운 PNG 를 자산(`TEXT_RENDER`, VERIFIED)으로 지정한다. 있으면 `renderedKey` 대신.\n`renderedKey` 로 보내도 그 key 가 자산이면 같은 검사를 한다.",
+            "example" : "As3nQ7wE1tYu",
             "type" : "string"
           },
           "renderedKey" : {
@@ -240,6 +255,11 @@
       "ComponentResponse" : {
         "description" : "프레임 컴포넌트",
         "properties" : {
+          "assetId" : {
+            "description" : "PHOTO·STICKER 를 자산으로 저장했으면 그 자산 public id. 아니면 null",
+            "example" : "As8kLm2Pq9Xz",
+            "type" : "string"
+          },
           "height" : {
             "description" : "높이. 저장 시 안 보냈으면 0.0",
             "example" : 480.0,
@@ -253,8 +273,26 @@
             "type" : "integer"
           },
           "key" : {
-            "description" : "정규화된 순수 S3 key. **수정 요청을 다시 만들 때 `source` 자리에 이 값을 넣는다.**\nURL 이 아니라 key 를 되돌려줘야 하기 때문에 따로 있다.",
+            "description" : "정규화된 순수 S3 key(정적 스티커는 그 경로). **항상 채워진다.**\n**수정 요청을 다시 만들 때 `source` 자리에 이 값을 넣는다**(PHOTO·STICKER 공통).\nURL 이 아니라 key 를 되돌려줘야 하기 때문에 따로 있다.",
             "example" : "uploads/users/AbCdEf12Gh/components/photo1.png",
+            "type" : "string"
+          },
+          "locked" : {
+            "description" : "편집기 잠금 상태(저장한 값). 인가 근거가 아니다",
+            "example" : false,
+            "type" : "boolean"
+          },
+          "renderedAssetId" : {
+            "description" : "TEXT 의 구운 PNG 를 자산으로 저장했으면 그 자산 public id. 아니면 null",
+            "type" : "string"
+          },
+          "renderedKey" : {
+            "description" : "TEXT 의 구운 PNG key. 문구·스타일·크기가 저장 때와 같으면 다시 굽지 말고 재저장에 그대로 쓴다.\nTEXT 가 아니거나 구운 PNG 가 없으면 null.",
+            "example" : "uploads/users/AbCdEf12Gh/components/text1.png",
+            "type" : "string"
+          },
+          "renderedUrl" : {
+            "description" : "TEXT 의 구운 PNG presigned GET URL — 그리기 전용",
             "type" : "string"
           },
           "rotation" : {
@@ -270,7 +308,7 @@
             "type" : "number"
           },
           "source" : {
-            "description" : "화면에 그릴 값. `PHOTO` 는 presigned GET URL,\n`TEXT` 는 글자 내용, `STICKER` 는 원본 경로가 그대로 나온다.",
+            "description" : "화면에 그릴 값. `PHOTO` 와 uploads/ key 인 `STICKER` 는 presigned GET URL,\n정적 경로 `STICKER` 는 경로 그대로, `TEXT` 는 글자 내용.",
             "example" : "https://harucut-bucket.s3.ap-northeast-2.amazonaws.com/uploads/.../photo1.png?X-Amz-Signature=...",
             "type" : "string"
           },
@@ -528,6 +566,27 @@
         "required" : [ "code", "content", "required", "title" ],
         "type" : "object"
       },
+      "Crop" : {
+        "properties" : {
+          "height" : {
+            "format" : "double",
+            "type" : "number"
+          },
+          "width" : {
+            "format" : "double",
+            "type" : "number"
+          },
+          "x" : {
+            "format" : "double",
+            "type" : "number"
+          },
+          "y" : {
+            "format" : "double",
+            "type" : "number"
+          }
+        },
+        "type" : "object"
+      },
       "DisplayNameUpdateRequest" : {
         "description" : "표시 파일명 수정 요청",
         "properties" : {
@@ -640,6 +699,12 @@
             "example" : "봄 여행 4컷",
             "minLength" : 1,
             "type" : "string"
+          },
+          "version" : {
+            "description" : "낙관적 잠금(PUT 에서만 의미가 있다). 마지막으로 받은 응답의 `version` 을 그대로 보낸다.\n서버 값과 다르면 **409 `FRAME-002`** 이고 `data.currentVersion` 에 서버 값이 실린다.\n**생략하면 지금처럼 덮어쓴다**(기존 클라이언트 호환).",
+            "example" : 3,
+            "format" : "int64",
+            "type" : "integer"
           }
         },
         "required" : [ "background", "frameType", "previewKey", "title" ],
@@ -714,6 +779,12 @@
             "description" : "제목",
             "example" : "봄 여행 4컷",
             "type" : "string"
+          },
+          "version" : {
+            "description" : "낙관적 잠금 값. 다음 PUT 의 `version` 에 그대로 보낸다 — 그사이 다른 저장이 있었으면 409 `FRAME-002`.",
+            "example" : 3,
+            "format" : "int64",
+            "type" : "integer"
           }
         },
         "type" : "object"
@@ -723,6 +794,24 @@
           "$ref" : "#/components/schemas/BackgroundAttributes"
         }, {
           "properties" : {
+            "assetId" : {
+              "type" : "string"
+            },
+            "crop" : {
+              "$ref" : "#/components/schemas/Crop"
+            },
+            "fit" : {
+              "enum" : [ "COVER", "CONTAIN" ],
+              "type" : "string"
+            },
+            "focalX" : {
+              "format" : "double",
+              "type" : "number"
+            },
+            "focalY" : {
+              "format" : "double",
+              "type" : "number"
+            },
             "key" : {
               "type" : "string"
             },

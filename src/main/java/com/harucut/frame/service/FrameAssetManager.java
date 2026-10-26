@@ -51,9 +51,10 @@ public class FrameAssetManager {
         return normalized;
     }
 
-    // 응답 조립: PHOTO이고 관리 대상이면 presigned GET URL, 아니면 원본 그대로
+    // 응답 조립: PHOTO·STICKER 이고 관리 대상이면 presigned GET URL, 아니면 원본 그대로(정적 스티커 경로·TEXT 본문).
+    // 재저장용 순수 key 는 응답의 key 필드가 따로 들고 간다
     public String resolveSource(ComponentType type, String source) {
-        if (type != ComponentType.PHOTO) {
+        if (type == ComponentType.TEXT) {
             return source;
         }
         return presignIfManaged(source);

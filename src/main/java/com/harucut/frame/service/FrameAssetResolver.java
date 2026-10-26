@@ -63,6 +63,18 @@ public class FrameAssetResolver {
         return keys.isEmpty() ? java.util.Set.of() : java.util.Set.copyOf(assetRepository.findExistingKeys(keys));
     }
 
+    /** 이 key 가 그 공간의 검증된 자산인가 — 조직 공간 프레임은 다른 멤버가 올린 자산 key 를 문자열로도 받는다 */
+    public boolean isWorkspaceAsset(String key, Long workspaceId) {
+        return workspaceId != null && assetRepository.findByS3Key(key)
+                .filter(asset -> asset.isVerified() && workspaceId.equals(asset.getWorkspaceId()))
+                .isPresent();
+    }
+
+    // 응답 조립용: 공간 내부 id → public id
+    public String workspacePublicId(Long workspaceId) {
+        return workspaceService.publicIdOf(workspaceId);
+    }
+
     // 응답 조립용: 내부 id → public id
     public Map<Long, String> publicIds(Collection<Long> ids) {
         if (ids.isEmpty()) {

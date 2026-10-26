@@ -59,7 +59,7 @@ public class FrameDraftService {
         User user = getUser(publicId);
         String document = serialize(request.document());
         if (request.frameId() != null) {
-            frameService.getOwnedReadableFrame(user, request.frameId());
+            frameService.getEditableFrame(user, request.frameId());
         }
         Workspace workspace = request.workspaceId() == null
                 ? workspaceService.personalWorkspaceOf(user.getId())

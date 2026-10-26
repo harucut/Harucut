@@ -47,4 +47,9 @@ public class WorkspaceMembership extends BaseEntity {
     public static WorkspaceMembership owner(Long workspaceId, Long userId) {
         return new WorkspaceMembership(workspaceId, userId, WorkspaceRole.OWNER);
     }
+
+    // 초대 수락(P2B)이 쓸 입구 — 지금은 테스트가 다른 역할의 멤버를 만들 때 쓴다
+    public static WorkspaceMembership member(Long workspaceId, Long userId, WorkspaceRole role) {
+        return new WorkspaceMembership(workspaceId, userId, role);
+    }
 }

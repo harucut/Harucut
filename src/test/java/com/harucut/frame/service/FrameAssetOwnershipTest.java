@@ -58,7 +58,7 @@ class FrameAssetOwnershipTest {
     @BeforeEach
     void setUp() {
         assembler = new FrameComponentAssembler(new FrameAssetManager(fileStorageService, s3Deleter),
-                frameAssetResolver, new FrameLimitsProperties(40, 7000), JsonMapper.builder().build());
+                frameAssetResolver, new FrameLimitsProperties(40, 7000, 200), JsonMapper.builder().build());
         owner = User.localUser("owner@harucut.com", "encoded", "하루컷");
         myRoot = S3Keys.userRoot(owner.getPublicId());
         othersKey = S3Keys.userRoot(OTHER) + "fourcuts/job-137.png";

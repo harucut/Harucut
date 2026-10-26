@@ -18,6 +18,13 @@ public interface FrameVersionRepository extends JpaRepository<FrameVersion, Long
     @Query("select coalesce(max(v.versionNo), 0) from FrameVersion v where v.frameId = :frameId")
     int findMaxVersionNo(Long frameId);
 
+    // 프레임마다 최신 발행본 하나
+    @Query("""
+            select v from FrameVersion v where v.frameId in :frameIds
+            and v.versionNo = (select max(v2.versionNo) from FrameVersion v2 where v2.frameId = v.frameId)
+            """)
+    List<FrameVersion> findLatestByFrameIdIn(Collection<Long> frameIds);
+
     @Query("select v.id from FrameVersion v where v.frameId in :frameIds")
     List<Long> findIdsByFrameIdIn(Collection<Long> frameIds);
 

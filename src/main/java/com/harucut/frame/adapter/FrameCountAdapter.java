@@ -13,6 +13,6 @@ public class FrameCountAdapter implements FrameCountPort {
 
     @Override
     public int countByUserId(Long userId) {
-        return (int) frameRepository.countByUserId(userId);
+        return (int) frameRepository.countPersonalByUserId(userId);
     }
 }

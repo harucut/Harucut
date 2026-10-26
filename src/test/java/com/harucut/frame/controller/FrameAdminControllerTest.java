@@ -155,6 +155,6 @@ class FrameAdminControllerTest extends SecurityBeansMockSupport {
     private static FrameResponse frameResponse() {
         return new FrameResponse(99L, "기본 프레임", "설명", "https://preview.example/p.png",
                 FrameType.CLASSIC, 2000, 6000, new BackgroundAttributes.Color("#FFE4E1"),
-                List.of(false, false, false, false), List.of(), true, 0L);
+                List.of(false, false, false, false), List.of(), true, 0L, null);
     }
 }

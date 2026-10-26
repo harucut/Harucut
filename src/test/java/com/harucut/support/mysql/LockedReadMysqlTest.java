@@ -1,5 +1,9 @@
 package com.harucut.support.mysql;
 
+import com.harucut.booth.service.BoothDeviceService;
+import com.harucut.event.dto.EventResponse;
+import com.harucut.event.dto.EventSettings;
+import com.harucut.event.service.EventService;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.dto.FrameCreateRequest;
 import com.harucut.frame.dto.FrameVersionResponse;
@@ -24,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -70,6 +75,9 @@ class LockedReadMysqlTest {
     @Autowired private FrameRepository frameRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private BoothDeviceService boothDeviceService;
+    @Autowired private EventService eventService;
 
     @MockitoBean private FileStorageService fileStorageService;
 
@@ -106,6 +114,56 @@ class LockedReadMysqlTest {
         assertThat(failures).isEmpty();   // 예전에는 뒤쪽이 같은 번호로 uk_frame_version_frame_no 위반
         assertThat(frameVersionService.list(owner.getPublicId(), frameId)).extracting(FrameVersionResponse::versionNo)
                 .containsExactlyInAnyOrder(1, 2);
+    }
+
+    @Test
+    @DisplayName("서로 다른 두 프레임의 첫 발행이 동시에 와도 교착 없이 둘 다 1번이 된다")
+    void concurrentFirstPublishOfDifferentFrames() throws Exception {
+        User owner = userRepository.save(User.localUser("owner@frames.test", "e", "오너"));
+        WorkspaceResponse org = workspaceService.createOrganization(owner.getPublicId(), "두 프레임 공간");
+        Long first = newFrame(owner, org);
+        Long second = newFrame(owner, org);
+
+        // 발행본 유니크 인덱스의 맨 끝 빈 구간을 먼저 잡아 두 발행의 insert 를 멈춰 세운다 — 예전 방식(번호 범위 잠금 읽기)이면
+        // 두 발행이 그 구간에 gap lock 을 함께 잡은 채 서로의 insert 를 기다려, 풀자마자 교착된다
+        List<Throwable> failures = raceBehind(() -> jdbcTemplate.queryForList(
+                        "select frame_version_id from frame_version where frame_id = ? for update", Long.MAX_VALUE),
+                () -> frameVersionService.publish(owner.getPublicId(), first),
+                () -> frameVersionService.publish(owner.getPublicId(), second));
+
+        assertThat(failures).isEmpty();
+        assertThat(frameVersionService.list(owner.getPublicId(), first)).extracting(FrameVersionResponse::versionNo).containsExactly(1);
+        assertThat(frameVersionService.list(owner.getPublicId(), second)).extracting(FrameVersionResponse::versionNo).containsExactly(1);
+    }
+
+    @Test
+    @DisplayName("다른 공간의 두 행사가 동시에 첫 부스 기기를 만들어도 둘 다 만들어진다(교착이면 다시 한다)")
+    void concurrentDeviceCreateAcrossWorkspaces() throws Exception {
+        User first = userRepository.save(User.localUser("a@booth.test", "e", "가"));
+        User second = userRepository.save(User.localUser("b@booth.test", "e", "나"));
+        EventResponse firstEvent = draftEvent(first, "booth-gap-a");
+        EventResponse secondEvent = draftEvent(second, "booth-gap-b");
+
+        List<Throwable> failures = raceBehind(() -> jdbcTemplate.queryForList(
+                        "select booth_device_id from booth_device where event_id = ? for update", Long.MAX_VALUE),
+                () -> boothDeviceService.create(first.getPublicId(), firstEvent.eventId(), "기기"),
+                () -> boothDeviceService.create(second.getPublicId(), secondEvent.eventId(), "기기"));
+
+        assertThat(failures).isEmpty();
+        assertThat(boothDeviceService.list(first.getPublicId(), firstEvent.eventId())).hasSize(1);
+        assertThat(boothDeviceService.list(second.getPublicId(), secondEvent.eventId())).hasSize(1);
+    }
+
+    private Long newFrame(User owner, WorkspaceResponse org) {
+        return frameService.createFrame(owner.getPublicId(), new FrameCreateRequest("프레임", null,
+                S3Keys.userRoot(owner.getPublicId()) + "frames/p.png", FrameType.CLASSIC, null, null,
+                new BackgroundAttributes.Color("#FFFFFF"), null, List.of(), null, org.workspaceId())).frameId();
+    }
+
+    private EventResponse draftEvent(User owner, String slug) {
+        WorkspaceResponse org = workspaceService.createOrganization(owner.getPublicId(), slug);
+        return eventService.create(owner.getPublicId(), org.workspaceId(),
+                new EventSettings(slug, slug, null, null, null, null, null, null, null, null, null, null));
     }
 
     // lock 으로 행을 잡아 둔 채 두 요청을 출발시키고, 둘 다 기다리는 중에 푼다. 실패한 요청의 예외 목록을 돌려준다

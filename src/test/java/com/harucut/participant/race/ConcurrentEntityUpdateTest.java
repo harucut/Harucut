@@ -26,6 +26,9 @@ import com.harucut.participant.security.ParticipantPrincipal;
 import com.harucut.participant.service.ParticipantService;
 import com.harucut.storage.service.FileStorageService;
 import com.harucut.storage.util.S3Keys;
+import com.harucut.entitlement.repository.EntitlementRepository;
+import com.harucut.support.TestEntitlements;
+import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.dto.WorkspaceResponse;
@@ -70,6 +73,8 @@ class ConcurrentEntityUpdateTest {
     @Autowired private ObjectMapper objectMapper;
     @Autowired private EntityManager entityManager;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private EntitlementRepository entitlementRepository;
+    @Autowired private WorkspaceRepository workspaceRepository;
 
     @MockitoBean private FileStorageService fileStorageService;
 
@@ -114,6 +119,8 @@ class ConcurrentEntityUpdateTest {
     private Event publishedEvent(String slug) {
         User owner = userRepository.save(User.localUser(slug + "@harucut.com", "e", "오너"));
         WorkspaceResponse org = workspaceService.createOrganization(owner.getPublicId(), "공간");
+        // 게시에는 적용 이용권이 필요하다(ADR-0008 §6-2)
+        TestEntitlements.grant(entitlementRepository, workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId());
         Long frameId = frameService.createFrame(owner.getPublicId(), new FrameCreateRequest("프레임", null,
                 S3Keys.userRoot(owner.getPublicId()) + "frames/p.png", FrameType.CLASSIC, null, null,
                 new BackgroundAttributes.Color("#FFFFFF"), null, List.of(), null, org.workspaceId())).frameId();

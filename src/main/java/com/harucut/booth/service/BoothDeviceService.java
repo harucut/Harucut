@@ -22,8 +22,13 @@ import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.repository.WorkspaceRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.security.SecureRandom;
 import java.time.Clock;
@@ -38,6 +43,7 @@ import java.util.Objects;
  * <p>연결 코드는 base32 8자 {@code XXXX-XXXX}. 앞 4자는 거래를 찾는 lookup(비밀 아님), 뒤 4자가 비밀이다.
  * 열린 거래끼리는 lookup 이 겹치지 않게 발급하고, 비밀은 해시로만 남긴다.
  */
+@Slf4j
 @Service
 @Transactional
 @RequiredArgsConstructor
@@ -46,6 +52,8 @@ public class BoothDeviceService {
     static final String ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final int LOOKUP_ATTEMPTS = 20;
+    // 교착으로 롤백된 기기 생성을 다시 하는 횟수(처음 포함)
+    private static final int DEADLOCK_ATTEMPTS = 3;
 
     private final BoothDeviceRepository deviceRepository;
     private final BoothPairingRepository pairingRepository;
@@ -58,8 +66,30 @@ public class BoothDeviceService {
     private final UserRepository userRepository;
     private final ParticipationProperties properties;
     private final Clock clock;
+    private final PlatformTransactionManager transactionManager;
 
+    /**
+     * 기기 수 상한은 공간 잠금 뒤 기기 행을 잠금 읽기로 센다. 다른 공간의 두 행사가 동시에 기기를 만들면 그 읽기가
+     * idx_booth_device_event_id 의 같은 빈 구간에 gap lock 을 함께 잡고 서로의 insert 를 기다려 교착될 수 있다 —
+     * MySQL 이 한쪽을 롤백하면 트랜잭션 전체를 다시 한다(데이터는 그대로, 사용자에게는 보이지 않는다).
+     * 시도마다 새 트랜잭션이어야 다시 할 수 있으므로 여기서는 트랜잭션을 열지 않는다(바깥 트랜잭션이 있으면 그 안에서 한 번)
+     */
+    @Transactional(propagation = Propagation.SUPPORTS)
     public BoothDtos.DeviceResponse create(String userPublicId, String eventPublicId, String name) {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return transaction.execute(status -> createOnce(userPublicId, eventPublicId, name));
+            } catch (PessimisticLockingFailureException e) {
+                if (attempt >= DEADLOCK_ATTEMPTS) {
+                    throw e;
+                }
+                log.info("[부스] 기기 생성 교착 — 다시 시도 {}/{}", attempt + 1, DEADLOCK_ATTEMPTS);
+            }
+        }
+    }
+
+    private BoothDtos.DeviceResponse createOnce(String userPublicId, String eventPublicId, String name) {
         Event event = eventService.requireOperable(userPublicId, eventPublicId);
         // 적용 이용권의 부스 수가 설정값을 대신한다(ADR-0008 §6-2)
         int limit = entitlementService.applicable(event).map(e -> e.getMaxBoothDevices())

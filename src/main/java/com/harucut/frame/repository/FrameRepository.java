@@ -20,6 +20,20 @@ public interface FrameRepository extends JpaRepository<Frame, Long> {
     @Query("select f from Frame f where f.id = :id")
     Optional<Frame> findByIdForUpdate(Long id);
 
+    // 발행 번호 카운터 — 프레임 행만 잠근다(행 잠금). 발행본 번호 범위를 잠금 읽기로 보면, 서로 다른 프레임의 첫 발행이
+    // uk_frame_version_frame_no 의 같은 빈 구간에 gap lock 을 함께 잡고 서로의 insert 를 기다려 교착된다
+    @Modifying(flushAutomatically = true)
+    @Query(value = "update frame set last_version_no = last_version_no + 1 where frame_id = :id", nativeQuery = true)
+    int bumpVersionNo(@Param("id") Long id);
+
+    // 방금 올린 카운터 — 잠금 읽기라 최신 값이다(행은 위 UPDATE 로 이미 잠겨 있다)
+    @Query(value = "select last_version_no from frame where frame_id = :id for update", nativeQuery = true)
+    int lockedVersionNo(@Param("id") Long id);
+
+    @Modifying(flushAutomatically = true)
+    @Query(value = "update frame set last_version_no = :versionNo where frame_id = :id", nativeQuery = true)
+    int raiseVersionNo(@Param("id") Long id, @Param("versionNo") int versionNo);
+
     @Query("select f.id from Frame f where f.user.id = :userId")
     List<Long> findIdsByUserId(Long userId);
 

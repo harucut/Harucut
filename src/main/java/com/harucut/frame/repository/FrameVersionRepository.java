@@ -16,11 +16,9 @@ public interface FrameVersionRepository extends JpaRepository<FrameVersion, Long
 
     Optional<FrameVersion> findByFrameIdAndVersionNo(Long frameId, int versionNo);
 
-    // 프레임 행을 잠근 뒤 부른다. 잠금 읽기(FOR UPDATE)라 잠금을 기다리는 동안 커밋된 발행본까지 본다
-    // (일반 읽기면 잠금 전에 잡힌 스냅샷 때문에 같은 번호를 매겨 uk_frame_version_frame_no 위반이 난다)
-    @Query(value = "select version_no from frame_version where frame_id = :frameId order by version_no desc limit 1 for update",
-            nativeQuery = true)
-    List<Integer> lockLatestVersionNo(@Param("frameId") Long frameId);
+    // 일반 읽기(잠금 없음) — 번호는 프레임 카운터로 매기고, 이것은 카운터 이전에 매긴 번호의 하한으로만 쓴다
+    @Query("select coalesce(max(v.versionNo), 0) from FrameVersion v where v.frameId = :frameId")
+    int findMaxVersionNo(@Param("frameId") Long frameId);
 
     // 프레임마다 최신 발행본 하나
     @Query("""

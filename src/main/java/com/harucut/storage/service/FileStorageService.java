@@ -20,6 +20,9 @@ public interface FileStorageService {
 
     String generatePresignedDownloadUrl(String key, String downloadFileName);
 
+    /** 파일 이름(RFC 5987)을 붙인 짧은 다운로드 URL — 사진함·ZIP 처럼 수명을 따로 정하는 곳 */
+    String generatePresignedDownloadUrl(String key, String downloadFileName, Duration ttl);
+
     void delete(String key);
 
     // 서버가 직접 읽고 쓰는 경로 — 네컷 합성이 원본을 내려받고 결과를 올릴 때 쓴다.

@@ -101,6 +101,19 @@ public class S3FileStorageService implements FileStorageService {
     }
 
     @Override
+    public String generatePresignedDownloadUrl(String key, String downloadFileName, Duration ttl) {
+        return s3Presigner.presignGetObject(GetObjectPresignRequest.builder()
+                        .signatureDuration(ttl)
+                        .getObjectRequest(GetObjectRequest.builder()
+                                .bucket(bucket)
+                                .key(key)
+                                .responseContentDisposition(ContentDispositions.attachment(downloadFileName))
+                                .build())
+                        .build())
+                .url().toString();
+    }
+
+    @Override
     public void delete(String key) {
         s3Client.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(key).build());
     }

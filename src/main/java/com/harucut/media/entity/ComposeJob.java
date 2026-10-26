@@ -119,6 +119,10 @@ public class ComposeJob extends BaseEntity {
     @Column(name = "started_at")
     private LocalDateTime startedAt;
 
+    // 행사 사진함의 삭제 요청 — 목록·ZIP·결과 링크에서 빠진다(ADR-0008 §3)
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     private ComposeJob(User user, String idempotencyScope, String storageRoot, Long frameId,
                        String idempotencyKey, List<String> sourceKeys, ComposeSpec spec) {
         this.user = user;
@@ -186,5 +190,15 @@ public class ComposeJob extends BaseEntity {
     // Lambda 페이로드 조립용 — 슬롯 순서 그대로
     public List<String> sourceKeys() {
         return List.of(sourceKey1, sourceKey2, sourceKey3, sourceKey4);
+    }
+
+    public boolean isDeleted() {
+        return deletedAt != null;
+    }
+
+    public void markDeleted(LocalDateTime now) {
+        if (deletedAt == null) {
+            this.deletedAt = now;
+        }
     }
 }

@@ -95,6 +95,27 @@ public class EventService {
     }
 
     @Transactional(readOnly = true)
+    /**
+     * 행사 복제 (ADR-0008 §3, R5 7절) — 설정 초안(레이아웃·제공 프레임·동의 항목·테마)과 참가 방식·보관 일수만 새 DRAFT 로.
+     * 일정은 복제하지 않는다(다시 정하고 게시). 사진·참가자·세션·결과 토큰·고객 초대·권한·동의 기록·부스는 복제하지 않는다.
+     */
+    public EventResponse cloneEvent(String publicId, String eventId, String name, String slug) {
+        Operated operated = operate(publicId, eventId);
+        Event source = operated.event();
+        String newSlug = requireSlug(slug);
+        if (eventRepository.existsBySlug(newSlug)) {
+            throw new BusinessException(EventErrorCode.SLUG_TAKEN);
+        }
+        Event copy = Event.draft(source.getWorkspaceId(), newSlug, requireText(name, "name"), operated.user().getId(),
+                source.getSettingsDraft());
+        copy.configure(source.getTimezone(), source.isByodEnabled(), source.isBoothEnabled(), source.getResultRetentionDays());
+        Event saved = eventRepository.save(copy);
+        eventGrantService.grantCreator(saved.getId(), operated.user().getId());
+        auditLogService.record(operated.user().getId(), saved.getWorkspaceId(), saved.getId(), "EVENT_CLONED", "EVENT",
+                saved.getPublicId(), Map.of("from", source.getPublicId()));
+        return response(saved, operated.workspace());
+    }
+
     public List<EventResponse> list(String publicId, String workspacePublicId) {
         User user = getUser(publicId);
         Workspace workspace = workspaceService.requireRole(workspacePublicId, user.getId(), OPERATOR_ROLES);

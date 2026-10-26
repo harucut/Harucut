@@ -2,11 +2,13 @@ package com.harucut.media.repository;
 
 import com.harucut.media.entity.ComposeJob;
 import com.harucut.media.enums.ComposeStatus;
+import com.harucut.participant.enums.ParticipantChannel;
 import com.harucut.user.entity.User;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -21,6 +23,31 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
     Optional<ComposeJob> findByIdempotencyScopeAndIdempotencyKey(String idempotencyScope, String idempotencyKey);
 
     List<ComposeJob> findAllByParticipantIdAndEventIdOrderByIdDesc(Long participantId, Long eventId);
+
+    /**
+     * 행사 사진함 — 최신순 (created_at, id) 커서. 삭제 요청된 사진은 없다. 행 하나에 [ComposeJob, 참가 방식] 이 실린다.
+     * 조건은 null 이면 걸지 않는다.
+     */
+    @Query("""
+            select j, p.channel from ComposeJob j, Participant p
+            where p.id = j.participantId and j.eventId = :eventId and j.deletedAt is null
+              and (:status is null or j.status = :status)
+              and (:channel is null or p.channel = :channel)
+              and (:frameVersionId is null or j.frameVersionId = :frameVersionId)
+              and (:from is null or j.createdAt >= :from)
+              and (:to is null or j.createdAt < :to)
+              and (:cursorAt is null or j.createdAt < :cursorAt or (j.createdAt = :cursorAt and j.id < :cursorId))
+            order by j.createdAt desc, j.id desc
+            """)
+    List<Object[]> findEventPhotos(@Param("eventId") Long eventId,
+                                   @Param("status") ComposeStatus status,
+                                   @Param("channel") ParticipantChannel channel,
+                                   @Param("frameVersionId") Long frameVersionId,
+                                   @Param("from") LocalDateTime from,
+                                   @Param("to") LocalDateTime to,
+                                   @Param("cursorAt") LocalDateTime cursorAt,
+                                   @Param("cursorId") Long cursorId,
+                                   Pageable pageable);
 
     // 부스 화면이 지금 회차의 합성 상태를 본다 — 회차에 작업이 여럿이면 마지막 것
     Optional<ComposeJob> findFirstByCaptureRunIdOrderByIdDesc(Long captureRunId);

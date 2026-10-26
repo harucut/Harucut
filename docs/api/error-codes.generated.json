@@ -323,6 +323,10 @@
   "status" : 400,
   "message" : "Invalid webhook signature."
 }, {
+  "code" : "PHOTO-001",
+  "status" : 403,
+  "message" : "You do not have this photo permission for the event."
+}, {
   "code" : "RESULT-001",
   "status" : 401,
   "message" : "The result token is invalid or revoked."

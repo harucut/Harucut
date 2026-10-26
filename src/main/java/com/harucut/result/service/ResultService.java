@@ -60,7 +60,8 @@ public class ResultService {
         ResultAccess access = access(principal);
         ComposeJob job = job(access.getComposeJobId());
         Event event = event(job);
-        boolean expired = access.expiredAt(LocalDateTime.now(clock));
+        // 사진함에서 삭제된 결과도 참가자에게는 「만료」로 보인다 — 삭제 사실을 따로 알리지 않는다(ADR-0008 §3)
+        boolean expired = access.expiredAt(LocalDateTime.now(clock)) || job.isDeleted();
         String status = expired ? "EXPIRED" : job.getStatus().name();
         String thumbnailUrl = !expired && job.getStatus() == ComposeStatus.DONE
                 ? fileStorageService.generatePresignedGetUrl(ComposeService.thumbnailKeyFor(job), storageProperties.download().getTtl())
@@ -71,16 +72,17 @@ public class ResultService {
     @Transactional(readOnly = true)
     public DownloadUrlResponse download(ResultPrincipal principal) {
         ResultAccess access = access(principal);
-        if (access.expiredAt(LocalDateTime.now(clock))) {
+        ComposeJob job = job(access.getComposeJobId());
+        if (access.expiredAt(LocalDateTime.now(clock)) || job.isDeleted()) {
             throw new BusinessException(ResultErrorCode.EXPIRED);
         }
-        return downloadUrl(job(access.getComposeJobId()));
+        return downloadUrl(job);
     }
 
     /** 참가자 재방문 다운로드(BYOD) — 결과 토큰 없이 세션으로. 같은 보관·준비 검사 */
     @Transactional(readOnly = true)
     public DownloadUrlResponse downloadForParticipant(ComposeJob job) {
-        if (!LocalDateTime.now(clock).isBefore(retentionEnd(job, event(job)))) {
+        if (job.isDeleted() || !LocalDateTime.now(clock).isBefore(retentionEnd(job, event(job)))) {
             throw new BusinessException(ResultErrorCode.EXPIRED);
         }
         return downloadUrl(job);

@@ -9,6 +9,7 @@ import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.config.SecurityConfig;
 import com.harucut.media.dto.ComposeJobResponse;
 import com.harucut.media.enums.ComposeStatus;
+import com.harucut.media.exception.MediaErrorCode;
 import com.harucut.media.service.ComposeService;
 import com.harucut.support.FixedClockConfig;
 import com.harucut.support.SecurityBeansMockSupport;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
@@ -73,6 +75,38 @@ class ComposeControllerTest extends SecurityBeansMockSupport {
                 .bodyJson()
                 .hasPathSatisfying("$.data.jobId", id -> assertThat(id).isEqualTo(5))
                 .hasPathSatisfying("$.data.status", s -> assertThat(s).isEqualTo("PENDING"));
+    }
+
+    @Test
+    @DisplayName("동시 중복으로 유니크에 지면 승자의 Job 을 202 로 돌려준다 — 500 이 아니다")
+    void concurrentDuplicateReplaysWinner() {
+        given(composeService.requestCompose(eq(PUBLIC_ID), any()))
+                .willThrow(new DataIntegrityViolationException("uk_compose_job_user_idempotency"));
+        given(composeService.replayAfterConflict(eq(PUBLIC_ID), any()))
+                .willReturn(new ComposeJobResponse(5L, ComposeStatus.PENDING, null, null));
+
+        assertThat(mockMvc.post().uri(BASE_URI)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(VALID_BODY)
+                .cookie(accessCookie()))
+                .hasStatus(HttpStatus.ACCEPTED)
+                .bodyJson()
+                .hasPathSatisfying("$.data.jobId", id -> assertThat(id).isEqualTo(5));
+    }
+
+    @Test
+    @DisplayName("같은 키에 다른 입력이면 409 MEDIA-001 이다")
+    void reusedKeyConflicts() {
+        given(composeService.requestCompose(eq(PUBLIC_ID), any()))
+                .willThrow(new BusinessException(MediaErrorCode.IDEMPOTENCY_KEY_REUSED));
+
+        assertThat(mockMvc.post().uri(BASE_URI)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(VALID_BODY)
+                .cookie(accessCookie()))
+                .hasStatus(HttpStatus.CONFLICT)
+                .bodyJson()
+                .hasPathSatisfying("$.code", code -> assertThat(code).isEqualTo("MEDIA-001"));
     }
 
     @Test

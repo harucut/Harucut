@@ -2,6 +2,7 @@ package com.harucut.media.service;
 
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.service.FrameService;
 import com.harucut.media.compose.ComposeMetrics;
@@ -14,6 +15,7 @@ import com.harucut.media.dto.ComposeRequest;
 import com.harucut.media.entity.ComposeJob;
 import com.harucut.media.entity.UserMedia;
 import com.harucut.media.enums.ComposeStatus;
+import com.harucut.media.exception.MediaErrorCode;
 import com.harucut.media.repository.ComposeJobRepository;
 import com.harucut.media.repository.UserMediaRepository;
 import com.harucut.media.util.DisplayNames;
@@ -54,17 +56,18 @@ public class ComposeService {
 
         // 멱등 재생: 더블클릭·재시도는 기존 Job을 그대로 받는다 — 새 실행 없음.
         // 정확히 동시에 온 중복은 (user, key) unique가 막는다 (한쪽은 실패하지만 데이터는 안전)
-        Optional<ComposeJob> existing =
-                composeJobRepository.findByUserAndIdempotencyKey(user, request.idempotencyKey());
-        if (existing.isPresent()) {
-            composeMetrics.requestReplayed();
-            return ComposeJobResponse.from(existing.get());
-        }
-
-        // 원본은 정규화된 key로 저장하고, 검사도 그 값으로 한다 — URL로 감싼 남의 key 차단
+        // 원본은 정규화된 key로 저장하고, 검사도 그 값으로 한다 — URL로 감싼 남의 key 차단.
+        // 재생 판정(지문 비교)도 저장된 값과 같은 모양으로 비교해야 하므로 먼저 정규화한다
         List<String> sourceKeys = request.sourceKeys().stream()
                 .map(S3Keys::normalizeToKey)
                 .toList();
+
+        Optional<ComposeJob> existing =
+                composeJobRepository.findByUserAndIdempotencyKey(user, request.idempotencyKey());
+        if (existing.isPresent()) {
+            return replay(existing.get(), request, sourceKeys);
+        }
+
         validateSourceOwnership(publicId, sourceKeys);
 
         Frame frame = frameService.getComposableFrame(user, request.frameId());
@@ -81,6 +84,45 @@ public class ComposeService {
                 RESULT_FORMAT));
         composeMetrics.requestAccepted();
         return ComposeJobResponse.from(job);
+    }
+
+    // 정확히 동시에 온 중복 요청의 패자가 여기로 온다. requestCompose 의 INSERT 가
+    // (user, idempotency_key) 유니크에 걸려 그 트랜잭션은 롤백됐다 — 새 트랜잭션에서 승자의 Job 을
+    // 다시 읽어 지문을 비교한다. 승자가 없으면 다른 제약 위반이라 null 을 돌려 호출자가 원래 예외를 던진다
+    @Transactional(readOnly = true)
+    public ComposeJobResponse replayAfterConflict(String publicId, ComposeRequest request) {
+        User user = getUser(publicId);
+        List<String> sourceKeys = request.sourceKeys().stream()
+                .map(S3Keys::normalizeToKey)
+                .toList();
+        return composeJobRepository.findByUserAndIdempotencyKey(user, request.idempotencyKey())
+                .map(job -> replay(job, request, sourceKeys))
+                .orElse(null);
+    }
+
+    // 멱등 재생: 같은 키 + 같은 요청이면 기존 Job 을 그대로, 같은 키 + 다른 요청이면 409.
+    // 지문 컬럼을 따로 두지 않고 Job 이 이미 저장한 값(프레임·원본 4장·배경색)과 비교한다
+    private ComposeJobResponse replay(ComposeJob job, ComposeRequest request, List<String> sourceKeys) {
+        if (!sameRequest(job, request.frameId(), sourceKeys, request.backgroundColor())) {
+            throw new BusinessException(MediaErrorCode.IDEMPOTENCY_KEY_REUSED);
+        }
+        composeMetrics.requestReplayed();
+        return ComposeJobResponse.from(job);
+    }
+
+    // 배경색은 요청에 있을 때만 비교한다. 저장된 spec 의 배경은 "덮어쓴 색"과 "프레임 원래 색"을
+    // 구분하지 못한다 — 색을 안 보낸 요청을 프레임 색과 비교하면, 그사이 프레임이 수정됐을 때
+    // 정상 재요청이 409 가 된다
+    static boolean sameRequest(ComposeJob job, Long frameId, List<String> sourceKeys,
+                               String backgroundColor) {
+        if (!job.getFrameId().equals(frameId) || !job.sourceKeys().equals(sourceKeys)) {
+            return false;
+        }
+        if (backgroundColor == null) {
+            return true;
+        }
+        return job.getSpec().background() instanceof BackgroundAttributes.Color color
+                && color.value().equalsIgnoreCase(backgroundColor);
     }
 
     // 게이지용. 재실행 배치가 30초마다 한 번만 부른다 — 스크레이프마다 세면
@@ -100,23 +142,42 @@ public class ComposeService {
 
     // ── 워커가 실행 결과를 기록할 때 부르는 전이 — 각자 자기 트랜잭션에서 돈다 ──
 
-    public void completeJob(Long jobId, String resultKey, String thumbnailKey) {
+    // 전이를 이긴 호출만 true 다 — 미디어 생성과 원본 삭제가 그 안에서만 일어난다.
+    // 재실행 경합·SQS 재배달로 같은 Job 의 통지가 두 번 와도 두 번째는 false 로 끝난다
+    public boolean completeJob(Long jobId, String resultKey, String thumbnailKey) {
         ComposeJob job = composeJobRepository.findById(jobId)
                 .orElseThrow(() -> new IllegalStateException("합성 Job이 사라졌다: " + jobId));
         if (job.getStatus() != ComposeStatus.PENDING) {
-            return;   // 재실행 경합 — 먼저 끝난 쪽이 이미 기록했다
+            return false;   // 재실행 경합 — 먼저 끝난 쪽이 이미 기록했다
+        }
+        if (composeJobRepository.markDone(jobId, resultKey,
+                ComposeStatus.PENDING, ComposeStatus.DONE) == 0) {
+            return false;   // 읽은 뒤 다른 통지가 먼저 전이했다
         }
 
         UserMedia media = userMediaRepository.save(UserMedia.of(job.getUser(), resultKey,
                 thumbnailKey, DisplayNames.resolve(null, resultKey, LocalDateTime.now(clock))));
-        job.complete(resultKey, media.getId());
+        composeJobRepository.attachMedia(jobId, media.getId());
         // 원본은 성공 시 삭제 — 결과만 보관함에 남는다.
         // 원본은 합성 재료일 뿐 사용자의 보관 대상이 아니라 저장 비용만 먹는다
         s3Deleter.deleteAfterCommit(job.sourceKeys());
+        return true;
     }
 
-    public void failJob(Long jobId, String reason) {
-        composeJobRepository.findById(jobId).ifPresent(job -> job.fail(reason));
+    // 최종 실패(RetriesExhausted)에서만 불린다 — 일시적 실패는 PENDING 으로 남아 재실행된다.
+    // 원본도 지운다: 같은 멱등키의 재요청은 이 FAILED Job 을 재생할 뿐 원본을 다시 읽지 않고,
+    // 다시 시도하려면 새 키로 원본을 새로 올려야 한다. 남겨 두면 아무도 안 쓰는 4장이 버킷에 쌓인다
+    public boolean failJob(Long jobId, String reason) {
+        Optional<ComposeJob> job = composeJobRepository.findById(jobId);
+        if (job.isEmpty()) {
+            return false;
+        }
+        if (composeJobRepository.markFailed(jobId, ComposeJob.truncateFailureReason(reason),
+                ComposeStatus.PENDING, ComposeStatus.FAILED) == 0) {
+            return false;
+        }
+        s3Deleter.deleteAfterCommit(job.get().sourceKeys());
+        return true;
     }
 
     // REQUIRES_NEW 가 필수다. 이 메서드의 호출자 중 하나가 AFTER_COMMIT 리스너(ComposeWorker)인데,

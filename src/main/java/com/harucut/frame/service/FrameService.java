@@ -84,10 +84,11 @@ public class FrameService {
         assertReadable(frame, user);
 
         // 교체와 잃은 참조 수집은 관리자와 같은 규칙이라 어셈블러가 소유한다
+        FrameVersions.assertExpected(frame, request.version());
         frameComponentAssembler.replaceContent(frame, request);
 
         // 새 컴포넌트의 id는 INSERT가 나가야 생긴다 — 응답 계약(components[].id)에 필요해 지금 flush
-        frameRepository.saveAndFlush(frame);
+        FrameVersions.flush(frameRepository, frame);
         return frameComponentAssembler.toFrameResponse(frame);
     }
 

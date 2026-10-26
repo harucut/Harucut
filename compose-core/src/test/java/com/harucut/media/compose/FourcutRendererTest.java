@@ -73,6 +73,83 @@ class FourcutRendererTest {
         }
     }
 
+    /*
+     * 배경 배치(fit·focal·crop). 필드가 없으면 예전과 같은 COVER·중앙이어야 한다 — 이미 저장된 프레임과
+     * 이 필드를 모르는 Lambda 가 같은 결과를 내야 하기 때문이다.
+     */
+    @Nested
+    @DisplayName("배경 배치 — fit·focal·crop")
+    class BackgroundPlacement {
+
+        private static final Color BASE = new Color(0x23, 0x26, 0x2D);
+
+        @Test
+        @DisplayName("배치 필드가 없으면 COVER·중앙을 명시한 것과 픽셀이 같다")
+        void defaultsEqualExplicitCoverCenter() {
+            Map<String, byte[]> assets = Map.of("bg", twoTonePng(40, 10, RED, BLUE));
+            BufferedImage implicit = decode(render(spec(new BackgroundAttributes.Image("bg", 1.0, null),
+                    List.of(), List.of(), List.of()), List.of(), assets));
+            BufferedImage explicit = decode(render(spec(new BackgroundAttributes.Image("bg", 1.0, null, null,
+                            BackgroundAttributes.Fit.COVER, 0.5, 0.5, null),
+                    List.of(), List.of(), List.of()), List.of(), assets));
+
+            for (int x = 0; x < 100; x += 9) {
+                for (int y = 0; y < 100; y += 9) {
+                    assertThat(pixel(implicit, x, y)).isEqualTo(pixel(explicit, x, y));
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("CONTAIN 은 이미지 전체를 넣고 남는 쪽에 바탕색이 보인다")
+        void containLetterboxes() {
+            // 40x10 → 100x25 로 맞춰 세로 가운데. 위·아래는 바탕색
+            BufferedImage result = decode(render(spec(new BackgroundAttributes.Image("bg", 1.0, null, null,
+                            BackgroundAttributes.Fit.CONTAIN, null, null, null),
+                    List.of(), List.of(), List.of()), List.of(), Map.of("bg", solidPng(40, 10, RED))));
+
+            assertThat(pixel(result, 50, 5)).isEqualTo(BASE);
+            assertThat(pixel(result, 50, 50)).isEqualTo(RED);
+            assertThat(pixel(result, 50, 95)).isEqualTo(BASE);
+        }
+
+        @Test
+        @DisplayName("COVER 의 focalX 0 은 왼쪽을, 1 은 오른쪽을 남긴다")
+        void focalChoosesVisibleSide() {
+            Map<String, byte[]> assets = Map.of("bg", twoTonePng(40, 10, RED, BLUE));
+
+            BufferedImage left = decode(render(spec(new BackgroundAttributes.Image("bg", 1.0, null, null,
+                            null, 0.0, null, null),
+                    List.of(), List.of(), List.of()), List.of(), assets));
+            BufferedImage right = decode(render(spec(new BackgroundAttributes.Image("bg", 1.0, null, null,
+                            null, 1.0, null, null),
+                    List.of(), List.of(), List.of()), List.of(), assets));
+
+            assertThat(pixel(left, 50, 50)).isEqualTo(RED);
+            assertThat(pixel(right, 50, 50)).isEqualTo(BLUE);
+        }
+
+        @Test
+        @DisplayName("crop 으로 원본의 왼쪽 절반만 쓰면 캔버스 전체가 왼쪽 색이다")
+        void cropUsesSourceRegion() {
+            BufferedImage result = decode(render(spec(new BackgroundAttributes.Image("bg", 1.0, null, null,
+                            null, null, null, new BackgroundAttributes.Crop(0, 0, 0.5, 1)),
+                    List.of(), List.of(), List.of()), List.of(), Map.of("bg", twoTonePng(20, 20, RED, BLUE))));
+
+            assertThat(pixel(result, 5, 50)).isEqualTo(RED);
+            assertThat(pixel(result, 95, 50)).isEqualTo(RED);
+        }
+
+        @Test
+        @DisplayName("범위를 벗어난 focal·crop 은 만들 수 없다")
+        void invalidPlacementRejected() {
+            assertThatThrownBy(() -> new BackgroundAttributes.Image("bg", 1.0, null, null, null, 1.5, null, null))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> new BackgroundAttributes.Crop(0.6, 0, 0.5, 1))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
     @Nested
     @DisplayName("원본 4장 — 슬롯에 cover")
     class SourcePhotos {

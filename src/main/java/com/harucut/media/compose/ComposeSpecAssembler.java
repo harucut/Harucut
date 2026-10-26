@@ -45,7 +45,8 @@ public class ComposeSpecAssembler {
                         "S3에 없는 배경 이미지는 합성할 수 없다.");
             }
             assertOwned(image.key(), owner);
-            return background;
+            // 자산 public id 는 편집·응답용이다 — 합성기는 key 만 읽으므로 스냅샷에 남기지 않는다
+            return image.withKey(image.key(), null);
         }
         return colorOverride == null
                 ? background

@@ -123,6 +123,22 @@
   "status" : 404,
   "message" : "The requested system frame does not exist."
 }, {
+  "code" : "FRAME-002",
+  "status" : 409,
+  "message" : "The frame was modified by another save."
+}, {
+  "code" : "FRAME-003",
+  "status" : 400,
+  "message" : "The frame has too many layers."
+}, {
+  "code" : "FRAME-004",
+  "status" : 400,
+  "message" : "The frame is too large to compose."
+}, {
+  "code" : "FRAME-005",
+  "status" : 400,
+  "message" : "The referenced asset cannot be used in this frame."
+}, {
   "code" : "GEN-001",
   "status" : 400,
   "message" : "Bad request."

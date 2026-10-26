@@ -56,7 +56,12 @@ public record FrameResponse(
                 기본 제공 프레임 여부. `true` 면 모든 사용자에게 보이고 요금제 제한을 받지 않는다.
                 **사용자 API 로는 수정·삭제할 수 없다**(404).""",
                 example = "false")
-        boolean isSystem
+        boolean isSystem,
+
+        @Schema(description = """
+                낙관적 잠금 값. 다음 PUT 의 `version` 에 그대로 보낸다 — 그사이 다른 저장이 있었으면 409 `FRAME-002`.""",
+                example = "3")
+        Long version
 ) {
     // presign이 필요한 조립은 어셈블러 몫이고, 이 팩토리는 캔버스 파생만 강제한다 —
     // 캔버스에 다른 값을 넣는 코드를 쓸 수 없게 파라미터에서 뺐다
@@ -68,7 +73,7 @@ public record FrameResponse(
                 previewUrl, frame.getFrameType(),
                 frame.getFrameType().getLayout().canvasWidth(),
                 frame.getFrameType().getLayout().canvasHeight(),
-                resolvedBackground, frame.getCellCutouts(), components, frame.isSystem());
+                resolvedBackground, frame.getCellCutouts(), components, frame.isSystem(), frame.getVersion());
     }
 
     @Schema(description = "프레임 컴포넌트")
@@ -84,13 +89,14 @@ public record FrameResponse(
             ComponentType type,
 
             @Schema(description = """
-                    화면에 그릴 값. `PHOTO` 는 presigned GET URL,
-                    `TEXT` 는 글자 내용, `STICKER` 는 원본 경로가 그대로 나온다.""",
+                    화면에 그릴 값. `PHOTO` 와 uploads/ key 인 `STICKER` 는 presigned GET URL,
+                    정적 경로 `STICKER` 는 경로 그대로, `TEXT` 는 글자 내용.""",
                     example = "https://harucut-bucket.s3.ap-northeast-2.amazonaws.com/uploads/.../photo1.png?X-Amz-Signature=...")
             String source,
 
             @Schema(description = """
-                    정규화된 순수 S3 key. **수정 요청을 다시 만들 때 `source` 자리에 이 값을 넣는다.**
+                    정규화된 순수 S3 key(정적 스티커는 그 경로). **항상 채워진다.**
+                    **수정 요청을 다시 만들 때 `source` 자리에 이 값을 넣는다**(PHOTO·STICKER 공통).
                     URL 이 아니라 key 를 되돌려줘야 하기 때문에 따로 있다.""",
                     example = "uploads/users/AbCdEf12Gh/components/photo1.png")
             String key,
@@ -118,17 +124,39 @@ public record FrameResponse(
 
             @Schema(description = "요청의 `styleJson`. **이름이 다르다.** 없으면 빈 객체",
                     example = "{\"borderRadius\": 8}")
-            Map<String, Object> style
+            Map<String, Object> style,
+
+            @Schema(description = "편집기 잠금 상태(저장한 값). 인가 근거가 아니다", example = "false")
+            boolean locked,
+
+            @Schema(description = "PHOTO·STICKER 를 자산으로 저장했으면 그 자산 public id. 아니면 null", example = "As8kLm2Pq9Xz")
+            String assetId,
+
+            @Schema(description = "TEXT 의 구운 PNG 를 자산으로 저장했으면 그 자산 public id. 아니면 null")
+            String renderedAssetId,
+
+            @Schema(description = """
+                    TEXT 의 구운 PNG key. 문구·스타일·크기가 저장 때와 같으면 다시 굽지 말고 재저장에 그대로 쓴다.
+                    TEXT 가 아니거나 구운 PNG 가 없으면 null.""",
+                    example = "uploads/users/AbCdEf12Gh/components/text1.png")
+            String renderedKey,
+
+            @Schema(description = "TEXT 의 구운 PNG presigned GET URL — 그리기 전용")
+            String renderedUrl
     ) {
         // null 보정 규칙의 소유자 — "안 보냈다"는 기록(null)을 응답 계약(0.0/1.0)으로 번역한다
-        public static ComponentResponse of(FrameComponent component, String resolvedSource) {
+        public static ComponentResponse of(FrameComponent component, String resolvedSource,
+                                           String renderedUrl, String assetPublicId,
+                                           String renderedAssetPublicId) {
             return new ComponentResponse(
                     component.getId(), component.getType(), resolvedSource, component.getSource(),
                     component.getX(), component.getY(),
                     component.getWidth() == null ? 0.0 : component.getWidth(),
                     component.getHeight() == null ? 0.0 : component.getHeight(),
                     component.getScale() == null ? 1.0 : component.getScale(),
-                    component.getRotation(), component.getZIndex(), component.getStyle());
+                    component.getRotation(), component.getZIndex(), component.getStyle(),
+                    component.isLocked(), assetPublicId, renderedAssetPublicId,
+                    component.getRenderedKey(), renderedUrl);
         }
     }
 }

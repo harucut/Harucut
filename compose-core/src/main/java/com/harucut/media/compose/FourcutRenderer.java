@@ -102,11 +102,12 @@ public class FourcutRenderer {
             case BackgroundAttributes.Image image -> {
                 g.setColor(IMAGE_BACKGROUND_BASE);
                 g.fill(whole);
-                BufferedImage bg = decode(requireAsset(assets, image.key()));
+                BufferedImage bg = crop(decode(requireAsset(assets, image.key())), image.crop());
                 Composite old = g.getComposite();
                 g.setComposite(AlphaComposite.getInstance(
                         AlphaComposite.SRC_OVER, (float) clamp01(image.opacity())));
-                drawCover(g, bg, whole);
+                // 배치 필드가 없으면 COVER·중앙(0.5)이라 예전 drawCover 와 같은 픽셀이 나온다
+                drawPlaced(g, bg, whole, image.effectiveFit(), image.effectiveFocalX(), image.effectiveFocalY());
                 g.setComposite(old);
             }
         }
@@ -172,6 +173,37 @@ public class FourcutRenderer {
         transform.scale(scale, scale);
         g.drawImage(image, transform, null);
         g.setClip(oldClip);
+    }
+
+    // 배경 배치. COVER 는 채우고 넘치는 쪽을, CONTAIN 은 전부 보이게 맞추고 남는 쪽을 focal 비율로 나눈다
+    // (0 = 왼쪽/위로 붙임, 0.5 = 가운데, 1 = 오른쪽/아래로 붙임). 남는 영역은 이미 칠한 바탕색이 보인다
+    private void drawPlaced(Graphics2D g, BufferedImage image, Rectangle2D rect,
+                            BackgroundAttributes.Fit fit, double focalX, double focalY) {
+        Shape oldClip = g.getClip();
+        g.clip(rect);
+        double scaleX = rect.getWidth() / image.getWidth();
+        double scaleY = rect.getHeight() / image.getHeight();
+        double scale = fit == BackgroundAttributes.Fit.CONTAIN ? Math.min(scaleX, scaleY) : Math.max(scaleX, scaleY);
+        double drawWidth = image.getWidth() * scale;
+        double drawHeight = image.getHeight() * scale;
+        AffineTransform transform = new AffineTransform();
+        transform.translate(rect.getX() + (rect.getWidth() - drawWidth) * focalX,
+                rect.getY() + (rect.getHeight() - drawHeight) * focalY);
+        transform.scale(scale, scale);
+        g.drawImage(image, transform, null);
+        g.setClip(oldClip);
+    }
+
+    // 정규화 crop 을 픽셀 영역으로 — 최소 1px 은 남긴다
+    private static BufferedImage crop(BufferedImage image, BackgroundAttributes.Crop crop) {
+        if (crop == null) {
+            return image;
+        }
+        int x = (int) Math.floor(crop.x() * image.getWidth());
+        int y = (int) Math.floor(crop.y() * image.getHeight());
+        int width = Math.max(1, Math.min(image.getWidth() - x, (int) Math.round(crop.width() * image.getWidth())));
+        int height = Math.max(1, Math.min(image.getHeight() - y, (int) Math.round(crop.height() * image.getHeight())));
+        return image.getSubimage(Math.min(x, image.getWidth() - 1), Math.min(y, image.getHeight() - 1), width, height);
     }
 
     // #RGB 축약형은 #RRGGBB로 확장, 그 외 형식은 프론트 fallback과 같은 기본색

@@ -251,7 +251,8 @@ class FrameControllerTest extends SecurityBeansMockSupport {
                 List.of(false, false, false, false),
                 List.of(new FrameResponse.ComponentResponse(10L, ComponentType.PHOTO,
                         "https://photo.example/1.png", "uploads/users/AbCdEf12Gh/components/photo1.png",
-                        120.5, 220.0, 360.0, 480.0, 1.0, 0.0, 1, Map.of())),
-                false);
+                        120.5, 220.0, 360.0, 480.0, 1.0, 0.0, 1, Map.of(),
+                        false, null, null, null, null)),
+                false, 0L);
     }
 }

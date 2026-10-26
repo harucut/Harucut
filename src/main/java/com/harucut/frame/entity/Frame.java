@@ -63,6 +63,12 @@ public class Frame extends BaseEntity {
     @Column(name = "workspace_id")
     private Long workspaceId;
 
+    // 낙관적 잠금. PUT 이 version 을 보내면 이 값과 비교하고(FRAME-002), 보내지 않아도 동시 저장끼리는
+    // flush 시점에 JPA 가 막는다. 응답에 실려 다음 PUT 에 그대로 돌아온다
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     @OneToMany(mappedBy = "frame", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<FrameComponent> components = new ArrayList<>();
 

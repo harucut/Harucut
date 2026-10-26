@@ -3,6 +3,7 @@ package com.harucut.workspace.service;
 import com.harucut.asset.repository.AssetRepository;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.event.repository.EventGrantRepository;
 import com.harucut.storage.service.S3Deleter;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
@@ -61,6 +62,9 @@ class WorkspaceServiceTest {
 
     @Mock
     private S3Deleter s3Deleter;
+
+    @Mock
+    private EventGrantRepository grantRepository;
 
     @InjectMocks
     private WorkspaceService workspaceService;
@@ -200,15 +204,16 @@ class WorkspaceServiceTest {
     }
 
     @Test
-    @DisplayName("deleteForUser: 개인 공간의 자산 → 멤버십 → 개인 공간 순으로 지운다(FK). 자산 파일은 커밋 후")
+    @DisplayName("deleteForUser: 개인 공간의 자산 → 행사 권한 → 멤버십 → 개인 공간 순으로 지운다(FK). 자산 파일은 커밋 후")
     void deleteForUser() {
         given(workspaceRepository.findByPersonalOwnerUserId(USER_ID)).willReturn(Optional.of(personal));
         given(assetRepository.findKeysByWorkspaceId(10L)).willReturn(List.of("uploads/users/x/assets/a.png"));
 
         workspaceService.deleteForUser(USER_ID);
 
-        InOrder order = inOrder(assetRepository, membershipRepository, workspaceRepository);
+        InOrder order = inOrder(assetRepository, grantRepository, membershipRepository, workspaceRepository);
         order.verify(assetRepository).deleteByWorkspaceId(10L);
+        order.verify(grantRepository).deleteByUserId(USER_ID);   // 행사 사진 권한도 — 행사는 조직 공간 것이라 남는다
         order.verify(membershipRepository).deleteByUserId(USER_ID);
         order.verify(workspaceRepository).deletePersonalByOwner(USER_ID);
         then(s3Deleter).should().deleteAfterCommit(List.of("uploads/users/x/assets/a.png"));

@@ -1,5 +1,6 @@
 package com.harucut.booth.service;
 
+import com.harucut.audit.service.AuditLogService;
 import com.harucut.booth.dto.BoothDtos;
 import com.harucut.booth.entity.BoothDevice;
 import com.harucut.booth.entity.BoothPairing;
@@ -16,6 +17,8 @@ import com.harucut.event.service.EventService;
 import com.harucut.participant.config.ParticipationProperties;
 import com.harucut.participant.repository.CaptureRunRepository;
 import com.harucut.participant.repository.ParticipantSessionRepository;
+import com.harucut.user.entity.User;
+import com.harucut.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,6 +49,8 @@ public class BoothDeviceService {
     private final CaptureRunRepository captureRunRepository;
     private final ParticipantSessionRepository sessionRepository;
     private final EventService eventService;
+    private final AuditLogService auditLogService;
+    private final UserRepository userRepository;
     private final ParticipationProperties properties;
     private final Clock clock;
 
@@ -56,6 +61,7 @@ public class BoothDeviceService {
             throw new BusinessException(BoothErrorCode.DEVICE_LIMIT);
         }
         BoothDevice device = deviceRepository.save(BoothDevice.pending(event.getWorkspaceId(), event.getId(), name.strip()));
+        audit(userPublicId, device, "BOOTH_DEVICE_CREATED");
         return withNewCode(device);
     }
 
@@ -73,6 +79,7 @@ public class BoothDeviceService {
         if (device.isRevoked()) {
             throw new BusinessException(BoothErrorCode.DEVICE_UNAVAILABLE);
         }
+        audit(userPublicId, device, "BOOTH_CODE_REISSUED");
         return withNewCode(device);
     }
 
@@ -84,7 +91,14 @@ public class BoothDeviceService {
         pairingRepository.findAllByBoothDeviceIdAndStatus(device.getId(), PairingStatus.OPEN).forEach(BoothPairing::close);
         captureRunRepository.findByActiveBoothDeviceId(device.getId()).ifPresent(run -> run.close(now));
         sessionRepository.revokeAllByBoothDeviceId(device.getId());
+        audit(userPublicId, device, "BOOTH_DEVICE_REVOKED");
         return BoothDtos.DeviceResponse.of(device, null, null, offset(device.getLastSeenAt()));
+    }
+
+    private void audit(String userPublicId, BoothDevice device, String action) {
+        Long actorId = userRepository.findByPublicId(userPublicId).map(User::getId).orElse(null);
+        auditLogService.record(actorId, device.getWorkspaceId(), device.getEventId(), action, "BOOTH_DEVICE",
+                device.getPublicId(), null);
     }
 
     private BoothDevice operableDevice(String userPublicId, String devicePublicId) {

@@ -16,6 +16,7 @@ import com.harucut.payment.exception.PaymentErrorCode;
 import com.harucut.result.exception.ResultErrorCode;
 import com.harucut.subscription.exception.SubscriptionErrorCode;
 import com.harucut.terms.exception.TermsErrorCode;
+import com.harucut.workspace.exception.MemberErrorCode;
 
 import java.util.Arrays;
 import java.util.Collection;
@@ -53,7 +54,8 @@ public final class ErrorCodeCatalog {
                     DraftErrorCode.values(),
                     EventErrorCode.values(),
                     ParticipantErrorCode.values(),
-                    ResultErrorCode.values())
+                    ResultErrorCode.values(),
+                    MemberErrorCode.values())
             .flatMap(Arrays::stream)
             .collect(Collectors.toMap(
                     ErrorCode::getCode,

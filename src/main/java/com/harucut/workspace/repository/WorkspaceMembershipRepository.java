@@ -2,6 +2,7 @@ package com.harucut.workspace.repository;
 
 import com.harucut.workspace.entity.WorkspaceMembership;
 import com.harucut.workspace.enums.MembershipStatus;
+import com.harucut.workspace.enums.WorkspaceRole;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -15,6 +16,12 @@ public interface WorkspaceMembershipRepository extends JpaRepository<WorkspaceMe
 
     Optional<WorkspaceMembership> findByWorkspaceIdAndUserIdAndStatus(Long workspaceId, Long userId,
                                                                       MembershipStatus status);
+
+    Optional<WorkspaceMembership> findByWorkspaceIdAndUserId(Long workspaceId, Long userId);
+
+    List<WorkspaceMembership> findAllByWorkspaceIdAndStatusOrderByIdAsc(Long workspaceId, MembershipStatus status);
+
+    long countByWorkspaceIdAndRoleAndStatus(Long workspaceId, WorkspaceRole role, MembershipStatus status);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM WorkspaceMembership m WHERE m.userId = :userId")

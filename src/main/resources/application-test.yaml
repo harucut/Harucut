@@ -1,6 +1,7 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:harucut;MODE=MySQL;NON_KEYWORDS=VALUE
+    # 컨텍스트마다 다른 DB — 같은 이름을 쓰면 캐시에서 밀려난 컨텍스트의 create-drop 이 살아 있는 컨텍스트의 테이블을 지운다
+    url: jdbc:h2:mem:harucut-${random.uuid};MODE=MySQL;NON_KEYWORDS=VALUE
     username: sa
     password:
   jpa:

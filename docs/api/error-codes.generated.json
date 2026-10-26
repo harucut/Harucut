@@ -255,6 +255,22 @@
   "status" : 409,
   "message" : "The idempotency key was already used with a different request."
 }, {
+  "code" : "MEMBER-001",
+  "status" : 410,
+  "message" : "The invitation has expired."
+}, {
+  "code" : "MEMBER-002",
+  "status" : 400,
+  "message" : "The invitation is invalid, already used or revoked."
+}, {
+  "code" : "MEMBER-003",
+  "status" : 409,
+  "message" : "The user already has this access."
+}, {
+  "code" : "MEMBER-004",
+  "status" : 409,
+  "message" : "The last owner cannot be demoted or removed."
+}, {
   "code" : "NOTICE-001",
   "status" : 404,
   "message" : "The requested notice does not exist or is not published."

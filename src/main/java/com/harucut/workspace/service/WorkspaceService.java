@@ -3,6 +3,7 @@ package com.harucut.workspace.service;
 import com.harucut.asset.repository.AssetRepository;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.event.repository.EventGrantRepository;
 import com.harucut.storage.service.S3Deleter;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
@@ -21,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -35,6 +37,7 @@ public class WorkspaceService {
     private final PersonalWorkspaceCreator personalWorkspaceCreator;
     private final AssetRepository assetRepository;
     private final S3Deleter s3Deleter;
+    private final EventGrantRepository grantRepository;
 
     /**
      * 사용자의 개인 공간. 없으면 만든다 — V2 migration 이 기존 사용자를 백필하지만, flyway 가 꺼진 운영에서는
@@ -108,9 +111,9 @@ public class WorkspaceService {
 
     /** 조직 공간이면 그 공간. 개인 공간·없는 id·null 이면 빈 값 — 프레임이 "공간의 것"인지 가르는 판정 */
     @Transactional(readOnly = true)
-    public java.util.Optional<Workspace> organization(Long workspaceId) {
+    public Optional<Workspace> organization(Long workspaceId) {
         return workspaceId == null
-                ? java.util.Optional.empty()
+                ? Optional.empty()
                 : workspaceRepository.findById(workspaceId).filter(workspace -> !workspace.isPersonal());
     }
 
@@ -119,6 +122,13 @@ public class WorkspaceService {
     public String publicIdOf(Long workspaceId) {
         return workspaceId == null ? null
                 : workspaceRepository.findById(workspaceId).map(Workspace::getPublicId).orElse(null);
+    }
+
+    /** 이 공간에서의 활성 역할. 멤버가 아니면 빈 값 */
+    @Transactional(readOnly = true)
+    public Optional<WorkspaceRole> roleOf(Long workspaceId, Long userId) {
+        return membershipRepository.findByWorkspaceIdAndUserIdAndStatus(workspaceId, userId, MembershipStatus.ACTIVE)
+                .map(WorkspaceMembership::getRole);
     }
 
     /** 이 공간의 활성 멤버인가. 자산·초안처럼 공간 id 를 이미 가진 행의 접근 판정에 쓴다 */
@@ -141,6 +151,7 @@ public class WorkspaceService {
             assetRepository.deleteByWorkspaceId(personal.getId());
             s3Deleter.deleteAfterCommit(keys);
         });
+        grantRepository.deleteByUserId(userId);   // 행사 사진 권한 — 행사 자체는 조직 공간 것이라 남는다
         membershipRepository.deleteByUserId(userId);
         workspaceRepository.deletePersonalByOwner(userId);
     }

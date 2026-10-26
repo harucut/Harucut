@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
 // 사용량 이력 — 감사용. (작업, 종류) 유니크라 같은 확정이 두 번 남지 않는다
 @Entity
 @Table(name = "usage_ledger",
-        uniqueConstraints = @UniqueConstraint(name = "uk_usage_ledger_job_kind", columnNames = {"compose_job_id", "kind"}),
+        uniqueConstraints = @UniqueConstraint(name = "uk_usage_ledger_job_entitlement_kind", columnNames = {"compose_job_id", "entitlement_id", "kind"}),
         indexes = @Index(name = "idx_usage_ledger_entitlement", columnList = "entitlement_id"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

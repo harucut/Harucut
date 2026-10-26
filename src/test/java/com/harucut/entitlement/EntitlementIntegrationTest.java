@@ -11,6 +11,7 @@ import com.harucut.entitlement.entity.Contract;
 import com.harucut.entitlement.entity.Entitlement;
 import com.harucut.entitlement.enums.ContractStatus;
 import com.harucut.entitlement.enums.EntitlementScope;
+import com.harucut.entitlement.enums.EntitlementStatus;
 import com.harucut.entitlement.enums.EvidenceKind;
 import com.harucut.entitlement.enums.Feature;
 import com.harucut.entitlement.enums.InquiryStatus;
@@ -386,6 +387,164 @@ class EntitlementIntegrationTest {
         entitlementRepository.findAll().forEach(e -> e.endAt(java.time.LocalDateTime.now().minusMinutes(1)));
         entityManager.flush();
         assertThat(entitlementService.usage(other).alerts()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("행사 배분: 합이 총량을 넘으면 ENT-005(data), 사용·예약 아래로 줄이면 ENT-006(data), 같은 행사 두 번은 GEN-002 — 목록에 부모 id·배분 합")
+    void allocations() {
+        String parentId = manualParent(10);
+        Event a = published("alloc-a");
+        Event b = published("alloc-b");
+
+        EntitlementDtos.Entitlement childA = contractService.allocate(admin.getPublicId(), parentId,
+                new EntitlementDtos.AllocationRequest(a.getPublicId(), 6));
+        assertThat(childA.parentEntitlementId()).isEqualTo(parentId);
+        assertThat(childA.scope()).isEqualTo(EntitlementScope.EVENT);
+        assertThatThrownBy(() -> contractService.allocate(admin.getPublicId(), parentId, new EntitlementDtos.AllocationRequest(b.getPublicId(), 5)))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(EntitlementErrorCode.ALLOCATION_EXCEEDS_PARENT);
+                    assertThat(e.getData()).isEqualTo(Map.of("parentQuota", 10, "allocated", 6, "requested", 5));
+                });
+        contractService.allocate(admin.getPublicId(), parentId, new EntitlementDtos.AllocationRequest(b.getPublicId(), 4));
+        assertCode(() -> contractService.allocate(admin.getPublicId(), parentId, new EntitlementDtos.AllocationRequest(a.getPublicId(), 1)),
+                GlobalErrorCode.INVALID_INPUT_VALUE);
+        assertCode(() -> contractService.resize(admin.getPublicId(), childA.entitlementId(), new EntitlementDtos.AllocationResizeRequest(7)),
+                EntitlementErrorCode.ALLOCATION_EXCEEDS_PARENT);
+
+        // 배분 A 에서 3건 예약 → 2 로 줄이면 ENT-006, 3 으로는 된다(남는 3 은 부모로 돌아간다)
+        Participant participant = participantRepository.save(Participant.byod(a.getId()));
+        for (int i = 0; i < 3; i++) {
+            entitlementService.reserve(job(a, participant, "res-" + i).getId(), a);
+        }
+        assertThatThrownBy(() -> contractService.resize(admin.getPublicId(), childA.entitlementId(), new EntitlementDtos.AllocationResizeRequest(2)))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(EntitlementErrorCode.ALLOCATION_BELOW_USAGE);
+                    assertThat(e.getData()).isEqualTo(Map.of("used", 0, "reserved", 3, "requested", 2));
+                });
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(contractService.resize(admin.getPublicId(), childA.entitlementId(), new EntitlementDtos.AllocationResizeRequest(3))
+                .terms().composeQuota()).isEqualTo(3);
+        assertThat(contractService.entitlements()).filteredOn(e -> e.entitlementId().equals(parentId)).singleElement()
+                .satisfies(parent -> assertThat(parent.allocatedQuota()).isEqualTo(7));
+    }
+
+    @Test
+    @DisplayName("두 단 예약: 부모 → 자식 둘 다 차감, 부모가 먼저 막히면 자식이 남아도 ENT-002 — 확정은 둘 다, 사용량 parent 는 OWNER·ADMIN 에게만")
+    void twoLevelReservation() {
+        String parentId = manualParent(3);
+        Event event = published("two-level");
+        String childId = contractService.allocate(admin.getPublicId(), parentId, new EntitlementDtos.AllocationRequest(event.getPublicId(), 3))
+                .entitlementId();
+        Event other = published("parent-only");   // 배분 없는 행사 — 부모만 쓴다
+        Participant participant = participantRepository.save(Participant.byod(event.getId()));
+        Participant otherParticipant = participantRepository.save(Participant.byod(other.getId()));
+
+        ComposeJob first = job(event, participant, "two-1");
+        entitlementService.reserve(first.getId(), event);
+        entitlementService.reserve(job(other, otherParticipant, "parent-1").getId(), other);
+        entitlementService.reserve(job(other, otherParticipant, "parent-2").getId(), other);
+        // 부모 3 이 다 찼다 — 자식은 2 가 남았어도 막힌다(트랜잭션째 롤백이라 자식만 차감되는 일이 없다)
+        assertCode(() -> entitlementService.reserve(job(event, participant, "two-2").getId(), event), EntitlementErrorCode.QUOTA_REACHED);
+        assertCode(() -> entitlementService.requireRemaining(event), EntitlementErrorCode.QUOTA_REACHED);
+
+        assertThat(composeService.completeJob(first.getId(), "uploads/r/two.jpg", "uploads/r/two_thumb.jpg")).isTrue();
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(ledgerRepository.findAllByComposeJobIdOrderByIdAsc(first.getId())).extracting(l -> l.getKind())
+                .containsExactly(LedgerKind.RESERVE, LedgerKind.RESERVE, LedgerKind.COMMIT, LedgerKind.COMMIT);
+        EntitlementDtos.EventUsage asAdmin = entitlementService.usage(event, true);
+        assertThat(List.of(asAdmin.composeQuota(), asAdmin.used(), asAdmin.reserved(), asAdmin.remaining())).containsExactly(3, 1, 0, 2);
+        assertThat(asAdmin.parent()).isEqualTo(new EntitlementDtos.EventUsage.Parent(3, 1, 2, 0));
+        assertThat(entitlementService.usage(event, false).parent()).isNull();
+        assertThat(contractService.entitlements()).filteredOn(e -> e.entitlementId().equals(childId)).singleElement()
+                .satisfies(child -> assertThat(child.used()).isEqualTo(1));
+    }
+
+    @Test
+    @DisplayName("회수: 배분을 회수하면 그 양이 부모로 돌아가고, 부모를 회수하면 배분도 함께 끝난다")
+    void revokeCascades() {
+        String parentId = manualParent(10);
+        Event a = published("rev-a");
+        Event b = published("rev-b");
+        String childA = contractService.allocate(admin.getPublicId(), parentId, new EntitlementDtos.AllocationRequest(a.getPublicId(), 6)).entitlementId();
+        contractService.revoke(admin.getPublicId(), childA, "행사 취소");
+        entityManager.flush();
+        entityManager.clear();
+        // 6 이 돌아와 b 에 10 을 줄 수 있다
+        String childB = contractService.allocate(admin.getPublicId(), parentId, new EntitlementDtos.AllocationRequest(b.getPublicId(), 10)).entitlementId();
+        assertThat(entitlementService.applicable(a).orElseThrow().getPublicId()).isEqualTo(parentId);   // 배분이 끝나면 부모로
+
+        contractService.revoke(admin.getPublicId(), parentId, "계약 해지");
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(contractService.entitlements()).filteredOn(e -> e.entitlementId().equals(childB)).singleElement()
+                .satisfies(child -> assertThat(child.status()).isEqualTo(EntitlementStatus.REVOKED));
+        assertThat(entitlementService.applicable(b)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("리뷰 반영(#39): 같은 배분을 두 번 회수하면 두 번째는 ENT-003·부모 합은 한 번만 줄어든다, 영향에 배분으로 운영 중인 행사가 들어간다, 500자 사유로 부모를 회수해도 롤백되지 않는다")
+    void allocationReviewFixes() {
+        String parentId = manualParent(10);
+        Event viaChild = published("impact-child");
+        Event viaParent = published("impact-parent");
+        Event covered = published("impact-covered");
+        String child = contractService.allocate(admin.getPublicId(), parentId, new EntitlementDtos.AllocationRequest(viaChild.getPublicId(), 4))
+                .entitlementId();
+        // 무관한 행사 범위 이용권에 덮인 행사는 부모 회수의 영향이 아니다
+        contractService.grantManually(admin.getPublicId(), new EntitlementDtos.ManualGrantRequest(org.workspaceId(), covered.getPublicId(),
+                OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(10), new EntitlementDtos.Terms(5, null, null, null, Set.of()), "따로"));
+        assertThat(contractService.impact(parentId).liveEvents())
+                .containsExactlyInAnyOrder(viaChild.getPublicId(), viaParent.getPublicId());
+
+        contractService.revoke(admin.getPublicId(), child, "취소");
+        assertCode(() -> contractService.revoke(admin.getPublicId(), child, "또"), EntitlementErrorCode.INVALID_TRANSITION);
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(contractService.entitlements()).filteredOn(e -> e.entitlementId().equals(parentId)).singleElement()
+                .satisfies(parent -> assertThat(parent.allocatedQuota()).isZero());
+
+        String again = contractService.allocate(admin.getPublicId(), parentId, new EntitlementDtos.AllocationRequest(viaChild.getPublicId(), 3))
+                .entitlementId();
+        String longReason = "가".repeat(500);
+        contractService.revoke(admin.getPublicId(), parentId, longReason);
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(contractService.entitlements()).filteredOn(e -> e.entitlementId().equals(again)).singleElement().satisfies(e -> {
+            assertThat(e.status()).isEqualTo(EntitlementStatus.REVOKED);
+            assertThat(e.revokeReason()).hasSize(500).startsWith("부모 이용권 회수: ");
+        });
+    }
+
+    @Test
+    @DisplayName("리뷰 반영(#39): 끝난 계약의 기업 총량에서는 배분할 수 없다(GEN-002) — 계약 종료는 그 계약의 배분도 끝낸다")
+    void allocationNeedsActiveContract() {
+        Event event = eventRepository.findByPublicId(ready("contract-alloc").eventId()).orElseThrow();   // 배분은 게시가 필요 없다
+        Event other = eventRepository.findByPublicId(ready("contract-alloc-2").eventId()).orElseThrow();
+        EntitlementDtos.Contract contract = contractService.create(admin.getPublicId(), new EntitlementDtos.ContractRequest(
+                org.workspaceId(), "기업", EntitlementScope.WORKSPACE, null, 1000L, "KRW",
+                OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(30), null, new EntitlementDtos.Terms(10, null, null, null, Set.of())));
+        contractService.changeStatus(admin.getPublicId(), contract.contractId(), ContractStatus.ACTIVE);
+        String parentId = contractService.entitlements().stream().filter(e -> contract.contractId().equals(e.contractId()))
+                .findFirst().orElseThrow().entitlementId();
+        String child = contractService.allocate(admin.getPublicId(), parentId, new EntitlementDtos.AllocationRequest(event.getPublicId(), 3))
+                .entitlementId();
+
+        contractService.changeStatus(admin.getPublicId(), contract.contractId(), ContractStatus.ENDED);
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(entitlementService.applicable(event)).isEmpty();   // 배분도 함께 끝났다
+        assertThat(contractService.entitlements()).filteredOn(e -> e.entitlementId().equals(child)).singleElement()
+                .satisfies(e -> assertThat(e.validTo()).isBeforeOrEqualTo(OffsetDateTime.now()));
+        assertCode(() -> contractService.allocate(admin.getPublicId(), parentId, new EntitlementDtos.AllocationRequest(other.getPublicId(), 3)),
+                GlobalErrorCode.INVALID_INPUT_VALUE);
+    }
+
+    private String manualParent(int quota) {
+        return contractService.grantManually(admin.getPublicId(), new EntitlementDtos.ManualGrantRequest(org.workspaceId(), null,
+                OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(30),
+                new EntitlementDtos.Terms(quota, null, null, null, Set.of()), "기업 총량")).entitlementId();
     }
 
     // ── helpers ──────────────────────────────

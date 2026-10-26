@@ -75,6 +75,37 @@
         "required" : [ "agreed", "code" ],
         "type" : "object"
       },
+      "AllocationRequest" : {
+        "description" : "기업 총량에서 행사 하나에 배분 — 기간·기능·조건은 부모를 따른다",
+        "properties" : {
+          "composeQuota" : {
+            "example" : 300,
+            "format" : "int32",
+            "minimum" : 1,
+            "type" : "integer"
+          },
+          "eventId" : {
+            "description" : "행사 public id(부모와 같은 공간)",
+            "minLength" : 1,
+            "type" : "string"
+          }
+        },
+        "required" : [ "composeQuota", "eventId" ],
+        "type" : "object"
+      },
+      "AllocationResizeRequest" : {
+        "description" : "배분량 바꾸기 — 늘리면 합 검사(ENT-005), 줄이면 사용·예약 아래 금지(ENT-006)",
+        "properties" : {
+          "composeQuota" : {
+            "example" : 400,
+            "format" : "int32",
+            "minimum" : 1,
+            "type" : "integer"
+          }
+        },
+        "required" : [ "composeQuota" ],
+        "type" : "object"
+      },
       "AssetResponse" : {
         "description" : "자산",
         "properties" : {
@@ -1310,6 +1341,11 @@
       },
       "Entitlement" : {
         "properties" : {
+          "allocatedQuota" : {
+            "description" : "부모일 때 활성 자식 배분량 합 — 남은 배분 가능량 = terms.composeQuota − allocatedQuota",
+            "format" : "int32",
+            "type" : "integer"
+          },
           "contractId" : {
             "type" : "string"
           },
@@ -1320,6 +1356,10 @@
             "type" : "string"
           },
           "grantorNote" : {
+            "type" : "string"
+          },
+          "parentEntitlementId" : {
+            "description" : "행사 배분이면 부모(기업 총량) 이용권 public id",
             "type" : "string"
           },
           "reserved" : {
@@ -1748,6 +1788,10 @@
             "format" : "int32",
             "type" : "integer"
           },
+          "parent" : {
+            "$ref" : "#/components/schemas/EventUsageParent",
+            "description" : "행사 배분일 때 기업 총량 — 공간 OWNER·ADMIN 에게만. 실제로 찍을 수 있는 양 = min(remaining, parent.remaining)"
+          },
           "remaining" : {
             "format" : "int32",
             "type" : "integer"
@@ -1803,6 +1847,28 @@
           "validTo" : {
             "format" : "date-time",
             "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "EventUsageParent" : {
+        "description" : "기업 총량(부모 이용권)",
+        "properties" : {
+          "composeQuota" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "remaining" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "reserved" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "used" : {
+            "format" : "int32",
+            "type" : "integer"
           }
         },
         "type" : "object"
@@ -8312,6 +8378,358 @@
           "bearerAuth" : [ ]
         } ],
         "summary" : "수동 이용권 부여(ManualGrant)",
+        "tags" : [ "계약·이용권 관리" ]
+      }
+    },
+    "/api/admin/entitlements/{entitlementId}" : {
+      "patch" : {
+        "description" : "행사 배분만. 늘리면 합 검사(409 ENT-005), 줄이면 이미 사용·예약한 양 아래로는 409 ENT-006(data: used·reserved·requested).",
+        "operationId" : "resize",
+        "parameters" : [ {
+          "description" : "행사 배분 이용권 public id",
+          "in" : "path",
+          "name" : "entitlementId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AllocationResizeRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseEntitlement"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — 배분이 아니다",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — 배분이 아니다 _(Invalid input value.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 이용권",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 이용권 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "ENT-005" : {
+                    "summary" : "ENT-005 — 배분 합이 기업 총량을 넘는다",
+                    "value" : {
+                      "code" : "ENT-005",
+                      "message" : "The allocations exceed the parent entitlement's compose quota.",
+                      "status" : 409
+                    }
+                  },
+                  "ENT-006" : {
+                    "summary" : "ENT-006 — 사용·예약 아래로 줄임",
+                    "value" : {
+                      "code" : "ENT-006",
+                      "message" : "The allocation cannot be reduced below what is already used or reserved.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `ENT-005` — 배분 합이 기업 총량을 넘는다 _(The allocations exceed the parent entitlement's compose quota.)_\n- `ENT-006` — 사용·예약 아래로 줄임 _(The allocation cannot be reduced below what is already used or reserved.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "행사 배분량 바꾸기",
+        "tags" : [ "계약·이용권 관리" ]
+      }
+    },
+    "/api/admin/entitlements/{entitlementId}/allocations" : {
+      "post" : {
+        "description" : "활성 공간 범위 이용권(기업 총량)에서 같은 공간의 행사 하나에 합성 한도를 배분한다. 기간·기능·조건·계약은 부모를 따른다.\n같은 부모의 활성 배분 합이 부모 한도를 넘으면 409 ENT-005(data: parentQuota·allocated·requested).\n참가 화면은 행사 배분·기업 총량 어느 쪽이 막혀도 ENT-002 하나다.\n",
+        "operationId" : "allocate",
+        "parameters" : [ {
+          "description" : "부모(기업 총량) 이용권 public id",
+          "in" : "path",
+          "name" : "entitlementId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AllocationRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseEntitlement"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — 부모가 기업 총량이 아니거나 다른 공간의 행사·이미 배분이 있다",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — 부모가 기업 총량이 아니거나 다른 공간의 행사·이미 배분이 있다 _(Invalid input value.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 이용권",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 이용권 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "ENT-005" : {
+                    "summary" : "ENT-005 — 배분 합이 기업 총량을 넘는다",
+                    "value" : {
+                      "code" : "ENT-005",
+                      "message" : "The allocations exceed the parent entitlement's compose quota.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `ENT-005` — 배분 합이 기업 총량을 넘는다 _(The allocations exceed the parent entitlement's compose quota.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "행사 배분(기업 총량에서 떼어 주기)",
         "tags" : [ "계약·이용권 관리" ]
       }
     },
@@ -15162,7 +15580,7 @@
     },
     "/api/auth/events/{eventId}/usage" : {
       "get" : {
-        "description" : "운영자(OWNER·ADMIN) 또는 그 행사 사진 권한이 있는 사람. 적용 이용권의 합성 한도·사용·예약·남은 수와 기간·기능.\n적용 이용권이 없으면 entitlement 키가 없고 수치는 0. 계약 금액은 싣지 않는다.\n",
+        "description" : "운영자(OWNER·ADMIN) 또는 그 행사 사진 권한이 있는 사람. 적용 이용권의 합성 한도·사용·예약·남은 수와 기간·기능.\n적용 이용권이 없으면 entitlement 키가 없고 수치는 0. 계약 금액은 싣지 않는다.\n행사 배분이면 최상위 수치는 이 행사의 배분량이고, 공간 OWNER·ADMIN 에게는 기업 총량(parent)도 준다.\n",
         "operationId" : "usage",
         "parameters" : [ {
           "description" : "행사 public id",

@@ -28,7 +28,8 @@ import java.util.Set;
 @Entity
 @Table(name = "entitlement", indexes = {
         @Index(name = "idx_entitlement_workspace", columnList = "workspace_id, status"),
-        @Index(name = "idx_entitlement_event", columnList = "event_id, status")})
+        @Index(name = "idx_entitlement_event", columnList = "event_id, status"),
+        @Index(name = "idx_entitlement_contract", columnList = "contract_id")})
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Entitlement extends BaseEntity {
@@ -103,6 +104,14 @@ public class Entitlement extends BaseEntity {
     private String revokeReason;
 
     // 한도 알림(ADR-0009 §4-1) — 확정 사용량이 그 비율을 처음 넘은 시각. 조건부 UPDATE 로 한 번만 채운다
+    // 행사 배분(자식)이면 부모 — 기업 총량 이용권(ADR-0009 §5). 자식의 기간·기능·계약은 부모를 따른다
+    @Column(name = "parent_entitlement_id")
+    private Long parentEntitlementId;
+
+    // 부모일 때 활성 자식 배분량 합 — 조건부 UPDATE 로만 바꾼다(엔티티 저장은 @DynamicUpdate 라 건드리지 않는다)
+    @Column(name = "allocated_quota", nullable = false)
+    private int allocatedQuota;
+
     @Column(name = "notified_80_at")
     private LocalDateTime notified80At;
 
@@ -138,6 +147,19 @@ public class Entitlement extends BaseEntity {
         return new Entitlement(eventId == null ? EntitlementScope.WORKSPACE : EntitlementScope.EVENT,
                 contract.getWorkspaceId(), eventId, EntitlementSource.CONTRACT, contract.getId(), contract.terms(),
                 contract.getStartsAt(), contract.getEndsAt(), contract.getCreatedByUserId(), null);
+    }
+
+    /** 부모(기업 총량)에서 행사 하나에 떼어 준 배분 — 기간·기능·조건·계약은 부모를 따르고 합성 한도만 다르다 */
+    public static Entitlement allocation(Entitlement parent, Long eventId, int composeQuota, Long grantedByUserId) {
+        Entitlement child = new Entitlement(EntitlementScope.EVENT, parent.workspaceId, eventId, parent.source, parent.contractId,
+                new Contract.Terms(composeQuota, parent.retentionDays, parent.maxBoothDevices, parent.maxLiveEvents, parent.features),
+                parent.validFrom, parent.validTo, grantedByUserId, "배분");
+        child.parentEntitlementId = parent.id;
+        return child;
+    }
+
+    public boolean isAllocation() {
+        return parentEntitlementId != null;
     }
 
     public static Entitlement manual(Long workspaceId, Long eventId, Contract.Terms terms, LocalDateTime validFrom,

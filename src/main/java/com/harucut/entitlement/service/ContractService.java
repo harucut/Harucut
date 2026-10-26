@@ -23,6 +23,7 @@ import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.entity.Workspace;
 import com.harucut.workspace.repository.WorkspaceRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -115,8 +116,9 @@ public class ContractService {
                 contract.eventIdList().forEach(eventId -> entitlementRepository.save(Entitlement.fromContract(contract, eventId)));
             }
         } else if (from == ContractStatus.ACTIVE) {
-            LocalDateTime now = LocalDateTime.now(clock);
-            entitlementRepository.findAllByContractId(contract.getId()).forEach(e -> e.endAt(now));
+            // 계약 행은 위 전이 UPDATE 로 잡혀 있다 — 배분 만들기도 계약 행을 먼저 잡으므로 둘이 줄을 선다.
+            // 이용권을 미리 골라 두지 않고 UPDATE(현재 읽기)로 끝낸다 — 그사이 커밋된 배분까지 끝나게
+            entitlementRepository.endByContract(contract.getId(), LocalDateTime.now(clock));
         }
         auditLogService.record(admin.getId(), contract.getWorkspaceId(), null, "CONTRACT_" + to.name(), "CONTRACT",
                 contract.getPublicId(), Map.of("from", from.name()));
@@ -154,9 +156,12 @@ public class ContractService {
                 ? eventRepository.findById(entitlement.getEventId()).filter(e -> e.getStatus() == EventStatus.LIVE).stream().toList()
                 : eventRepository.findAllByWorkspaceIdOrderByCreatedAtDesc(entitlement.getWorkspaceId()).stream()
                 .filter(e -> e.getStatus() == EventStatus.LIVE).toList();
-        // 지금 그 행사에 적용되는 이용권이 이것인 행사만 — 행사 범위 이용권에 덮였거나 이미 끝난·회수된 이용권은 영향이 없다
+        // 지금 그 행사에 적용되는 이용권이 이것이거나 이것의 배분인 행사 — 부모를 회수하면 그 배분도 함께 끝나기 때문이다.
+        // 무관한 행사 범위 이용권에 덮였거나 이미 끝난·회수된 이용권은 영향이 없다
+        Long id = entitlement.getId();
         return new EntitlementDtos.Impact(live.stream()
-                .filter(e -> entitlementService.applicable(e).map(Entitlement::getId).filter(entitlement.getId()::equals).isPresent())
+                .filter(e -> entitlementService.applicable(e)
+                        .filter(applied -> id.equals(applied.getId()) || id.equals(applied.getParentEntitlementId())).isPresent())
                 .map(Event::getPublicId).toList(),
                 reservationRepository.countByEntitlementIdAndStatus(entitlement.getId(), ReservationStatus.RESERVED));
     }
@@ -164,13 +169,116 @@ public class ContractService {
     public EntitlementDtos.Entitlement revoke(String adminPublicId, String entitlementPublicId, String reason) {
         User admin = user(adminPublicId);
         Entitlement entitlement = entitlement(entitlementPublicId);
-        if (entitlement.getStatus() != EntitlementStatus.ACTIVE) {
-            throw new BusinessException(EntitlementErrorCode.INVALID_TRANSITION, "이미 회수된 이용권");
+        LocalDateTime now = LocalDateTime.now(clock);
+        String why = reason.strip();
+        if (entitlement.isAllocation()) {
+            // 배분 회수 — 부모를 먼저 잠그고(부모 → 자식), ACTIVE→REVOKED 가 1 행일 때만 그 현재 한도를 부모에 돌려준다
+            Long parentId = entitlement.getParentEntitlementId();
+            entitlementRepository.lockById(parentId);
+            Integer quota = entitlementRepository.lockActiveQuota(entitlement.getId()).stream().findFirst()
+                    .orElseThrow(() -> new BusinessException(EntitlementErrorCode.INVALID_TRANSITION, "이미 회수된 이용권"));
+            if (entitlementRepository.revokeIfActive(entitlement.getId(), now, why) != 1) {
+                throw new BusinessException(EntitlementErrorCode.INVALID_TRANSITION, "이미 회수된 이용권");
+            }
+            entitlementRepository.deallocate(parentId, quota);
+        } else {
+            if (entitlementRepository.revokeIfActive(entitlement.getId(), now, why) != 1) {
+                throw new BusinessException(EntitlementErrorCode.INVALID_TRANSITION, "이미 회수된 이용권");
+            }
+            // 기업 총량을 회수하면 그 배분도 함께 끝난다 — 부모 행을 쥔 채 활성 자식을 잠금 읽기로 고른다(방금 커밋된 배분도 빠지지 않게)
+            String derived = truncate("부모 이용권 회수: " + why, 500);
+            entitlementRepository.lockActiveChildIds(entitlement.getId())
+                    .forEach(childId -> entitlementRepository.revokeIfActive(childId, now, derived));
         }
-        entitlement.revoke(LocalDateTime.now(clock), reason.strip());
-        auditLogService.record(admin.getId(), entitlement.getWorkspaceId(), entitlement.getEventId(), "ENTITLEMENT_REVOKED",
-                "ENTITLEMENT", entitlement.getPublicId(), Map.of("reason", reason.strip()));
-        return view(entitlement);
+        Entitlement revoked = entitlement(entitlementPublicId);
+        auditLogService.record(admin.getId(), revoked.getWorkspaceId(), revoked.getEventId(), "ENTITLEMENT_REVOKED",
+                "ENTITLEMENT", revoked.getPublicId(), Map.of("reason", why));
+        return view(revoked);
+    }
+
+    // ── 행사 배분(ADR-0009 §5-2) ──────────────────────
+
+    /** 기업 총량(공간 범위·배분이 아닌 활성 이용권)에서 행사 하나에 떼어 준다. 합이 부모 한도를 넘으면 409 ENT-005 */
+    public EntitlementDtos.Entitlement allocate(String adminPublicId, String parentPublicId, EntitlementDtos.AllocationRequest request) {
+        User admin = user(adminPublicId);
+        Entitlement parent = entitlement(parentPublicId);
+        if (parent.getStatus() != EntitlementStatus.ACTIVE || parent.getScope() != EntitlementScope.WORKSPACE || parent.isAllocation()) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "활성 공간 범위 이용권(기업 총량)에서만 배분할 수 있습니다.");
+        }
+        Event event = eventRepository.findByPublicId(request.eventId())
+                .filter(e -> e.getWorkspaceId().equals(parent.getWorkspaceId()))
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "이 공간의 행사가 아닙니다."));
+        // 잠금 순서: 계약 → 부모 → 자식. 계약 종료가 같은 계약 행을 먼저 잡으므로, 그사이 끝난 계약의 배분이 원래 기간으로 남지 않는다.
+        // 수동 부여 부모(계약 없음)는 부모 행만 — 부모 회수도 그 행을 잡는다
+        LocalDateTime now = LocalDateTime.now(clock);
+        if (parent.getContractId() != null
+                && !contractRepository.lockStatus(parent.getContractId()).contains(ContractStatus.ACTIVE.name())) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "계약이 진행 중이 아닙니다.");
+        }
+        if (entitlementRepository.lockValidParent(parent.getId(), now).isEmpty()) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "부모 이용권이 지금 유효하지 않습니다.");
+        }
+        // 빠른 거절만 일반 읽기로 — 범위 잠금 읽기는 다른 부모의 첫 배분과 빈 구간 gap lock 으로 교착된다. 경쟁은 DB 유니크가 막는다
+        boolean duplicated = entitlementRepository.findAllByParentEntitlementId(parent.getId()).stream()
+                .anyMatch(child -> child.getStatus() == EntitlementStatus.ACTIVE && event.getId().equals(child.getEventId()));
+        if (duplicated) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "이 행사에는 이미 배분이 있습니다 — 배분량을 바꾸세요.");
+        }
+        int quota = request.composeQuota();
+        if (entitlementRepository.allocate(parent.getId(), quota) != 1) {
+            throw exceeds(parent.getId(), quota);
+        }
+        Entitlement child;
+        try {
+            child = entitlementRepository.saveAndFlush(Entitlement.allocation(entitlementRepository.findById(parent.getId()).orElseThrow(),
+                    event.getId(), quota, admin.getId()));
+        } catch (DataIntegrityViolationException e) {
+            // DB 불변식(활성 배분은 부모·행사마다 하나 — uk_entitlement_active_allocation)이 막았다. 트랜잭션째 되돌린다
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "이 행사에는 이미 배분이 있습니다 — 배분량을 바꾸세요.");
+        }
+        auditLogService.record(admin.getId(), parent.getWorkspaceId(), event.getId(), "ENTITLEMENT_ALLOCATED", "ENTITLEMENT",
+                child.getPublicId(), Map.of("parent", parent.getPublicId(), "composeQuota", quota));
+        return view(child);
+    }
+
+    /** 배분량 바꾸기 — 늘리면 부모 합 검사(ENT-005), 줄이면 이미 사용·예약한 양 아래로는 ENT-006. 순서는 늘 부모 → 자식 */
+    public EntitlementDtos.Entitlement resize(String adminPublicId, String childPublicId, EntitlementDtos.AllocationResizeRequest request) {
+        User admin = user(adminPublicId);
+        Entitlement child = entitlement(childPublicId);
+        if (!child.isAllocation()) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "활성 행사 배분만 배분량을 바꿀 수 있습니다.");
+        }
+        Long parentId = child.getParentEntitlementId();
+        int quota = request.composeQuota();
+        // 부모를 먼저 잠근 뒤 자식의 현재 한도를 잠금 읽기로 — 잠금 전에 읽은 한도로 차이를 계산하면 동시 변경이 부모 합을 두 번 바꾼다.
+        // 늘리기: 부모 합을 원자적으로 늘리고(넘으면 ENT-005) 자식을 바꾼다. 줄이기: 자식을 조건부로 줄이고(사용·예약 아래면 ENT-006)
+        // 그다음 부모 합을 줄인다 — 거절된 요청은 흔적을 남기지 않는다
+        entitlementRepository.lockById(parentId);
+        int current = entitlementRepository.lockActiveQuota(child.getId()).stream().findFirst()
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "활성 행사 배분만 배분량을 바꿀 수 있습니다."));
+        int delta = quota - current;
+        if (delta > 0 && entitlementRepository.allocate(parentId, delta) != 1) {
+            throw exceeds(parentId, delta);
+        }
+        if (delta != 0 && entitlementRepository.resize(child.getId(), quota) != 1) {
+            Entitlement latest = entitlementRepository.findById(child.getId()).orElseThrow();
+            throw new BusinessException(EntitlementErrorCode.ALLOCATION_BELOW_USAGE, "사용 " + latest.getUsed() + " · 예약 " + latest.getReserved(),
+                    Map.of("used", latest.getUsed(), "reserved", latest.getReserved(), "requested", quota));
+        }
+        if (delta < 0) {
+            entitlementRepository.deallocate(parentId, -delta);
+        }
+        Entitlement resized = entitlement(childPublicId);
+        auditLogService.record(admin.getId(), resized.getWorkspaceId(), resized.getEventId(), "ENTITLEMENT_RESIZED", "ENTITLEMENT",
+                resized.getPublicId(), Map.of("composeQuota", quota, "delta", delta));
+        return view(resized);
+    }
+
+    private BusinessException exceeds(Long parentId, int requested) {
+        Entitlement parent = entitlementRepository.findById(parentId).orElseThrow();
+        return new BusinessException(EntitlementErrorCode.ALLOCATION_EXCEEDS_PARENT,
+                "총량 " + parent.getComposeQuota() + " · 배분 " + parent.getAllocatedQuota() + " · 요청 " + requested,
+                Map.of("parentQuota", parent.getComposeQuota(), "allocated", parent.getAllocatedQuota(), "requested", requested));
     }
 
     // ── helpers ──────────────────────
@@ -225,7 +333,10 @@ public class ContractService {
         return new EntitlementDtos.Entitlement(e.getPublicId(), e.getScope(), workspacePublicId(e.getWorkspaceId()), eventId,
                 e.getSource(), contractId, new EntitlementDtos.Terms(e.getComposeQuota(), e.getRetentionDays(),
                 e.getMaxBoothDevices(), e.getMaxLiveEvents(), e.getFeatures()), e.getUsed(), e.getReserved(),
-                offset(e.getValidFrom()), offset(e.getValidTo()), e.getStatus(), e.getGrantorNote(), e.getRevokeReason());
+                offset(e.getValidFrom()), offset(e.getValidTo()), e.getStatus(), e.getGrantorNote(), e.getRevokeReason(),
+                e.getParentEntitlementId() == null ? null
+                        : entitlementRepository.findById(e.getParentEntitlementId()).map(Entitlement::getPublicId).orElse(null),
+                e.getAllocatedQuota());
     }
 
     private String workspacePublicId(Long workspaceId) {
@@ -242,5 +353,9 @@ public class ContractService {
 
     private OffsetDateTime offset(LocalDateTime value) {
         return value == null ? null : value.atZone(clock.getZone()).toOffsetDateTime();
+    }
+
+    private static String truncate(String value, int max) {
+        return value.length() <= max ? value : value.substring(0, max);
     }
 }

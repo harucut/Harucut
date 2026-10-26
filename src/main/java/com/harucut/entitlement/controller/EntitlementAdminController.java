@@ -104,4 +104,29 @@ public class EntitlementAdminController {
                                                         @RequestBody @Valid EntitlementDtos.RevokeRequest request) {
         return Response.ok(contractService.revoke(principal.publicId(), entitlementId, request.reason()));
     }
+
+    @Operation(summary = "행사 배분(기업 총량에서 떼어 주기)",
+            description = """
+                    활성 공간 범위 이용권(기업 총량)에서 같은 공간의 행사 하나에 합성 한도를 배분한다. 기간·기능·조건·계약은 부모를 따른다.
+                    같은 부모의 활성 배분 합이 부모 한도를 넘으면 409 ENT-005(data: parentQuota·allocated·requested).
+                    참가 화면은 행사 배분·기업 총량 어느 쪽이 막혀도 ENT-002 하나다.
+                    """)
+    @ApiErrors({"ENT-005: 배분 합이 기업 총량을 넘는다", "GEN-002: 부모가 기업 총량이 아니거나 다른 공간의 행사·이미 배분이 있다", "GEN-031: 없는 이용권"})
+    @PostMapping("/entitlements/{entitlementId}/allocations")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Response<EntitlementDtos.Entitlement> allocate(@AuthenticationPrincipal AuthenticatedUser principal,
+                                                          @Parameter(description = "부모(기업 총량) 이용권 public id") @PathVariable String entitlementId,
+                                                          @RequestBody @Valid EntitlementDtos.AllocationRequest request) {
+        return Response.ok(contractService.allocate(principal.publicId(), entitlementId, request));
+    }
+
+    @Operation(summary = "행사 배분량 바꾸기",
+            description = "행사 배분만. 늘리면 합 검사(409 ENT-005), 줄이면 이미 사용·예약한 양 아래로는 409 ENT-006(data: used·reserved·requested).")
+    @ApiErrors({"ENT-005: 배분 합이 기업 총량을 넘는다", "ENT-006: 사용·예약 아래로 줄임", "GEN-002: 배분이 아니다", "GEN-031: 없는 이용권"})
+    @PatchMapping("/entitlements/{entitlementId}")
+    public Response<EntitlementDtos.Entitlement> resize(@AuthenticationPrincipal AuthenticatedUser principal,
+                                                        @Parameter(description = "행사 배분 이용권 public id") @PathVariable String entitlementId,
+                                                        @RequestBody @Valid EntitlementDtos.AllocationResizeRequest request) {
+        return Response.ok(contractService.resize(principal.publicId(), entitlementId, request));
+    }
 }

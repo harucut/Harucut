@@ -24,6 +24,10 @@ public interface ContractRepository extends JpaRepository<Contract, Long> {
 
     boolean existsByEvidenceKindAndEvidenceReference(EvidenceKind evidenceKind, String evidenceReference);
 
+    // 계약 행 잠금 + 지금 상태 — 배분 만들기와 계약 종료가 이 행에서 줄을 선다(계약 → 부모 → 자식)
+    @Query(value = "select status from contract where contract_id = :id for update", nativeQuery = true)
+    List<String> lockStatus(@Param("id") Long id);
+
     // 결제 확인 — 처음 한 번만 1. 엔티티를 저장하지 않으므로 동시에 바뀐 다른 열(상태 등)을 덮지 않는다
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update Contract c set c.paymentVerifiedAt = :now where c.id = :id and c.paymentVerifiedAt is null")

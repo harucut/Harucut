@@ -167,6 +167,14 @@
   "status" : 403,
   "message" : "The entitlement does not include this feature."
 }, {
+  "code" : "ENT-005",
+  "status" : 409,
+  "message" : "The allocations exceed the parent entitlement's compose quota."
+}, {
+  "code" : "ENT-006",
+  "status" : 409,
+  "message" : "The allocation cannot be reduced below what is already used or reserved."
+}, {
   "code" : "EVENT-001",
   "status" : 409,
   "message" : "The event is not open for capture."

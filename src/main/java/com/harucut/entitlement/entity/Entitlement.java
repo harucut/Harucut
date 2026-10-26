@@ -8,6 +8,7 @@ import com.harucut.entitlement.enums.EntitlementSource;
 import com.harucut.entitlement.enums.EntitlementStatus;
 import com.harucut.entitlement.enums.Feature;
 import jakarta.persistence.*;
+import org.hibernate.annotations.DynamicUpdate;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -19,7 +20,11 @@ import java.util.Set;
 /**
  * 지금 쓸 수 있는 행사 혜택 (ADR-0008 §6). used·reserved 는 엔티티로 바꾸지 않는다 — 저장소의 조건부 UPDATE 만이
  * {@code used + reserved <= composeQuota} 를 지키며 바꾼다(동시 접수에서 초과 예약이 나지 않게).
+ *
+ * <p>{@code @DynamicUpdate}: 회수·종료처럼 엔티티를 고쳐 저장할 때 바뀐 열만 UPDATE 한다 — 전체 열을 쓰면 그사이
+ * 커밋된 예약·확정의 used·reserved 를 읽었던 낡은 값으로 되돌린다.
  */
+@DynamicUpdate
 @Entity
 @Table(name = "entitlement", indexes = {
         @Index(name = "idx_entitlement_workspace", columnList = "workspace_id, status"),

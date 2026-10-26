@@ -19,16 +19,20 @@ public class ComposeSpecAssembler {
 
     public ComposeSpec assemble(Frame frame, String backgroundColorOverride) {
         FrameLayout layout = frame.getFrameType().getLayout();
+        // 사용자 프레임이면 참조 자산이 전부 그 소유자의 것이어야 한다. 저장 시점에도 검사하지만
+        // 검사가 생기기 전에 저장된 프레임(남의 스티커 key 등)이 합성으로 새지 않게 여기서 한 번 더 본다.
+        // 시스템 프레임(user=null)은 ROLE_ADMIN 이 신뢰 경계라 검사하지 않는다
+        String owner = frame.getUser() == null ? null : frame.getUser().getPublicId();
         return new ComposeSpec(
                 layout.canvasWidth(), layout.canvasHeight(),
-                composableBackground(frame.getBackground(), backgroundColorOverride),
+                composableBackground(frame.getBackground(), backgroundColorOverride, owner),
                 layout.slots(),
                 frame.getCellCutouts(),
-                frame.getComponents().stream().map(this::toLayer).toList());
+                frame.getComponents().stream().map(component -> toLayer(component, owner)).toList());
     }
 
     private BackgroundAttributes composableBackground(
-            BackgroundAttributes background, String colorOverride) {
+            BackgroundAttributes background, String colorOverride, String owner) {
         if (background instanceof BackgroundAttributes.Image image) {
             if (colorOverride != null) {
                 // 이미지 배경에 색을 씌우는 건 프론트 미리보기에 없는 조합 — 조용히 무시하면
@@ -40,6 +44,7 @@ public class ComposeSpecAssembler {
                 throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE,
                         "S3에 없는 배경 이미지는 합성할 수 없다.");
             }
+            assertOwned(image.key(), owner);
             return background;
         }
         return colorOverride == null
@@ -47,7 +52,7 @@ public class ComposeSpecAssembler {
                 : new BackgroundAttributes.Color(colorOverride);
     }
 
-    private ComposeSpec.Layer toLayer(FrameComponent component) {
+    private ComposeSpec.Layer toLayer(FrameComponent component, String owner) {
         String source = switch (component.getType()) {
             case PHOTO, STICKER -> component.getSource();
             case TEXT -> component.getRenderedKey();
@@ -61,6 +66,7 @@ public class ComposeSpecAssembler {
             throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE,
                     "S3에 없는 자산은 합성할 수 없다: " + source);
         }
+        assertOwned(source, owner);
         return new ComposeSpec.Layer(
                 source,
                 component.getX(), component.getY(),
@@ -70,6 +76,12 @@ public class ComposeSpecAssembler {
                 component.getRotation(),
                 component.getZIndex(),
                 opacityOf(component));
+    }
+
+    private static void assertOwned(String key, String owner) {
+        if (owner != null) {
+            S3Keys.assertOwnedBy(key, owner);
+        }
     }
 
     // 프론트 drawThemeOverlay와 같은 읽기: styleJson.opacity가 숫자면 0~1로 잘라 쓰고, 아니면 1

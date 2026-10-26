@@ -25,6 +25,16 @@ public class FrameAssetManager {
     // 관리자가 만드는 시스템 프레임 전용이다(ROLE_ADMIN이 이미 신뢰 경계라 소유자 개념이 없다).
     // 사용자 경로에서는 절대 null을 넘기지 말 것
     public String normalizeSource(ComponentType type, String source, String ownerPublicId) {
+        if (type == ComponentType.STICKER) {
+            // 스티커는 정적 경로가 기본이지만 uploads/ key 도 들어온다 — 합성은 그 key 를 그대로
+            // 읽으므로(ComposeSpecAssembler) 남의 key 를 막지 않으면 남의 파일로 합성할 수 있다.
+            // 검사만 하고 값은 바꾸지 않는다: 정규화하면 응답에 presign 없는 key 가 나가
+            // 지금 화면이 보던 값이 달라진다(스티커의 주소 변환은 별도 작업)
+            if (ownerPublicId != null) {
+                S3Keys.assertOwnedBy(source, ownerPublicId);
+            }
+            return source;
+        }
         if (type != ComponentType.PHOTO) {
             return source;
         }

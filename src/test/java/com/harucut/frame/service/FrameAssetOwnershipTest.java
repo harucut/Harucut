@@ -22,6 +22,7 @@ import org.mockito.quality.Strictness;
 
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -73,6 +74,11 @@ class FrameAssetOwnershipTest {
                 0.0, 0.0, 100.0, 100.0, 1.0, 0.0, 0, null);
     }
 
+    private FrameCreateRequest.ComponentRequest sticker(String source) {
+        return new FrameCreateRequest.ComponentRequest(null, ComponentType.STICKER, source, null,
+                0.0, 0.0, 50.0, 50.0, 1.0, 0.0, 1, null);
+    }
+
     private BackgroundAttributes color() {
         return new BackgroundAttributes.Color("#FFE4E1");
     }
@@ -120,6 +126,39 @@ class FrameAssetOwnershipTest {
     }
 
     @Test
+    @DisplayName("남의 key 를 STICKER source 로 넣으면 403 이다")
+    void foreignStickerSourceIsForbidden() {
+        FrameCreateRequest request =
+                request(myRoot + "frames/p.png", color(), List.of(sticker(othersKey)));
+
+        assertThatThrownBy(() -> assembler.assembleOwned(owner, request))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GlobalErrorCode.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("URL 로 감싼 남의 STICKER key 도 막힌다")
+    void urlWrappedForeignStickerIsForbidden() {
+        String wrapped = "https://harucut-test.s3.ap-northeast-2.amazonaws.com/" + othersKey;
+        FrameCreateRequest request =
+                request(myRoot + "frames/p.png", color(), List.of(sticker(wrapped)));
+
+        assertThatThrownBy(() -> assembler.assembleOwned(owner, request))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    @DisplayName("수정(replaceContent)에서도 남의 STICKER key 는 막힌다")
+    void updatePathGuardsStickerToo() {
+        Frame frame = assembler.assembleOwned(owner,
+                request(myRoot + "frames/p.png", color(), List.of()));
+
+        assertThatThrownBy(() -> assembler.replaceContent(frame,
+                request(myRoot + "frames/p.png", color(), List.of(sticker(othersKey)))))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
     @DisplayName("URL 로 감싸도 정규화 후 검사하므로 우회되지 않는다")
     void urlWrappedForeignKeyIsForbidden() {
         String wrapped = "https://harucut-test.s3.ap-northeast-2.amazonaws.com/" + othersKey;
@@ -152,6 +191,24 @@ class FrameAssetOwnershipTest {
                         text(myRoot + "components/text.png")));
 
         assertThatCode(() -> assembler.assembleOwned(owner, request)).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("내 uploads/ 스티커는 통과하고 저장값도 바뀌지 않는다")
+    void ownStickerPassesUnchanged() {
+        String mine = "https://harucut-test.s3.ap-northeast-2.amazonaws.com/" + myRoot + "components/s.png";
+        Frame frame = assembler.assembleOwned(owner,
+                request(myRoot + "frames/p.png", color(), List.of(sticker(mine))));
+
+        assertThat(frame.getComponents().get(0).getSource()).isEqualTo(mine);
+    }
+
+    @Test
+    @DisplayName("시스템 프레임의 STICKER 는 검사하지 않는다")
+    void systemFrameStickerSkipsCheck() {
+        FrameCreateRequest request = request(othersKey, color(), List.of(sticker(othersKey)));
+
+        assertThatCode(() -> assembler.assembleSystem(request)).doesNotThrowAnyException();
     }
 
     @Test

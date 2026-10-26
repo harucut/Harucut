@@ -8,6 +8,7 @@ import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.dto.FrameVersionResponse;
+import com.harucut.frame.dto.PickableFrameVersion;
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.entity.FrameComponent;
 import com.harucut.frame.entity.FrameVersion;
@@ -24,6 +25,7 @@ import com.harucut.storage.service.FileStorageService;
 import com.harucut.storage.util.S3Keys;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
+import com.harucut.workspace.enums.WorkspaceRole;
 import com.harucut.workspace.service.WorkspaceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -32,6 +34,8 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,8 +72,13 @@ public class FrameVersionService {
 
     public FrameVersionResponse publish(String publicId, Long frameId) {
         User user = getUser(publicId);
-        frameService.getOwnedReadableFrame(user, frameId);
+        frameService.getEditableFrame(user, frameId);
         Frame frame = lock(frameId);
+        if (workspaceService.organization(frame.getWorkspaceId()).isPresent()) {
+            // 조직 공간 프레임은 여러 멤버의 이미지가 섞인다 — 발행하는 사람 폴더로 다시 묻지 않는다.
+            // 조직 프레임은 저장 소유권 검사가 생긴 뒤에 생겼으므로 들어 있는 key 는 전부 저장 때 검사를 통과했다
+            return doPublish(frame, new Publisher(user.getId(), null, frame.getWorkspaceId()));
+        }
         Long workspaceId = frame.getWorkspaceId() != null
                 ? frame.getWorkspaceId()
                 : workspaceService.personalWorkspaceOf(user.getId()).getId();
@@ -88,7 +97,7 @@ public class FrameVersionService {
 
     @Transactional(readOnly = true)
     public List<FrameVersionResponse> list(String publicId, Long frameId) {
-        frameService.getOwnedReadableFrame(getUser(publicId), frameId);
+        frameService.getReadableFrame(getUser(publicId), frameId);
         return frameVersionRepository.findAllByFrameIdOrderByVersionNoDesc(frameId).stream()
                 .map(FrameVersionResponse::summary)
                 .toList();
@@ -96,10 +105,39 @@ public class FrameVersionService {
 
     @Transactional(readOnly = true)
     public FrameVersionResponse get(String publicId, Long frameId, int versionNo) {
-        frameService.getOwnedReadableFrame(getUser(publicId), frameId);
+        frameService.getReadableFrame(getUser(publicId), frameId);
         FrameVersion version = frameVersionRepository.findByFrameIdAndVersionNo(frameId, versionNo)
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
         return FrameVersionResponse.full(version, withUrls(objectMapper.readValue(version.getSpecJson(), FrameSpecV2.class)));
+    }
+
+    /**
+     * 운영자가 행사에 연결할 발행본을 고르는 목록 — 시스템 프레임과 이 공간 프레임의 최신 발행본. 발행 안 된 프레임은 없다.
+     * 공간 멤버면 누구나(설정 PATCH 권한은 행사 API 가 따로 본다)
+     */
+    @Transactional(readOnly = true)
+    public List<PickableFrameVersion> pickable(String publicId, String workspacePublicId) {
+        User user = getUser(publicId);
+        Long workspaceId = workspaceService.requireRole(workspacePublicId, user.getId(),
+                EnumSet.allOf(WorkspaceRole.class)).getId();
+        Map<Long, Frame> frames = new LinkedHashMap<>();
+        frameRepository.findSystemOrWorkspace(workspaceId).forEach(frame -> frames.put(frame.getId(), frame));
+        if (frames.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, FrameVersion> latest = new HashMap<>();
+        frameVersionRepository.findLatestByFrameIdIn(frames.keySet()).forEach(v -> latest.put(v.getFrameId(), v));
+        return frames.values().stream()
+                .filter(frame -> latest.containsKey(frame.getId()))
+                .map(frame -> {
+                    FrameVersion version = latest.get(frame.getId());
+                    return new PickableFrameVersion(version.getId(), frame.getId(), version.getVersionNo(),
+                            version.getFrameType(), frame.getTitle(),
+                            fileStorageService.generatePresignedGetUrl(frame.getPreviewKey()),
+                            frame.isSystem() ? PickableFrameVersion.Source.SYSTEM : PickableFrameVersion.Source.WORKSPACE,
+                            version.getCreatedAt());
+                })
+                .toList();
     }
 
     /**
@@ -261,7 +299,7 @@ public class FrameVersionService {
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
     }
 
-    // 발행 주체. 시스템 프레임이면 ownerPublicId·workspaceId 가 null
+    // 발행 주체. 시스템 프레임이면 ownerPublicId·workspaceId 가 null, 조직 공간 프레임이면 ownerPublicId 만 null
     private record Publisher(Long userId, String ownerPublicId, Long workspaceId) {
     }
 }

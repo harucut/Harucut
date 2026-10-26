@@ -1231,6 +1231,11 @@
             "example" : 3,
             "format" : "int64",
             "type" : "integer"
+          },
+          "workspaceId" : {
+            "description" : "프레임이 속한 공간의 public id. 조직 공간 프레임이면 그 공간이고, 시스템 프레임·공간이 없던 옛 프레임은 null(키 없음).",
+            "example" : "Ws1aB2cD3eF4",
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -1974,6 +1979,56 @@
         },
         "type" : "object"
       },
+      "PickableFrameVersion" : {
+        "description" : "행사에 연결할 수 있는 프레임 발행본 — 프레임마다 최신 발행본 하나",
+        "properties" : {
+          "frameId" : {
+            "description" : "원본 프레임 ID",
+            "example" : 7,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "frameType" : {
+            "description" : "레이아웃 — EventSettings.frames[].layoutType 과 같아야 한다",
+            "enum" : [ "CLASSIC", "WIDE", "GRID", "POLAROID" ],
+            "example" : "CLASSIC",
+            "type" : "string"
+          },
+          "frameVersionId" : {
+            "description" : "EventSettings.frames[].frameVersionId 에 넣는 값",
+            "example" : 41,
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "previewUrl" : {
+            "description" : "원본 프레임 미리보기의 presigned GET URL(24시간) — 참고용, 발행본 자체와 다를 수 있다",
+            "type" : "string"
+          },
+          "publishedAt" : {
+            "description" : "발행 시각",
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "source" : {
+            "description" : "SYSTEM(기본 제공) · WORKSPACE(이 공간)",
+            "enum" : [ "SYSTEM", "WORKSPACE" ],
+            "example" : "WORKSPACE",
+            "type" : "string"
+          },
+          "title" : {
+            "description" : "원본 프레임의 현재 제목",
+            "example" : "봄 웨딩",
+            "type" : "string"
+          },
+          "versionNo" : {
+            "description" : "발행 번호",
+            "example" : 3,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "PresignedUploadRequest" : {
         "description" : "업로드용 presigned URL 발급 요청",
         "properties" : {
@@ -2627,6 +2682,34 @@
             "description" : "응답 본문. 없으면 키 자체가 없다",
             "items" : {
               "$ref" : "#/components/schemas/MyResult"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseListPickableFrameVersion" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "description" : "응답 본문. 없으면 키 자체가 없다",
+            "items" : {
+              "$ref" : "#/components/schemas/PickableFrameVersion"
             },
             "type" : "array"
           },
@@ -12888,6 +12971,226 @@
         } ],
         "summary" : "행사 만들기(초안)",
         "tags" : [ "행사 운영" ]
+      }
+    },
+    "/api/auth/workspaces/{workspaceId}/frame-versions" : {
+      "get" : {
+        "description" : "이 공간 프레임과 시스템 프레임의 **최신 발행본**(공간 프레임 먼저, 각각 최신순). 발행 안 된 프레임은 나오지 않는다 —\n프레임 편집기에서 발행(`POST /api/auth/user/frame/{frameId}/versions`)하면 나타난다.\n`frameVersionId` 를 `EventSettings.frames[].frameVersionId` 에, `frameType` 을 `layoutType` 에 넣는다.\n",
+        "operationId" : "pickable",
+        "parameters" : [ {
+          "description" : "공간 public id",
+          "in" : "path",
+          "name" : "workspaceId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseListPickableFrameVersion"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 공간이거나 멤버가 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 공간이거나 멤버가 아니다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "행사에 연결할 수 있는 프레임 발행본",
+        "tags" : [ "공간" ]
+      }
+    },
+    "/api/auth/workspaces/{workspaceId}/frames" : {
+      "get" : {
+        "description" : "조직 공간에 만든 프레임 전부(최신순) — 만든 사람과 무관하다. 멤버면 누구나 본다.\n단건 조회·수정·삭제·발행은 기존 `/api/auth/user/frame/{frameId}` 경로를 그대로 쓴다\n(조회는 멤버, 수정·삭제·발행은 OWNER·ADMIN·DESIGNER).\n조직 프레임은 개인 목록(`GET /api/auth/user/frame`)과 개인 요금제 한도에 들어가지 않는다.\n",
+        "operationId" : "frames",
+        "parameters" : [ {
+          "description" : "공간 public id",
+          "in" : "path",
+          "name" : "workspaceId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseListFrameResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 공간이거나 멤버가 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 공간이거나 멤버가 아니다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "공간의 프레임 목록",
+        "tags" : [ "공간" ]
       }
     },
     "/api/email-auth/code" : {

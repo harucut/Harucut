@@ -106,6 +106,21 @@ public class WorkspaceService {
         return workspace;
     }
 
+    /** 조직 공간이면 그 공간. 개인 공간·없는 id·null 이면 빈 값 — 프레임이 "공간의 것"인지 가르는 판정 */
+    @Transactional(readOnly = true)
+    public java.util.Optional<Workspace> organization(Long workspaceId) {
+        return workspaceId == null
+                ? java.util.Optional.empty()
+                : workspaceRepository.findById(workspaceId).filter(workspace -> !workspace.isPersonal());
+    }
+
+    /** 응답 조립용 — 내부 id → public id. null 이면 null */
+    @Transactional(readOnly = true)
+    public String publicIdOf(Long workspaceId) {
+        return workspaceId == null ? null
+                : workspaceRepository.findById(workspaceId).map(Workspace::getPublicId).orElse(null);
+    }
+
     /** 이 공간의 활성 멤버인가. 자산·초안처럼 공간 id 를 이미 가진 행의 접근 판정에 쓴다 */
     @Transactional(readOnly = true)
     public boolean isMember(Long workspaceId, Long userId) {

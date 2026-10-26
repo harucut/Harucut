@@ -62,7 +62,7 @@ class FrameComponentAssemblerTest {
     @BeforeEach
     void setUp() {
         assembler = new FrameComponentAssembler(frameAssetManager, frameAssetResolver,
-                new FrameLimitsProperties(40, 7000), JsonMapper.builder().build());
+                new FrameLimitsProperties(40, 7000, 200), JsonMapper.builder().build());
     }
 
     @Nested
@@ -287,10 +287,22 @@ class FrameComponentAssemblerTest {
         }
 
         @Test
+        @DisplayName("조직 공간 프레임 수가 상한에 닿으면 FRAME-007")
+        void workspaceFrameLimit() {
+            FrameComponentAssembler capped = new FrameComponentAssembler(frameAssetManager, frameAssetResolver,
+                    new FrameLimitsProperties(40, 7000, 2), JsonMapper.builder().build());
+
+            capped.assertWorkspaceRoom(1);
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> capped.assertWorkspaceRoom(2))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode").isEqualTo(FrameErrorCode.WORKSPACE_FRAME_LIMIT);
+        }
+
+        @Test
         @DisplayName("합성 스펙이 상한을 넘으면 400 FRAME-004 — 합성 때 DB 오류로 죽기 전에")
         void specTooLarge() {
             FrameComponentAssembler tight = new FrameComponentAssembler(frameAssetManager, frameAssetResolver,
-                    new FrameLimitsProperties(40, 300), JsonMapper.builder().build());
+                    new FrameLimitsProperties(40, 300, 200), JsonMapper.builder().build());
             given(frameAssetManager.normalizeSource(any(), anyString(), any()))
                     .willAnswer(invocation -> invocation.getArgument(1));
             List<FrameCreateRequest.ComponentRequest> layers = java.util.stream.IntStream.range(0, 5)

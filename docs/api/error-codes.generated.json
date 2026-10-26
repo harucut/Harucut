@@ -171,6 +171,10 @@
   "status" : 409,
   "message" : "A published version of this frame is used by an event."
 }, {
+  "code" : "FRAME-007",
+  "status" : 403,
+  "message" : "The workspace has reached its frame limit."
+}, {
   "code" : "GEN-001",
   "status" : 400,
   "message" : "Bad request."

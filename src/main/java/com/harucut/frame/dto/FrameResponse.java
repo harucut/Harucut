@@ -61,11 +61,16 @@ public record FrameResponse(
         @Schema(description = """
                 낙관적 잠금 값. 다음 PUT 의 `version` 에 그대로 보낸다 — 그사이 다른 저장이 있었으면 409 `FRAME-002`.""",
                 example = "3")
-        Long version
+        Long version,
+
+        @Schema(description = """
+                프레임이 속한 공간의 public id. 조직 공간 프레임이면 그 공간이고, 시스템 프레임·공간이 없던 옛 프레임은 null(키 없음).""",
+                example = "Ws1aB2cD3eF4")
+        String workspaceId
 ) {
     // presign이 필요한 조립은 어셈블러 몫이고, 이 팩토리는 캔버스 파생만 강제한다 —
     // 캔버스에 다른 값을 넣는 코드를 쓸 수 없게 파라미터에서 뺐다
-    public static FrameResponse of(Frame frame, String previewUrl,
+    public static FrameResponse of(Frame frame, String workspacePublicId, String previewUrl,
                                    BackgroundAttributes resolvedBackground,
                                    List<ComponentResponse> components) {
         return new FrameResponse(
@@ -73,7 +78,8 @@ public record FrameResponse(
                 previewUrl, frame.getFrameType(),
                 frame.getFrameType().getLayout().canvasWidth(),
                 frame.getFrameType().getLayout().canvasHeight(),
-                resolvedBackground, frame.getCellCutouts(), components, frame.isSystem(), frame.getVersion());
+                resolvedBackground, frame.getCellCutouts(), components, frame.isSystem(), frame.getVersion(),
+                workspacePublicId);
     }
 
     @Schema(description = "프레임 컴포넌트")

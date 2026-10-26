@@ -34,6 +34,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.inOrder;
 import static org.mockito.BDDMockito.never;
@@ -93,13 +94,13 @@ class FrameServiceTest {
             Frame frame = ownedFrame(CREATED);
             FrameResponse expected = response(1L);
             given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
-            given(frameRepository.countByUser(user)).willReturn(2L);
-            given(frameComponentAssembler.assembleOwned(user, request)).willReturn(frame);
-            given(frameRepository.save(frame)).willReturn(frame);
-            given(frameComponentAssembler.toFrameResponse(frame)).willReturn(expected);
+            given(frameRepository.countPersonalByUser(user)).willReturn(2L);
             Workspace personal = Workspace.personal(1L);
             ReflectionTestUtils.setField(personal, "id", 77L);
             given(workspaceService.personalWorkspaceOf(1L)).willReturn(personal);
+            given(frameComponentAssembler.assembleOwned(user, request, 77L)).willReturn(frame);
+            given(frameRepository.save(frame)).willReturn(frame);
+            given(frameComponentAssembler.toFrameResponse(frame)).willReturn(expected);
 
             assertThat(frameService.createFrame(PUBLIC_ID, request)).isEqualTo(expected);
             // 한도 판정에 "현재 보관 총량"이 정확히 전달된다
@@ -109,10 +110,32 @@ class FrameServiceTest {
         }
 
         @Test
+        @DisplayName("조직 공간 프레임은 개인 요금제 한도를 보지 않고 공간 상한만 본다")
+        void organizationFrameSkipsPersonalPlan() {
+            FrameCreateRequest request = new FrameCreateRequest("제목", null, "uploads/p.png", FrameType.CLASSIC,
+                    null, null, COLOR, null, null, null, "WsOrg");
+            Frame frame = ownedFrame(CREATED);
+            Workspace org = Workspace.organization("웨딩팀");
+            ReflectionTestUtils.setField(org, "id", 88L);
+            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
+            given(workspaceService.requireRole(eq("WsOrg"), eq(1L), any())).willReturn(org);
+            given(frameRepository.countByWorkspaceId(88L)).willReturn(5L);
+            given(frameComponentAssembler.assembleOwned(user, request, 88L)).willReturn(frame);
+            given(frameRepository.save(frame)).willReturn(frame);
+
+            frameService.createFrame(PUBLIC_ID, request);
+
+            then(frameSubscriptionPolicy).shouldHaveNoInteractions();
+            then(frameComponentAssembler).should().assertWorkspaceRoom(5L);
+            assertThat(frame.getWorkspaceId()).isEqualTo(88L);
+        }
+
+        @Test
         @DisplayName("한도 초과면 SUBS-003이 전파되고 조립·저장 어느 것도 일어나지 않는다")
         void limitExceeded() {
             given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
-            given(frameRepository.countByUser(user)).willReturn(3L);
+            given(frameRepository.countPersonalByUser(user)).willReturn(3L);
+            given(workspaceService.personalWorkspaceOf(1L)).willReturn(Workspace.personal(1L));
             willThrow(new BusinessException(SubscriptionErrorCode.PLAN_FRAME_RETENTION_EXCEEDED))
                     .given(frameSubscriptionPolicy).assertFrameRetentionLimit(1L, 3);
 
@@ -153,7 +176,7 @@ class FrameServiceTest {
             given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(frameSubscriptionPolicy.resolveHistoryCutoff(1L)).willReturn(cutoff);
             given(frameSubscriptionPolicy.resolveFrameRetentionCap(1L)).willReturn(null);
-            given(frameRepository.findAllWithComponentsByUser(user))
+            given(frameRepository.findPersonalWithComponentsByUser(user))
                     .willReturn(List.of(recent, exactlyAtCutoff, expired));
             given(frameRepository.findAllWithComponentsBySystem()).willReturn(List.of());
             given(frameComponentAssembler.toFrameResponse(recent)).willReturn(recentResponse);
@@ -173,7 +196,7 @@ class FrameServiceTest {
             given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(frameSubscriptionPolicy.resolveHistoryCutoff(1L)).willReturn(null);
             given(frameSubscriptionPolicy.resolveFrameRetentionCap(1L)).willReturn(3);
-            given(frameRepository.findAllWithComponentsByUser(user))
+            given(frameRepository.findPersonalWithComponentsByUser(user))
                     .willReturn(List.of(first, second, third, capped));
             given(frameRepository.findAllWithComponentsBySystem()).willReturn(List.of());
             given(frameComponentAssembler.toFrameResponse(first)).willReturn(response(1L));
@@ -192,7 +215,7 @@ class FrameServiceTest {
             given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(frameSubscriptionPolicy.resolveHistoryCutoff(1L)).willReturn(null);
             given(frameSubscriptionPolicy.resolveFrameRetentionCap(1L)).willReturn(null);
-            given(frameRepository.findAllWithComponentsByUser(user)).willReturn(List.of(mine));
+            given(frameRepository.findPersonalWithComponentsByUser(user)).willReturn(List.of(mine));
             given(frameRepository.findAllWithComponentsBySystem()).willReturn(List.of(system));
             given(frameComponentAssembler.toFrameResponse(mine)).willReturn(response(1L));
             given(frameComponentAssembler.toFrameResponse(system)).willReturn(response(99L));
@@ -257,7 +280,7 @@ class FrameServiceTest {
             given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(frameRepository.findById(FRAME_ID)).willReturn(Optional.of(frame));
             given(frameSubscriptionPolicy.resolveFrameRetentionCap(1L)).willReturn(3);
-            given(frameRepository.countByUserAndCreatedAtAfter(user, CREATED)).willReturn(3L);
+            given(frameRepository.countPersonalByUserCreatedAfter(user, CREATED)).willReturn(3L);
 
             assertThatThrownBy(() -> frameService.getFrame(PUBLIC_ID, FRAME_ID))
                     .isInstanceOf(BusinessException.class)
@@ -273,7 +296,7 @@ class FrameServiceTest {
             given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(frameRepository.findById(FRAME_ID)).willReturn(Optional.of(frame));
             given(frameSubscriptionPolicy.resolveFrameRetentionCap(1L)).willReturn(3);
-            given(frameRepository.countByUserAndCreatedAtAfter(user, CREATED)).willReturn(2L);
+            given(frameRepository.countPersonalByUserCreatedAfter(user, CREATED)).willReturn(2L);
             given(frameComponentAssembler.toFrameResponse(frame)).willReturn(expected);
 
             assertThat(frameService.getFrame(PUBLIC_ID, FRAME_ID)).isEqualTo(expected);
@@ -311,7 +334,7 @@ class FrameServiceTest {
 
             // 응답 조립은 flush 뒤 — 새 컴포넌트 id가 채워진 다음이어야 한다
             InOrder inOrder = inOrder(frameComponentAssembler, frameRepository);
-            inOrder.verify(frameComponentAssembler).replaceContent(frame, request);
+            inOrder.verify(frameComponentAssembler).replaceContent(frame, request, user);
             inOrder.verify(frameRepository).saveAndFlush(frame);
             inOrder.verify(frameComponentAssembler).toFrameResponse(frame);
         }
@@ -423,6 +446,6 @@ class FrameServiceTest {
 
     private static FrameResponse response(Long frameId) {
         return new FrameResponse(frameId, "제목", "설명", "https://preview", FrameType.CLASSIC,
-                2000, 6000, COLOR, List.of(false, false, false, false), List.of(), false, 0L);
+                2000, 6000, COLOR, List.of(false, false, false, false), List.of(), false, 0L, null);
     }
 }

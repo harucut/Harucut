@@ -23,21 +23,41 @@ public interface FrameRepository extends JpaRepository<Frame, Long> {
     @Query("select f.id from Frame f where f.user.id = :userId")
     List<Long> findIdsByUserId(Long userId);
 
+    // "개인 프레임" = 공간이 없던 옛 행이거나 조직 공간이 아닌 공간의 프레임. 조직 공간 프레임은 만든 사람의
+    // 개인 목록·요금제 한도·보관 판정에서 빠진다 — 그 공간의 것이다(공간 목록·역할로 다룬다).
+    // 개인 공간을 지연 생성하지 않으려고(읽기 전용 트랜잭션) 개인 공간 id 대신 조직 공간을 제외하는 식으로 쓴다
+    String PERSONAL = """
+            (f.workspaceId is null or f.workspaceId not in
+             (select w.id from Workspace w where w.type = com.harucut.workspace.enums.WorkspaceType.ORGANIZATION))""";
+
     // 목록은 프레임 N개 × 지연 컴포넌트 = N+1의 전형이라 fetch join으로 한 방에 가져온다.
-    @Query("select f from Frame f left join fetch f.components where f.user = :user order by f.createdAt desc")
-    List<Frame> findAllWithComponentsByUser(@Param("user") User user);
+    @Query("select f from Frame f left join fetch f.components where f.user = :user and " + PERSONAL
+            + " order by f.createdAt desc")
+    List<Frame> findPersonalWithComponentsByUser(@Param("user") User user);
+
+    @Query("select distinct f from Frame f left join fetch f.components where f.workspaceId = :workspaceId order by f.createdAt desc")
+    List<Frame> findAllWithComponentsByWorkspaceId(@Param("workspaceId") Long workspaceId);
+
+    long countByWorkspaceId(Long workspaceId);
+
+    // 행사에 연결할 수 있는 프레임 — 시스템 프레임과 그 공간의 프레임(행사 게시 검사와 같은 규칙)
+    @Query("select f from Frame f where f.isSystem = true or f.workspaceId = :workspaceId order by f.isSystem asc, f.createdAt desc")
+    List<Frame> findSystemOrWorkspace(@Param("workspaceId") Long workspaceId);
 
     @Query("select f from Frame f left join fetch f.components where f.isSystem = true order by f.createdAt desc")
     List<Frame> findAllWithComponentsBySystem();
 
-    // 생성 시 한도 판정 — 소프트 캡 밖에 숨겨진 것까지 포함한 "보관 총량"
-    long countByUser(User user);
+    // 생성 시 한도 판정 — 소프트 캡 밖에 숨겨진 것까지 포함한 "보관 총량"(개인 프레임만)
+    @Query("select count(f) from Frame f where f.user = :user and " + PERSONAL)
+    long countPersonalByUser(@Param("user") User user);
 
-    // 단건 조회 시 소프트 캡 판정 — 자기보다 최신인 프레임 수
-    long countByUserAndCreatedAtAfter(User user, LocalDateTime createdAt);
+    // 단건 조회 시 소프트 캡 판정 — 자기보다 최신인 개인 프레임 수
+    @Query("select count(f) from Frame f where f.user = :user and f.createdAt > :createdAt and " + PERSONAL)
+    long countPersonalByUserCreatedAfter(@Param("user") User user, @Param("createdAt") LocalDateTime createdAt);
 
-    // FrameCountPort 어댑터용 — subscription의 사용량 API
-    long countByUserId(Long userId);
+    // FrameCountPort 어댑터용 — subscription의 사용량 API(개인 프레임만)
+    @Query("select count(f) from Frame f where f.user.id = :userId and " + PERSONAL)
+    long countPersonalByUserId(@Param("userId") Long userId);
 
     @Query("select f from Frame f left join fetch f.components where f.user.id = :userId")
     List<Frame> findAllWithComponentsByUserId(@Param("userId") Long userId);

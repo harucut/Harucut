@@ -92,8 +92,9 @@ public final class EntitlementDtos {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Contract(String contractId, String workspaceId, String contractorName, EntitlementScope scope,
                            List<String> eventIds, Long amount, String currency, OffsetDateTime startsAt,
-                           OffsetDateTime endsAt, Evidence paymentEvidence, Terms entitlement, ContractStatus status,
-                           OffsetDateTime createdAt) {
+                           OffsetDateTime endsAt, Evidence paymentEvidence,
+                           @Schema(description = "결제 증빙(PORTONE)을 제공자 API 로 대조해 확인한 시각. 없으면 키 없음") OffsetDateTime paymentVerifiedAt,
+                           Terms entitlement, ContractStatus status, OffsetDateTime createdAt) {
     }
 
     @Schema(name = "ContractStatusRequest")

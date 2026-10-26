@@ -198,9 +198,16 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
 - `POST /api/payments/webhook` 의 검증기를 Standard Webhooks 로 바꾼다: `webhook-id`·`webhook-timestamp`·`webhook-signature` 헤더,
   서명 = base64(HMAC-SHA256(secret, `${id}.${timestamp}.${rawBody}`)), 비밀은 `whsec_` 접두어 base64. 허용 시각차 5분.
   **원문 body 바이트**로 검증한다(JSON 재직렬화 금지). 같은 webhook-id 는 한 번만 처리(`webhook_receipt` 유니크).
-- 서명이 맞으면 PortOne API 로 결제를 조회해 금액·통화·상점·상태를 서버 주문과 대조한 뒤에만 상태를 바꾼다. 중복·역순 이벤트는 외부 결제 id 와 현재 상태로 거른다.
+- 서명이 맞으면 PortOne API 로 결제를 조회해(`GET /payments/{paymentId}?storeId=` — storeId 를 빼면 API 비밀의 상점으로 조회되므로 늘 보낸다,
+  상점 id 가 없으면 기동하지 않는다) 금액·통화·상점·상태를 서버 주문과 대조한 뒤에만 상태를 바꾼다. 중복·역순 이벤트는 외부 결제 id 와 현재 상태로 거른다.
 - 계약 결제는 `contract.paymentEvidence(kind PORTONE, reference = paymentId)` 로 연결한다. 개인 구독 결제 흐름은 그대로 둔다.
 - 키(웹훅 비밀·API 비밀·상점 id)는 설정으로만 받는다. 키가 없으면 기존 Mock 검증기를 쓴다(운영 프로필에서는 기동 실패 — 지금 MockGatewayGuard 와 같은 방식).
+  MockGatewayGuard 가 `payment.webhook.provider=mock` 도 함께 본다 — local·test 밖에서는 `PAYMENT_MOCK_ALLOWED` 없이 기동하지 않는다.
+- 수신 기록은 `INSERT IGNORE` 로 남긴다. 같은 webhook-id 가 동시에 오면 늦은 쪽은 앞쪽 커밋을 기다렸다가 0행을 받고 200 으로 끝난다
+  (유니크 위반을 예외로 받으면 트랜잭션이 롤백 전용이 되어 500 이 났다).
+- 결제 확인 시각은 조건부 UPDATE(`paymentVerifiedAt IS NULL` 일 때만)로 쓴다 — 동시에 바뀐 계약 상태를 덮지 않고, 감사 로그도 한 번만.
+- 웹훅이 증빙 등록보다 먼저 와서 확인되지 않은 계약은 ADMIN 이 `POST /api/admin/contracts/{contractId}/payment-verification` 으로 다시 확인한다
+  (같은 대조, 맞으면 계약을 돌려준다. 증빙 없음·연동 꺼짐·불일치는 400 `GEN-002`).
 
 ## 9. 오류 코드
 

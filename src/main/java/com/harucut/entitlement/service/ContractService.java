@@ -91,6 +91,12 @@ public class ContractService {
         return contractRepository.findAllByOrderByIdDesc(PageRequest.of(0, 200)).stream().map(this::view).toList();
     }
 
+    @Transactional(readOnly = true)
+    public EntitlementDtos.Contract get(String contractPublicId) {
+        return view(contractRepository.findByPublicId(contractPublicId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND)));
+    }
+
     public EntitlementDtos.Contract changeStatus(String adminPublicId, String contractPublicId, ContractStatus to) {
         User admin = user(adminPublicId);
         Contract contract = contractRepository.findByPublicId(contractPublicId)
@@ -209,7 +215,7 @@ public class ContractService {
                 c.getScope(), c.eventIdList().stream().map(eventIds::get).filter(Objects::nonNull).toList(), c.getAmount(),
                 c.getCurrency(), offset(c.getStartsAt()), offset(c.getEndsAt()),
                 c.getEvidenceKind() == null ? null : new EntitlementDtos.Evidence(c.getEvidenceKind(), c.getEvidenceReference()),
-                terms(c.terms()), c.getStatus(), offset(c.getCreatedAt()));
+                offset(c.getPaymentVerifiedAt()), terms(c.terms()), c.getStatus(), offset(c.getCreatedAt()));
     }
 
     private EntitlementDtos.Entitlement view(Entitlement e) {

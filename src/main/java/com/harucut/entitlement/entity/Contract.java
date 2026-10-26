@@ -92,6 +92,10 @@ public class Contract extends BaseEntity {
     @Column(name = "created_by_user_id", nullable = false)
     private Long createdByUserId;
 
+    // 결제 증빙(PORTONE)을 제공자 API 로 대조해 확인한 시각
+    @Column(name = "payment_verified_at")
+    private LocalDateTime paymentVerifiedAt;
+
     public Contract(Long workspaceId, String contractorName, EntitlementScope scope, List<Long> eventIds, Long amount,
                     String currency, LocalDateTime startsAt, LocalDateTime endsAt, EvidenceKind evidenceKind,
                     String evidenceReference, Terms terms, Long createdByUserId) {

@@ -5,6 +5,7 @@ import com.harucut.common.exception.ErrorCode;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.coupon.exception.CouponErrorCode;
 import com.harucut.frame.exception.FrameErrorCode;
+import com.harucut.media.exception.MediaErrorCode;
 import com.harucut.notice.exception.NoticeErrorCode;
 import com.harucut.payment.exception.PaymentErrorCode;
 import com.harucut.subscription.exception.SubscriptionErrorCode;
@@ -37,7 +38,8 @@ public final class ErrorCodeCatalog {
                     SubscriptionErrorCode.values(),
                     FrameErrorCode.values(),
                     PaymentErrorCode.values(),
-                    CouponErrorCode.values())
+                    CouponErrorCode.values(),
+                    MediaErrorCode.values())
             .flatMap(Arrays::stream)
             .collect(Collectors.toMap(
                     ErrorCode::getCode,

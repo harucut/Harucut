@@ -114,24 +114,11 @@ public class ComposeJob extends BaseEntity {
         return new ComposeJob(user, frameId, idempotencyKey, sourceKeys, spec);
     }
 
-    // 재실행이 겹치면 같은 Job을 두 번 끝낼 수 있다 — PENDING이 아닌 행의 전이는
-    // 조용히 무시해서 먼저 기록된 결과가 이긴다 (complete/fail 공통)
-    public void complete(String resultKey, Long mediaId) {
-        if (status != ComposeStatus.PENDING) {
-            return;
-        }
-        this.status = ComposeStatus.DONE;
-        this.resultKey = resultKey;
-        this.mediaId = mediaId;
-    }
-
-    public void fail(String reason) {
-        if (status != ComposeStatus.PENDING) {
-            return;
-        }
-        this.status = ComposeStatus.FAILED;
-        this.failureReason = reason != null && reason.length() > 255
-                ? reason.substring(0, 255) : reason;
+    // 완료·실패 전이는 엔티티 메서드가 아니라 ComposeJobRepository 의 조건부 UPDATE 다.
+    // 메모리의 status 를 보고 고치면 동시에 온 두 통지가 둘 다 PENDING 을 보고 둘 다 이긴다.
+    // failure_reason 컬럼(기본 255자)에 맞춰 자르는 규칙만 여기 남긴다
+    public static String truncateFailureReason(String reason) {
+        return reason != null && reason.length() > 255 ? reason.substring(0, 255) : reason;
     }
 
     // Lambda 페이로드 조립용 — 슬롯 순서 그대로

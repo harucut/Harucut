@@ -41,6 +41,33 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
             """)
     int claim(Long jobId, LocalDateTime now, LocalDateTime staleBefore);
 
+    // 완료·실패 전이는 "읽고 PENDING 확인 후 저장"이 아니라 조건부 UPDATE 다. 두 통지가 동시에 와도
+    // 행 잠금 뒤 두 번째 UPDATE 는 0행이 되어, 결과·미디어·원본 삭제가 정확히 한 번만 일어난다.
+    // 영향 행 수가 곧 "이 호출이 전이를 이겼는가"다.
+    //
+    // clearAutomatically 를 걸지 않는다 — 호출자가 같은 트랜잭션에서 이미 읽은 Job 의 user·sourceKeys 를
+    // 이어서 쓴다. 영속성 컨텍스트의 Job 은 status 가 낡은 채 남지만, 그 엔티티를 고치지 않으므로
+    // 커밋 때 덮어쓰지 않는다
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE ComposeJob j
+            SET j.status = :done, j.resultKey = :resultKey
+            WHERE j.id = :jobId AND j.status = :pending
+            """)
+    int markDone(Long jobId, String resultKey, ComposeStatus pending, ComposeStatus done);
+
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE ComposeJob j SET j.mediaId = :mediaId WHERE j.id = :jobId")
+    int attachMedia(Long jobId, Long mediaId);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE ComposeJob j
+            SET j.status = :failed, j.failureReason = :reason
+            WHERE j.id = :jobId AND j.status = :pending
+            """)
+    int markFailed(Long jobId, String reason, ComposeStatus pending, ComposeStatus failed);
+
     @Query("""
             SELECT j FROM ComposeJob j
             JOIN FETCH j.user

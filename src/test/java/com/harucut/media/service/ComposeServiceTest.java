@@ -15,6 +15,7 @@ import com.harucut.media.dto.ComposeRequest;
 import com.harucut.media.entity.ComposeJob;
 import com.harucut.media.entity.UserMedia;
 import com.harucut.media.enums.ComposeStatus;
+import com.harucut.media.exception.MediaErrorCode;
 import com.harucut.media.repository.ComposeJobRepository;
 import com.harucut.media.repository.UserMediaRepository;
 import com.harucut.storage.service.S3Deleter;
@@ -158,8 +159,7 @@ class ComposeServiceTest {
         @DisplayName("같은 멱등 key의 재요청은 기존 Job을 돌려주고 아무것도 새로 하지 않는다")
         void idempotentReplay() {
             givenUser();
-            ComposeJob existing = job();
-            existing.complete(RESULT_KEY, 42L);
+            ComposeJob existing = doneJob(RESULT_KEY, 42L);
             given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
                     .willReturn(Optional.of(existing));
 
@@ -171,6 +171,81 @@ class ComposeServiceTest {
             then(composeJobRepository).should(org.mockito.Mockito.never()).save(any());
             then(eventPublisher).shouldHaveNoInteractions();
             then(frameService).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("같은 멱등 key 에 다른 원본이 오면 409 MEDIA-001 이다")
+        void sameKeyDifferentSourcesConflicts() {
+            givenUser();
+            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+                    .willReturn(Optional.of(doneJob(RESULT_KEY, 42L)));
+            List<String> others = List.of(SOURCE_KEYS.get(1), SOURCE_KEYS.get(0),
+                    SOURCE_KEYS.get(2), SOURCE_KEYS.get(3));
+
+            assertThatThrownBy(() -> composeService.requestCompose(PUBLIC_ID, request(others)))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(MediaErrorCode.IDEMPOTENCY_KEY_REUSED);
+            then(composeJobRepository).should(org.mockito.Mockito.never()).save(any());
+        }
+
+        @Test
+        @DisplayName("같은 멱등 key 에 다른 프레임이 오면 409 다")
+        void sameKeyDifferentFrameConflicts() {
+            givenUser();
+            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+                    .willReturn(Optional.of(job()));
+
+            assertThatThrownBy(() -> composeService.requestCompose(PUBLIC_ID,
+                    new ComposeRequest(FRAME_ID + 1, SOURCE_KEYS, IDEM_KEY, null)))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(MediaErrorCode.IDEMPOTENCY_KEY_REUSED);
+        }
+
+        @Test
+        @DisplayName("원본을 URL 로 감싸 보낸 재요청도 같은 요청으로 본다 — 정규화한 뒤 비교한다")
+        void urlWrappedReplayMatches() {
+            givenUser();
+            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+                    .willReturn(Optional.of(job()));
+            List<String> urls = SOURCE_KEYS.stream()
+                    .map(key -> "https://harucut-test.s3.amazonaws.com/" + key + "?X-Amz-Signature=x")
+                    .toList();
+
+            assertThat(composeService.requestCompose(PUBLIC_ID, request(urls)).status())
+                    .isEqualTo(ComposeStatus.PENDING);
+        }
+
+        @Test
+        @DisplayName("배경색은 요청에 있을 때만 비교한다 — 같은 색은 재생, 다른 색은 409")
+        void backgroundColorComparedOnlyWhenSent() {
+            ComposeJob job = job();   // spec 배경 #FFE4E1
+
+            assertThat(ComposeService.sameRequest(job, FRAME_ID, SOURCE_KEYS, null)).isTrue();
+            assertThat(ComposeService.sameRequest(job, FRAME_ID, SOURCE_KEYS, "#ffe4e1")).isTrue();
+            assertThat(ComposeService.sameRequest(job, FRAME_ID, SOURCE_KEYS, "#000000")).isFalse();
+        }
+
+        @Test
+        @DisplayName("동시 중복의 패자는 승자의 Job 을 다시 읽어 돌려받는다")
+        void replayAfterConflictReturnsWinner() {
+            givenUser();
+            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+                    .willReturn(Optional.of(job()));
+
+            assertThat(composeService.replayAfterConflict(PUBLIC_ID, request(SOURCE_KEYS)).jobId())
+                    .isEqualTo(JOB_ID);
+        }
+
+        @Test
+        @DisplayName("동시 중복인데 승자가 없으면 null — 다른 제약 위반이라 호출자가 원래 예외를 던진다")
+        void replayAfterConflictWithoutWinner() {
+            givenUser();
+            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+                    .willReturn(Optional.empty());
+
+            assertThat(composeService.replayAfterConflict(PUBLIC_ID, request(SOURCE_KEYS))).isNull();
         }
 
         @Test
@@ -239,13 +314,15 @@ class ComposeServiceTest {
         void completeCreatesMediaAndDeletesSources() {
             ComposeJob job = job();
             given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job));
+            given(composeJobRepository.markDone(JOB_ID, RESULT_KEY,
+                    ComposeStatus.PENDING, ComposeStatus.DONE)).willReturn(1);
             given(userMediaRepository.save(any())).willAnswer(invocation -> {
                 UserMedia media = invocation.getArgument(0);
                 ReflectionTestUtils.setField(media, "id", 42L);
                 return media;
             });
 
-            composeService.completeJob(JOB_ID, RESULT_KEY, THUMB_KEY);
+            assertThat(composeService.completeJob(JOB_ID, RESULT_KEY, THUMB_KEY)).isTrue();
 
             ArgumentCaptor<UserMedia> captor = ArgumentCaptor.captor();
             then(userMediaRepository).should().save(captor.capture());
@@ -253,38 +330,71 @@ class ComposeServiceTest {
             assertThat(captor.getValue().getThumbnailKey()).isEqualTo(THUMB_KEY);
             // 확장자는 s3Key에서 파생된다(DisplayNames) — 결과물이 .jpg가 되면 표시 이름도 따라온다
             assertThat(captor.getValue().getDisplayName()).isEqualTo("harucut_20260720_100000.jpg");
-            assertThat(job.getStatus()).isEqualTo(ComposeStatus.DONE);
-            assertThat(job.getMediaId()).isEqualTo(42L);
+            then(composeJobRepository).should().attachMedia(JOB_ID, 42L);
             then(s3Deleter).should().deleteAfterCommit(SOURCE_KEYS);
+        }
+
+        @Test
+        @DisplayName("읽은 뒤 다른 통지가 먼저 전이했으면(UPDATE 0행) 미디어도 삭제도 없다")
+        void completeLosesRace() {
+            given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job()));
+            given(composeJobRepository.markDone(JOB_ID, RESULT_KEY,
+                    ComposeStatus.PENDING, ComposeStatus.DONE)).willReturn(0);
+
+            assertThat(composeService.completeJob(JOB_ID, RESULT_KEY, THUMB_KEY)).isFalse();
+
+            then(userMediaRepository).shouldHaveNoInteractions();
+            then(s3Deleter).shouldHaveNoInteractions();
         }
 
         @Test
         @DisplayName("이미 끝난 Job의 완료 호출은 아무것도 안 한다 — 재실행 경합 보호")
         void completeIgnoredWhenNotPending() {
-            ComposeJob job = job();
-            job.fail("먼저 실패로 기록됨");
-            given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job));
+            given(composeJobRepository.findById(JOB_ID))
+                    .willReturn(Optional.of(failedJob("먼저 실패로 기록됨")));
 
-            composeService.completeJob(JOB_ID, RESULT_KEY, THUMB_KEY);
+            assertThat(composeService.completeJob(JOB_ID, RESULT_KEY, THUMB_KEY)).isFalse();
 
             then(userMediaRepository).shouldHaveNoInteractions();
             then(s3Deleter).shouldHaveNoInteractions();
-            assertThat(job.getStatus()).isEqualTo(ComposeStatus.FAILED);
+            then(composeJobRepository).should(org.mockito.Mockito.never())
+                    .markDone(any(), any(), any(), any());
         }
 
         @Test
-        @DisplayName("실패 기록: Job이 FAILED가 되고 사유가 남는다. 없는 Job이면 조용히 지나간다")
-        void failRecordsReason() {
-            ComposeJob job = job();
-            given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job));
+        @DisplayName("실패 기록: FAILED 로 전이하고 원본 삭제를 예약한다. 없는 Job이면 조용히 지나간다")
+        void failRecordsReasonAndDeletesSources() {
+            given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job()));
+            given(composeJobRepository.markFailed(JOB_ID, "원본을 읽을 수 없다",
+                    ComposeStatus.PENDING, ComposeStatus.FAILED)).willReturn(1);
             given(composeJobRepository.findById(999L)).willReturn(Optional.empty());
 
-            composeService.failJob(JOB_ID, "원본을 읽을 수 없다");
+            assertThat(composeService.failJob(JOB_ID, "원본을 읽을 수 없다")).isTrue();
+            then(s3Deleter).should().deleteAfterCommit(SOURCE_KEYS);
 
-            assertThat(job.getStatus()).isEqualTo(ComposeStatus.FAILED);
-            assertThat(job.getFailureReason()).isEqualTo("원본을 읽을 수 없다");
-            assertThatCode(() -> composeService.failJob(999L, "이유"))
-                    .doesNotThrowAnyException();
+            assertThat(composeService.failJob(999L, "이유")).isFalse();
+        }
+
+        @Test
+        @DisplayName("긴 사유는 255자로 잘려 UPDATE 된다")
+        void failTruncatesReason() {
+            given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job()));
+            given(composeJobRepository.markFailed(any(), any(), any(), any())).willReturn(1);
+
+            composeService.failJob(JOB_ID, "x".repeat(300));
+
+            then(composeJobRepository).should().markFailed(JOB_ID, "x".repeat(255),
+                    ComposeStatus.PENDING, ComposeStatus.FAILED);
+        }
+
+        @Test
+        @DisplayName("이미 끝난 Job 의 실패(UPDATE 0행)는 원본을 지우지 않는다 — 늦은 실패가 성공 뒤를 건드리지 않는다")
+        void failLosesRace() {
+            given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job()));
+            given(composeJobRepository.markFailed(any(), any(), any(), any())).willReturn(0);
+
+            assertThat(composeService.failJob(JOB_ID, "뒤늦은 실패")).isFalse();
+            then(s3Deleter).shouldHaveNoInteractions();
         }
     }
 
@@ -308,9 +418,8 @@ class ComposeServiceTest {
         @DisplayName("실패한 Job은 사유가 실려 나간다")
         void failedJobCarriesReason() {
             givenUser();
-            ComposeJob job = job();
-            job.fail("원본 유실");
-            given(composeJobRepository.findByIdAndUser(JOB_ID, user)).willReturn(Optional.of(job));
+            given(composeJobRepository.findByIdAndUser(JOB_ID, user))
+                    .willReturn(Optional.of(failedJob("원본 유실")));
 
             ComposeJobResponse response = composeService.getJob(PUBLIC_ID, JOB_ID);
 
@@ -339,6 +448,22 @@ class ComposeServiceTest {
     private ComposeJob job() {
         ComposeJob job = ComposeJob.create(user, FRAME_ID, IDEM_KEY, SOURCE_KEYS, spec());
         ReflectionTestUtils.setField(job, "id", JOB_ID);
+        return job;
+    }
+
+    // 전이는 조건부 UPDATE 라 엔티티 메서드가 없다 — 끝난 Job 은 필드를 직접 채워 만든다
+    private ComposeJob doneJob(String resultKey, Long mediaId) {
+        ComposeJob job = job();
+        ReflectionTestUtils.setField(job, "status", ComposeStatus.DONE);
+        ReflectionTestUtils.setField(job, "resultKey", resultKey);
+        ReflectionTestUtils.setField(job, "mediaId", mediaId);
+        return job;
+    }
+
+    private ComposeJob failedJob(String reason) {
+        ComposeJob job = job();
+        ReflectionTestUtils.setField(job, "status", ComposeStatus.FAILED);
+        ReflectionTestUtils.setField(job, "failureReason", reason);
         return job;
     }
 

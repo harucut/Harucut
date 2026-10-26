@@ -177,11 +177,11 @@ class ComposeJobRepositoryTest {
             User mine = persistUser("mine@harucut.com");
             User other = persistUser("other@harucut.com");
             ComposeJob done = em.persist(ComposeJob.create(mine, 7L, "idem-1", FOUR_KEYS, spec()));
-            done.complete("uploads/results/r1.png", 11L);
             em.persist(ComposeJob.create(mine, 7L, "idem-2", FOUR_KEYS, spec()));
             ComposeJob othersDone = em.persist(ComposeJob.create(other, 7L, "idem-1", FOUR_KEYS, spec()));
-            othersDone.complete("uploads/results/r2.png", 12L);
             em.flush();
+            markDone(done.getId(), "uploads/results/r1.png");
+            markDone(othersDone.getId(), "uploads/results/r2.png");
 
             assertThat(composeJobRepository.findResultKeysByUserId(mine.getId()))
                     .containsExactly("uploads/results/r1.png");
@@ -246,9 +246,7 @@ class ComposeJobRepositoryTest {
         @DisplayName("PENDING이 아닌 Job은 선점되지 않는다 — 끝난 작업을 다시 돌리지 않는다")
         void skipsFinishedJob() {
             Long jobId = persistJob("idem-done");
-            composeJobRepository.findById(jobId).orElseThrow().complete("uploads/r.png", 1L);
-            em.flush();
-            em.clear();
+            markDone(jobId, "uploads/r.png");
 
             assertThat(claim(jobId)).isZero();
         }
@@ -299,10 +297,8 @@ class ComposeJobRepositoryTest {
             Long failed = persistJob("idem-fin-failed");
             startedAt(done, NOW.minusHours(5));
             startedAt(failed, NOW.minusHours(5));
-            composeJobRepository.findById(done).orElseThrow().complete("uploads/r.png", 1L);
-            composeJobRepository.findById(failed).orElseThrow().fail("터졌다");
-            em.flush();
-            em.clear();
+            markDone(done, "uploads/r.png");
+            markFailed(failed, "터졌다");
 
             assertThat(stalled()).isEmpty();
         }
@@ -345,6 +341,67 @@ class ComposeJobRepositoryTest {
         }
     }
 
+    /*
+     * 완료·실패 전이는 조건부 UPDATE 다. 영향 행 수 1 = 이 호출이 이겼다, 0 = 이미 다른 쪽이 끝냈다.
+     * 서비스는 이 값으로 미디어 생성·원본 삭제를 한 번만 한다.
+     */
+    @Nested
+    @DisplayName("완료·실패 전이 — 조건부 UPDATE")
+    class Transitions {
+
+        @Test
+        @DisplayName("PENDING 을 DONE 으로 바꾸면 1 이고 결과 key 가 남는다")
+        void markDoneFromPending() {
+            Long jobId = persistJob("idem-t-done");
+
+            assertThat(markDone(jobId, "uploads/r.png")).isEqualTo(1);
+            assertThat(reload(jobId).getStatus()).isEqualTo(ComposeStatus.DONE);
+            assertThat(reload(jobId).getResultKey()).isEqualTo("uploads/r.png");
+        }
+
+        @Test
+        @DisplayName("두 번째 완료는 0 이다 — 재배달된 통지가 결과를 덮지 않는다")
+        void secondMarkDoneLoses() {
+            Long jobId = persistJob("idem-t-twice");
+            markDone(jobId, "uploads/first.png");
+
+            assertThat(markDone(jobId, "uploads/second.png")).isZero();
+            assertThat(reload(jobId).getResultKey()).isEqualTo("uploads/first.png");
+        }
+
+        @Test
+        @DisplayName("DONE 뒤의 실패는 0 이다 — 늦은 실패가 성공을 지우지 않는다")
+        void failAfterDoneLoses() {
+            Long jobId = persistJob("idem-t-late-fail");
+            markDone(jobId, "uploads/r.png");
+
+            assertThat(markFailed(jobId, "뒤늦은 실패")).isZero();
+            assertThat(reload(jobId).getStatus()).isEqualTo(ComposeStatus.DONE);
+            assertThat(reload(jobId).getFailureReason()).isNull();
+        }
+
+        @Test
+        @DisplayName("FAILED 뒤의 완료는 0 이다")
+        void doneAfterFailLoses() {
+            Long jobId = persistJob("idem-t-late-done");
+            markFailed(jobId, "원본 유실");
+
+            assertThat(markDone(jobId, "uploads/late.png")).isZero();
+            assertThat(reload(jobId).getStatus()).isEqualTo(ComposeStatus.FAILED);
+            assertThat(reload(jobId).getResultKey()).isNull();
+        }
+
+        @Test
+        @DisplayName("mediaId 는 따로 붙는다")
+        void attachMedia() {
+            Long jobId = persistJob("idem-t-media");
+            markDone(jobId, "uploads/r.png");
+
+            composeJobRepository.attachMedia(jobId, 42L);
+            assertThat(reload(jobId).getMediaId()).isEqualTo(42L);
+        }
+    }
+
     // ── fixtures ──────────────────────────────
 
     private static final LocalDateTime NOW = FixedClockConfig.FIXED_NOW;
@@ -369,6 +426,20 @@ class ComposeJobRepositoryTest {
     private ComposeJob reload(Long jobId) {
         em.clear();
         return composeJobRepository.findById(jobId).orElseThrow();
+    }
+
+    private int markDone(Long jobId, String resultKey) {
+        int affected = composeJobRepository.markDone(jobId, resultKey,
+                ComposeStatus.PENDING, ComposeStatus.DONE);
+        em.clear();
+        return affected;
+    }
+
+    private int markFailed(Long jobId, String reason) {
+        int affected = composeJobRepository.markFailed(jobId, reason,
+                ComposeStatus.PENDING, ComposeStatus.FAILED);
+        em.clear();
+        return affected;
     }
 
     // ── fixtures ──────────────────────────────

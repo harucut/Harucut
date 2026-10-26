@@ -2,11 +2,13 @@ package com.harucut.media.repository;
 
 import com.harucut.media.entity.ComposeJob;
 import com.harucut.media.enums.ComposeStatus;
+import com.harucut.participant.enums.ParticipantChannel;
 import com.harucut.user.entity.User;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -21,6 +23,45 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
     Optional<ComposeJob> findByIdempotencyScopeAndIdempotencyKey(String idempotencyScope, String idempotencyKey);
 
     List<ComposeJob> findAllByParticipantIdAndEventIdOrderByIdDesc(Long participantId, Long eventId);
+
+    /**
+     * 행사 사진함 — 최신순 (created_at, id) 커서. 삭제 요청된 사진은 없다. 행 하나에 [ComposeJob, 참가 방식] 이 실린다.
+     * 조건은 null 이면 걸지 않는다.
+     */
+    @Query("""
+            select j, p.channel from ComposeJob j, Participant p
+            where p.id = j.participantId and j.eventId = :eventId and j.deletedAt is null
+              and (:status is null or j.status = :status)
+              and (:channel is null or p.channel = :channel)
+              and (:frameVersionId is null or j.frameVersionId = :frameVersionId)
+              and (:from is null or j.createdAt >= :from)
+              and (:to is null or j.createdAt < :to)
+              and (:cursorAt is null or j.createdAt < :cursorAt or (j.createdAt = :cursorAt and j.id < :cursorId))
+            order by j.createdAt desc, j.id desc
+            """)
+    List<Object[]> findEventPhotos(@Param("eventId") Long eventId,
+                                   @Param("status") ComposeStatus status,
+                                   @Param("channel") ParticipantChannel channel,
+                                   @Param("frameVersionId") Long frameVersionId,
+                                   @Param("from") LocalDateTime from,
+                                   @Param("to") LocalDateTime to,
+                                   @Param("cursorAt") LocalDateTime cursorAt,
+                                   @Param("cursorId") Long cursorId,
+                                   Pageable pageable);
+
+    // 사진함 삭제 요청 — deleted_at 만 바꾼다. 엔티티 저장(전체 컬럼 UPDATE)은 같은 시각에 커밋된 워커의 DONE·resultKey 를
+    // 낡은 값으로 덮을 수 있어 쓰지 않는다
+    @Modifying(flushAutomatically = true)
+    @Query("update ComposeJob j set j.deletedAt = :now where j.id = :id and j.deletedAt is null")
+    int markDeleted(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    // 자기 UPDATE 뒤의 잠금 읽기(FOR UPDATE) — 영속성 컨텍스트를 거치지 않고 최신 커밋 값을 본다.
+    // 삭제 요청과 완료 통지가 엇갈려도 나중에 커밋하는 쪽이 상대의 변경을 보고 결과 객체를 정리한다
+    @Query(value = "select result_key from compose_job where compose_job_id = :id for update", nativeQuery = true)
+    List<String> lockResultKey(@Param("id") Long id);
+
+    @Query(value = "select deleted_at from compose_job where compose_job_id = :id for update", nativeQuery = true)
+    List<Object> lockDeletedAt(@Param("id") Long id);
 
     // 부스 화면이 지금 회차의 합성 상태를 본다 — 회차에 작업이 여럿이면 마지막 것
     Optional<ComposeJob> findFirstByCaptureRunIdOrderByIdDesc(Long captureRunId);

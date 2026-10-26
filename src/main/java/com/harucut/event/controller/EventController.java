@@ -7,6 +7,7 @@ import com.harucut.event.dto.EventPatchRequest;
 import com.harucut.event.dto.EventResponse;
 import com.harucut.event.dto.EventSettings;
 import com.harucut.event.service.EventService;
+import com.harucut.event.dto.PhotoDtos;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -119,5 +120,19 @@ public class EventController {
     public Response<EventResponse> closeCapture(@AuthenticationPrincipal AuthenticatedUser principal,
                                                 @Parameter(description = "행사 public id") @PathVariable String eventId) {
         return Response.ok(eventService.closeCapture(principal.publicId(), eventId));
+    }
+
+    @Operation(summary = "행사 복제",
+            description = """
+                    설정 초안(허용 레이아웃·제공 프레임·동의 항목·테마)과 참가 방식·보관 일수만 새 DRAFT 행사로. 일정은 복제하지 않는다.
+                    사진·참가자·결과 토큰·고객 초대·사진 권한·동의 기록·부스는 복제하지 않는다. 복제한 사람에게 사진 권한 네 가지를 준다.
+                    """)
+    @ApiErrors({"EVENT-004: slug 중복", "GEN-002: slug 형식", "GEN-031: 없는 행사이거나 권한이 없다"})
+    @PostMapping("/api/auth/events/{eventId}/clone")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Response<EventResponse> cloneEvent(@AuthenticationPrincipal AuthenticatedUser principal,
+                                              @Parameter(description = "행사 public id") @PathVariable String eventId,
+                                              @RequestBody @Valid PhotoDtos.CloneRequest request) {
+        return Response.ok(eventService.cloneEvent(principal.publicId(), eventId, request.name(), request.slug()));
     }
 }

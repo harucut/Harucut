@@ -166,7 +166,7 @@ paths:
       summary: 참가 동의 기록 — 필수 항목 모두 AGREED 면 ACTIVE
       requestBody:
         required: true
-        content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { type: object, required: [code, version, decision], properties: { code: { type: string }, version: { type: integer }, decision: { type: string, enum: [AGREED, DECLINED] } } } } } } } }
+        content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { type: object, required: [code, version, decision], properties: { code: { type: string }, version: { type: integer }, decision: { type: string, enum: [AGREED, DECLINED, WITHDRAWN] } } } } } } } }
       responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [RESTRICTED, ACTIVE] } } } } } }, '401': { description: PART-001 } }
   /api/participant/events/{eventId}/capture-runs:
     parameters: [ { $ref: '#/components/parameters/EventId' } ]
@@ -216,6 +216,45 @@ paths:
       security: [ { participantToken: [] } ]
       summary: 본인 job 상태
       responses: { '200': { description: OK }, '404': { description: GEN-031 } }
+  /api/participant/session:
+    get:
+      security: [ { participantToken: [] } ]
+      summary: 세션 복원 — 새로고침·재방문
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  participantId: { type: string }
+                  eventId: { type: string }
+                  eventSlug: { type: string }
+                  channel: { type: string, enum: [BYOD, BOOTH] }
+                  status: { type: string, enum: [RESTRICTED, ACTIVE] }
+                  expiresAt: { type: string, format: date-time }
+                  pendingConsents: { type: array, items: { type: object, properties: { code: { type: string }, version: { type: integer } } } }
+                  activeCaptureRun: { type: object, nullable: true, properties: { captureRunId: { type: string }, stateVersion: { type: integer }, expiresAt: { type: string, format: date-time } } }
+        '401': { description: PART-001 }
+  /api/participant/compose-jobs/{jobId}/download:
+    parameters: [ { name: jobId, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    post:
+      security: [ { participantToken: [] } ]
+      summary: 본인 결과 다운로드 URL(5분) — BYOD 만
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { url: { type: string }, expiresAt: { type: string, format: date-time } } } } } }
+        '403': { description: PART-006 }
+        '409': { description: RESULT-003 }
+        '410': { description: RESULT-002 }
+  /api/participant/compose-jobs/{jobId}/result-access:
+    parameters: [ { name: jobId, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    post:
+      security: [ { participantToken: [] } ]
+      summary: 공유 링크용 결과 토큰 새로 발급(이전 토큰 유지) — BYOD 만
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { type: object, properties: { resultToken: { type: string }, resultExpiresAt: { type: string, format: date-time } } } } } }
+        '403': { description: PART-006 }
   /api/participant/events/{eventId}/results:
     parameters: [ { $ref: '#/components/parameters/EventId' } ]
     get:
@@ -268,7 +307,7 @@ paths:
       security: [ { resultAccess: [] } ]
       summary: 결과 상태 (토큰은 Authorization 헤더로만)
       responses:
-        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [PENDING, DONE, FAILED, EXPIRED] }, eventName: { type: string }, thumbnailUrl: { type: string, nullable: true }, expiresAt: { type: string, format: date-time } } } } } }
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [PENDING, DONE, FAILED, EXPIRED] }, eventName: { type: string }, thumbnailUrl: { type: string, nullable: true }, expiresAt: { type: string, format: date-time }, theme: { type: object, description: 'job 에 고정된 경험 버전의 테마·브랜드 표시(P2A placeholder)' } } } } } }
         '401': { description: RESULT-001 }
   /api/public/results/download:
     post:

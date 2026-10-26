@@ -1,6 +1,6 @@
 # ADR-0007 · P2A 행사 데이터와 인증 — Event·Participant·CaptureRun·BoothDevice·ResultAccess 계약
 
-- **상태**: 제안됨 (프론트 합의 전)
+- **상태**: 합의됨 (프론트 의견 반영 2026-10-26)
 - **날짜**: 2026-10-26
 - **관련**: R5 4·6·7·13·14·15·16·17절, ADR-0006(P1), `docs/api/p2a-openapi-draft.yaml`
 - **프론트 경로**: `/e/{slug}`(행사 입장), `/booth`(부스), `/r#<token>`(개인 결과) — harucut_FE #514
@@ -23,6 +23,7 @@
 
 - 토큰은 모두 CSPRNG 32바이트 base64url 이다. JWT 가 아니다.
 - **쿠키를 쓰지 않는다** → 이 경로들은 CSRF 대상이 아니다. 헤더 전용이라 회원 쿠키가 같이 와도 무시한다.
+- BFF: 브라우저는 Next `/api/client/*` 만 부르고, BFF 는 이 경로들에 `X-Participant-Token`·`X-Booth-Token`·`Authorization` 만 넘긴다(쿠키 없음).
 - 프론트 저장: 참가자 토큰은 행사·탭별 메모리/sessionStorage(이름공간 분리), 부스 토큰은 부스 프로필의 localStorage,
   결과 토큰은 URL fragment(`/r#<token>`)에서 읽어 메모리로만. 서버로 경로·쿼리에 실어 보내지 않는다.
 
@@ -80,12 +81,14 @@
 2. `POST /api/public/events/{slug}/sessions` `{ channel: "BYOD" }` → `{ participantToken, participantId, status: "RESTRICTED", expiresAt }`.
    BYOD 꺼짐 403 `EVENT-002`, 촬영 불가 409 `EVENT-001`, IP 빈도 초과 429 `GEN-061`.
 3. `POST /api/participant/events/{eventId}/consents` `{ items: [{ code, version, decision }] }` → `{ status }`.
+   decision 은 `AGREED` · `DECLINED` · `WITHDRAWN`(선택 항목 철회). 필수 항목을 DECLINED·WITHDRAWN 하면 RESTRICTED 로 돌아간다.
    현재 경험 버전의 필수 항목을 모두 같은 version 으로 AGREED 해야 ACTIVE. 선택 항목 거부는 막지 않는다.
 4. `POST /api/participant/events/{eventId}/capture-runs` → `{ captureRunId, experienceVersionId, stateVersion, expiresAt }`.
    ACTIVE 세션만. 서버가 현재 경험 버전을 부여한다(참가자가 고르지 않는다). 회차 기본 30분.
 5. `GET /api/participant/events/{eventId}/frame-versions/{frameVersionId}?captureRunId=` — 그 회차의 경험 버전이 제공한 프레임만.
 6. `POST /api/participant/events/{eventId}/upload-intents` `{ captureRunId, slotIndex(0~3), contentType(JPEG·PNG), fileSize }`
    → `{ assetId, uploadUrl, method, headers, expiresAt }`. purpose 는 항상 CAPTURE_INPUT. PUT TTL 10분.
+   조건부 PUT 스위치(`storage.upload.conditional-put`)를 P1 과 똑같이 따른다 — 꺼지면 headers 에 If-None-Match 가 없다.
 7. `POST /api/participant/assets/{assetId}/complete` — 본인·같은 회차·미귀속 확인 + P1 과 같은 검증.
 8. `POST /api/participant/events/{eventId}/compose-jobs` `{ captureRunId, frameVersionId, sourceAssetIds[4], idempotencyKey }`
    → 202 `{ jobId, status, resultToken, resultExpiresAt }`.
@@ -96,6 +99,12 @@
    - 지문이 다르면 409 `MEDIA-001`.
 9. `GET /api/participant/compose-jobs/{jobId}` — 본인 job 만.
 10. `GET /api/participant/events/{eventId}/results` — BYOD 세션의 이 행사 내 본인 결과 목록. **부스 세션은 403**(공용 기기에 이전 목록 금지).
+11. `GET /api/participant/session` — 새로고침·재방문 때 세션 복원. 무효·만료는 401 `PART-001`.
+    → `{ participantId, eventId, eventSlug, channel, status, expiresAt, pendingConsents: [{code, version}], activeCaptureRun?: {captureRunId, stateVersion, expiresAt} }`
+12. `POST /api/participant/compose-jobs/{jobId}/download` → `{ url, expiresAt }` — 재방문 목록에서 고른 결과를 내려받는다.
+    본인 BYOD 세션만(부스 403 `PART-006`). 결과 API 와 같은 보관·회수·준비 검사(`RESULT-002`·`RESULT-003`).
+13. `POST /api/participant/compose-jobs/{jobId}/result-access` → `{ resultToken, resultExpiresAt }` — 공유 링크(`/r#<token>`)를
+    다시 만들 때 새 토큰 발급(이전 토큰 유지). 본인 BYOD 세션만(부스 403).
 
 ## 6. 합성 주체와 compose_job 전환 (ADR-0007 범위의 migration 순서)
 
@@ -130,7 +139,9 @@ R5 17절 「멱등 scope·User FK의 호환 이관」 순서를 따른다:
 
 ## 8. 결과 수령 API (ResultAccess)
 
-- `GET /api/public/results` (Bearer) → `{ status: PENDING|DONE|FAILED|EXPIRED, eventName, thumbnailUrl?, expiresAt }`.
+- `GET /api/public/results` (Bearer) → `{ status: PENDING|DONE|FAILED|EXPIRED, eventName, thumbnailUrl?, expiresAt, theme }`.
+  `theme` 은 **그 job 에 고정된 경험 버전**의 페이지 테마·브랜드 표시다(P2A 는 settings.theme placeholder 그대로).
+  프론트 `/r` 는 초기 HTML 을 중립으로 그리고 이 응답 뒤에 행사 디자인을 입힌다 — 토큰 검증 전에는 행사 정보를 주지 않는다.
 - `POST /api/public/results/download` (Bearer) → `{ url, expiresAt }` — 5분 GET URL. 보관·회수·만료를 다시 검사.
 - 토큰을 경로·쿼리로 받지 않는다. 첫 조회로 소모하지 않는다(여러 명이 같은 QR 을 스캔한다).
 - 잘못된 토큰 시도는 IP 기준으로 따로 제한한다(정상 다회 수령에는 걸리지 않게).

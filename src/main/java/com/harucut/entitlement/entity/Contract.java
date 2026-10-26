@@ -8,6 +8,7 @@ import com.harucut.entitlement.enums.EntitlementScope;
 import com.harucut.entitlement.enums.EvidenceKind;
 import com.harucut.entitlement.enums.Feature;
 import jakarta.persistence.*;
+import org.hibernate.annotations.DynamicUpdate;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -20,8 +21,11 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 // 합의한 계약 (ADR-0008 §6-1). ACTIVE 가 되면 이 조건으로 이용권을 만든다. 결제와 분리 — 증빙은 참조만 남긴다
+// @DynamicUpdate: 엔티티 저장이 바뀐 열만 쓴다 — 상태는 조건부 UPDATE 로만 바꾼다(ContractRepository.transition)
+@DynamicUpdate
 @Entity
-@Table(name = "contract", indexes = @Index(name = "idx_contract_workspace_id", columnList = "workspace_id"))
+@Table(name = "contract", indexes = @Index(name = "idx_contract_workspace_id", columnList = "workspace_id"),
+        uniqueConstraints = @UniqueConstraint(name = "uk_contract_evidence", columnNames = {"evidence_kind", "evidence_reference"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Contract extends BaseEntity {
@@ -123,10 +127,6 @@ public class Contract extends BaseEntity {
 
     public Terms terms() {
         return new Terms(composeQuota, retentionDays, maxBoothDevices, maxLiveEvents, features);
-    }
-
-    public void changeStatus(ContractStatus status) {
-        this.status = status;
     }
 
     /** @return 처음 확인했으면 true */

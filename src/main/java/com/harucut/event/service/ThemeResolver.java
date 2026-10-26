@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * 페이지 테마의 기본값 채우기·자산 URL 바꾸기·게시 검사 (ADR-0008 §5). 공개 행사·부스·결과 응답이 모두 이것을 쓴다.
@@ -62,8 +63,12 @@ public class ThemeResolver {
         if (theme == null) {
             return violations;
         }
-        boolean designed = theme.colors() != null || theme.font() != null || theme.logoAssetId() != null
-                || theme.backgroundAssetId() != null;
+        // 실제로 바꾼 것만 디자인으로 본다 — 빈 colors·「SYSTEM」(바꾸지 않음) 글꼴은 기본값 그대로다
+        PageTheme.Colors given = theme.colors();
+        boolean colorsChanged = given != null && Stream.of(given.bg(), given.card(), given.text(), given.muted(),
+                given.border(), given.accent(), given.accentContrast()).anyMatch(Objects::nonNull);
+        boolean designed = colorsChanged || (theme.font() != null && !"SYSTEM".equals(theme.font()))
+                || theme.logoAssetId() != null || theme.backgroundAssetId() != null;
         if (designed && !customThemeAllowed) {
             violations.add(violation("theme", "이용권 기능 CUSTOM_THEME 이 있어야 색·글꼴·로고·배경을 바꿀 수 있다"));
         }

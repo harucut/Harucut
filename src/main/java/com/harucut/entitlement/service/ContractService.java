@@ -8,6 +8,7 @@ import com.harucut.entitlement.entity.Contract;
 import com.harucut.entitlement.entity.Entitlement;
 import com.harucut.entitlement.enums.ContractStatus;
 import com.harucut.entitlement.enums.EntitlementScope;
+import com.harucut.entitlement.enums.EvidenceKind;
 import com.harucut.entitlement.enums.EntitlementStatus;
 import com.harucut.entitlement.enums.ReservationStatus;
 import com.harucut.entitlement.exception.EntitlementErrorCode;
@@ -65,6 +66,10 @@ public class ContractService {
         User admin = user(adminPublicId);
         Workspace workspace = organization(request.workspaceId());
         List<Long> eventIds = request.scope() == EntitlementScope.EVENT ? events(workspace, request.eventIds()) : List.of();
+        if (request.paymentEvidence() != null && request.paymentEvidence().kind() == EvidenceKind.PORTONE
+                && contractRepository.existsByEvidenceKindAndEvidenceReference(EvidenceKind.PORTONE, request.paymentEvidence().reference())) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "이미 다른 계약에 연결된 결제입니다.");
+        }
         LocalDateTime starts = local(request.startsAt());
         LocalDateTime ends = local(request.endsAt());
         if (!ends.isAfter(starts)) {
@@ -93,7 +98,9 @@ public class ContractService {
             throw new BusinessException(EntitlementErrorCode.INVALID_TRANSITION, contract.getStatus() + " → " + to);
         }
         ContractStatus from = contract.getStatus();
-        contract.changeStatus(to);
+        if (contractRepository.transition(contract.getId(), from, to) != 1) {
+            throw new BusinessException(EntitlementErrorCode.INVALID_TRANSITION, "다른 변경이 먼저 반영됐다");
+        }
         if (to == ContractStatus.ACTIVE) {
             if (contract.getScope() == EntitlementScope.WORKSPACE) {
                 entitlementRepository.save(Entitlement.fromContract(contract, null));
@@ -106,7 +113,7 @@ public class ContractService {
         }
         auditLogService.record(admin.getId(), contract.getWorkspaceId(), null, "CONTRACT_" + to.name(), "CONTRACT",
                 contract.getPublicId(), Map.of("from", from.name()));
-        return view(contract);
+        return view(contractRepository.findById(contract.getId()).orElseThrow());
     }
 
     // ── 수동 이용권(ManualGrant) ──────────────────────

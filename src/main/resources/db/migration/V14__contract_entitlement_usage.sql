@@ -47,6 +47,8 @@ CREATE TABLE `contract` (
   `created_by_user_id` bigint NOT NULL,
   PRIMARY KEY (`contract_id`),
   UNIQUE KEY `uk_contract_public_id` (`public_id`),
+  -- 결제 증빙 하나는 계약 하나에만 — 웹훅 대조가 한 계약을 찾는다(NULL 은 여러 개 허용)
+  UNIQUE KEY `uk_contract_evidence` (`evidence_kind`, `evidence_reference`),
   KEY `idx_contract_workspace_id` (`workspace_id`),
   CONSTRAINT `fk_contract_workspace` FOREIGN KEY (`workspace_id`) REFERENCES `workspace` (`workspace_id`),
   CONSTRAINT `fk_contract_created_by` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`user_id`)

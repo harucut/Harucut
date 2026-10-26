@@ -7,6 +7,7 @@ import com.harucut.common.exception.BusinessException;
 import com.harucut.event.dto.EventPatchRequest;
 import com.harucut.event.dto.EventResponse;
 import com.harucut.event.dto.EventSettings;
+import com.harucut.event.dto.PageTheme;
 import com.harucut.event.dto.PublicEventResponse;
 import com.harucut.event.exception.EventErrorCode;
 import com.harucut.event.service.EventService;
@@ -95,7 +96,7 @@ class PageThemeIntegrationTest {
 
         assertThat(view.theme().colors().bg()).isEqualTo("#FFF8F3");
         assertThat(view.theme().colors().accent()).isEqualTo("#C8553D");
-        assertThat(view.theme().colors().card()).isNotBlank();       // 기본값
+        assertThat(view.theme().colors().card()).isEqualTo("#FFFFFF");   // 기본값(FE .ev-surface 와 같다)
         assertThat(view.theme().font()).isEqualTo("PRETENDARD");
         assertThat(view.theme().logoUrl()).isEqualTo("https://s3/" + logo.getS3Key());
         assertThat(view.theme().backgroundUrl()).isNull();
@@ -112,7 +113,8 @@ class PageThemeIntegrationTest {
 
         PublicEventResponse view = publicEventService.getBySlug("theme-none");
         assertThat(view.theme().font()).isEqualTo("SYSTEM");
-        assertThat(view.theme().colors().bg()).isNotBlank();
+        assertThat(view.theme().colors()).isEqualTo(new PageTheme.Colors(
+                "#F6F6F4", "#FFFFFF", "#1B1B1B", "#5E5E5E", "#DADAD8", "#1B1B1B", "#FFFFFF"));
     }
 
     @Test

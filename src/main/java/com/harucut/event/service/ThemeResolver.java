@@ -29,9 +29,10 @@ public class ThemeResolver {
     static final int COPY_MAX = 200;
     private static final Pattern HEX = Pattern.compile("^#[0-9A-Fa-f]{6}$");
 
-    // 하루컷 기본 행사 화면 색 — FE .ev-surface 기본값과 같다
+    // 행사 화면 기본 색 — FE .ev-surface 기본값과 같아야 한다(테마 없는 행사도 서버가 이 값을 채워 내려준다).
+    // 일부러 중립색이다: 행사 화면은 하루컷 브랜드를 앞세우지 않는다(R5 18절) — 그래서 강조색이 검정이다
     static final PageTheme.Colors DEFAULT_COLORS =
-            new PageTheme.Colors("#FFFFFF", "#F7F7F8", "#1A1A1A", "#6B6B6B", "#E5E5E5", "#FF6B6B", "#FFFFFF");
+            new PageTheme.Colors("#F6F6F4", "#FFFFFF", "#1B1B1B", "#5E5E5E", "#DADAD8", "#1B1B1B", "#FFFFFF");
 
     private final AssetRepository assetRepository;
     private final FileStorageService fileStorageService;

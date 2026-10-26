@@ -80,6 +80,7 @@ import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 
 /*
  * P2B-3 — 묶음 다운로드: 접수 → 워커가 결과를 ZIP 으로 흘려 multipart 로 올림 → 수령(권한·기한·삭제 재검사)을 실제 JPA 로 본다.
@@ -238,6 +239,26 @@ class ExportIntegrationTest {
         then(s3Client).should().abortMultipartUpload(any(AbortMultipartUploadRequest.class));
         assertThat(exportService.get(owner.getPublicId(), event.getPublicId(), export.exportId()).status())
                 .isEqualTo(ExportStatus.FAILED);
+    }
+
+    @Test
+    @DisplayName("재시작 복구: RUNNING 은 FAILED 가 되고 그 key 삭제를 예약한다(완료된 객체가 남지 않게), 매일 재삭제가 다시 예약한다")
+    void recoveryDeletesObjectOfRunningExport() {
+        ExportDtos.Export running = exportService.create(owner.getPublicId(), event.getPublicId(), new ExportDtos.ExportRequest(null, null));
+        Long runningId = id(running);
+        exportJobRepository.claim(runningId);   // 업로드 완료 뒤 DONE 기록 전에 멈춘 상태
+        String key = exportJobRepository.findById(runningId).orElseThrow().getS3Key();
+        entityManager.flush();
+        entityManager.clear();
+
+        exportWorker.recover();
+
+        assertThat(exportService.get(owner.getPublicId(), event.getPublicId(), running.exportId()).status()).isEqualTo(ExportStatus.FAILED);
+        then(s3Deleter).should().deleteAfterCommit(List.of(key));
+
+        // 그 뒤 커밋 후 삭제가 빠졌더라도 매일 재삭제가 다시 예약한다
+        exportWorker.reconcileDeletes();
+        then(s3Deleter).should(times(2)).deleteAfterCommit(List.of(key));
     }
 
     @Test

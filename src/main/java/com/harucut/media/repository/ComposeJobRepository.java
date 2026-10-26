@@ -54,6 +54,11 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
             + "and j.purgedAt is null and j.deletedAt is null and j.resultKey is not null")
     List<ComposeJob> findPurgeable(@Param("eventId") Long eventId, @Param("cutoff") LocalDateTime cutoff, Pageable pageable);
 
+    // 재삭제 대상 — 최근(since 이후)에 삭제 요청·보관 종료된 행사 결과. 커밋 뒤 삭제가 서버 중단·S3 오류로 빠졌을 수 있다
+    @Query("select j from ComposeJob j where j.eventId is not null and j.resultKey is not null "
+            + "and (j.deletedAt >= :since or j.purgedAt >= :since)")
+    List<ComposeJob> findRecentlyRemovedResults(@Param("since") LocalDateTime since);
+
     // 행사에 아직 보일 결과·진행 중 작업이 남았는가 — 없으면 보관 종료할 수 있다
     @Query("select count(j) > 0 from ComposeJob j where j.eventId = :eventId and j.purgedAt is null and j.deletedAt is null "
             + "and j.status in (com.harucut.media.enums.ComposeStatus.PENDING, com.harucut.media.enums.ComposeStatus.DONE)")

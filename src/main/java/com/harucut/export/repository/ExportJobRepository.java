@@ -23,6 +23,9 @@ public interface ExportJobRepository extends JpaRepository<ExportJob, Long> {
 
     List<ExportJob> findAllByStatusAndExpiresAtBefore(ExportStatus status, LocalDateTime now);
 
+    // 재삭제 대상 — 최근에 실패·만료된 묶음(커밋 뒤 삭제가 서버 중단·S3 오류로 빠졌을 수 있다)
+    List<ExportJob> findAllByStatusInAndUpdatedAtAfter(Collection<ExportStatus> statuses, LocalDateTime since);
+
     // 워커의 선점 — PENDING 인 것만 RUNNING 으로
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update ExportJob e set e.status = com.harucut.export.enums.ExportStatus.RUNNING "

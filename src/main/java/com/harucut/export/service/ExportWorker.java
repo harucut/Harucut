@@ -29,6 +29,7 @@ import java.io.OutputStream;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -93,6 +94,7 @@ public class ExportWorker {
         }
         ExportJob export = exportJobRepository.findById(exportJobId).orElseThrow();
         S3MultipartOutputStream upload = null;
+        boolean uploaded = false;
         try {
             List<ExportJobItem> items = itemRepository.findAllByExportJobIdOrderBySortOrderAsc(exportJobId);
             Map<Long, ComposeJob> jobs = composeJobRepository.findAllById(items.stream().map(ExportJobItem::getComposeJobId).toList())
@@ -117,6 +119,7 @@ public class ExportWorker {
             // ZIP 을 닫아도 업로드는 끝나지 않는다(CountingOutputStream 이 close 를 막는다) — 다 쓴 뒤에만 여기서 완료한다.
             // 위에서 예외가 나면 이 줄에 닿지 않고 아래 catch 가 취소한다
             upload.close();
+            uploaded = true;
             long size = counted.count;
             Boolean completed = transaction.execute(status ->
                     exportJobRepository.complete(exportJobId, size, LocalDateTime.now(clock).plus(ttl)) == 1);
@@ -126,7 +129,10 @@ public class ExportWorker {
             }
         } catch (Exception e) {
             log.warn("[묶음] {} 실패", export.getPublicId(), e);
-            if (upload != null) {
+            if (uploaded) {
+                // 객체는 완료됐는데 DONE 기록이 실패했다 — FAILED 로 남을 묶음의 객체를 지운다(만료 정리·무효화는 DONE 만 본다)
+                deleteQuietly(export.getS3Key());
+            } else if (upload != null) {
                 try {
                     upload.abort();
                 } catch (RuntimeException abortFailure) {
@@ -138,11 +144,17 @@ public class ExportWorker {
         }
     }
 
-    // 서버 재시작 — 진행 중이던 것은 재개하지 않고 실패로, 아직 시작 못 한 것은 다시 넣는다
+    // 서버 재시작 — 진행 중이던 것은 재개하지 않고 실패로, 아직 시작 못 한 것은 다시 넣는다.
+    // RUNNING 은 업로드가 이미 완료된 뒤 DONE 기록 전에 멈춘 것일 수 있다 — FAILED 로 바꾸면서 그 key 의 삭제를 커밋 후 예약한다.
+    // 없는 key 의 삭제는 아무 일도 하지 않는다. 미완 multipart 는 uploadId 를 남기지 않아 여기서 취소할 수 없다(버킷 수명 규칙 몫)
     @EventListener(ApplicationReadyEvent.class)
     public void recover() {
         transaction.executeWithoutResult(status -> exportJobRepository.findAllByStatus(ExportStatus.RUNNING)
-                .forEach(export -> exportJobRepository.fail(export.getId(), "SERVER_RESTARTED")));
+                .forEach(export -> {
+                    if (exportJobRepository.fail(export.getId(), "SERVER_RESTARTED") == 1) {
+                        s3Deleter.deleteAfterCommit(List.of(export.getS3Key()));
+                    }
+                }));
         List<ExportJob> pending = exportJobRepository.findAllByStatus(ExportStatus.PENDING);
         pending.forEach(export -> executor.execute(() -> run(export.getId())));
     }
@@ -157,6 +169,28 @@ public class ExportWorker {
                         s3Deleter.deleteAfterCommit(List.of(export.getS3Key()));
                     }
                 }));
+    }
+
+    /**
+     * 커밋 뒤 삭제(S3Deleter)는 서버 중단·S3 오류가 나면 다시 시도하지 않는다 — 실패·만료한 지 이틀 안 된 묶음의 객체 삭제를
+     * 매일 다시 예약한다. 없는 key 의 삭제는 아무 일도 하지 않으므로 몇 번 겹쳐도 같다
+     */
+    @Scheduled(cron = "${event.export.reconcile-cron:0 30 4 * * *}")
+    public void reconcileDeletes() {
+        transaction.executeWithoutResult(status -> {
+            List<String> keys = exportJobRepository.findAllByStatusInAndUpdatedAtAfter(
+                            EnumSet.of(ExportStatus.FAILED, ExportStatus.EXPIRED), LocalDateTime.now(clock).minusDays(2))
+                    .stream().map(ExportJob::getS3Key).toList();
+            s3Deleter.deleteAfterCommit(keys);
+        });
+    }
+
+    private void deleteQuietly(String key) {
+        try {
+            fileStorageService.delete(key);
+        } catch (RuntimeException deleteFailure) {
+            log.warn("[묶음] 객체 {} 삭제 실패 — 수동 정리 필요", key, deleteFailure);
+        }
     }
 
     @PreDestroy

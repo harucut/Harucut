@@ -13,6 +13,7 @@ import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.entity.Workspace;
 import com.harucut.workspace.enums.WorkspaceRole;
+import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.workspace.service.WorkspaceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ public class FrameService {
     private static final Set<WorkspaceRole> FRAME_READ_ROLES = EnumSet.allOf(WorkspaceRole.class);
 
     private final FrameRepository frameRepository;
+    private final WorkspaceRepository workspaceRepository;
     private final UserRepository userRepository;
     private final FrameComponentAssembler frameComponentAssembler;
     private final FrameSubscriptionPolicy frameSubscriptionPolicy;
@@ -43,7 +45,14 @@ public class FrameService {
     private final FrameDraftCleaner frameDraftCleaner;
 
     public FrameResponse createFrame(String publicId, FrameCreateRequest request) {
-        User user = getUser(publicId);
+        // 개수 상한을 동시 생성에도 지키려고, 트랜잭션의 첫 조회로 상한의 주인(지정한 공간·사용자) 행을 잠근다.
+        // 잠금 읽기는 스냅샷을 만들지 않으므로 그 뒤 일반 읽기(세기)는 잠금을 얻은 뒤의 커밋까지 본다(REPEATABLE READ).
+        // 프레임 행 범위를 잠금 읽기로 세면 다른 사용자·공간과 같은 빈 구간 gap lock 으로 교착될 수 있어 그렇게 하지 않는다
+        if (request.workspaceId() != null) {
+            workspaceRepository.lockByPublicId(request.workspaceId());
+        }
+        User user = userRepository.lockByPublicId(publicId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
         Workspace workspace = request.workspaceId() == null
                 ? workspaceService.personalWorkspaceOf(user.getId())
                 : workspaceService.requireRole(request.workspaceId(), user.getId(), FRAME_EDIT_ROLES);

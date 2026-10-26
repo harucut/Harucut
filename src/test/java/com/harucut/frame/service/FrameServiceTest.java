@@ -1,6 +1,7 @@
 package com.harucut.frame.service;
 
 import com.harucut.workspace.entity.Workspace;
+import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.workspace.service.WorkspaceService;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
@@ -71,13 +72,16 @@ class FrameServiceTest {
     @Mock
     private WorkspaceService workspaceService;
 
+    @Mock
+    private WorkspaceRepository workspaceRepository;
+
     private FrameService frameService;
 
     private User user;
 
     @BeforeEach
     void setUp() {
-        frameService = new FrameService(frameRepository, userRepository,
+        frameService = new FrameService(frameRepository, workspaceRepository, userRepository,
                 frameComponentAssembler, frameSubscriptionPolicy, workspaceService, frameVersionCleaner, frameDraftCleaner);
         user = User.localUser("user@harucut.com", "encoded", "하루컷");
         ReflectionTestUtils.setField(user, "id", 1L);
@@ -93,7 +97,7 @@ class FrameServiceTest {
             FrameCreateRequest request = request();
             Frame frame = ownedFrame(CREATED);
             FrameResponse expected = response(1L);
-            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
+            given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(frameRepository.countPersonalByUser(user)).willReturn(2L);
             Workspace personal = Workspace.personal(1L);
             ReflectionTestUtils.setField(personal, "id", 77L);
@@ -117,7 +121,7 @@ class FrameServiceTest {
             Frame frame = ownedFrame(CREATED);
             Workspace org = Workspace.organization("웨딩팀");
             ReflectionTestUtils.setField(org, "id", 88L);
-            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
+            given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(workspaceService.requireRole(eq("WsOrg"), eq(1L), any())).willReturn(org);
             given(frameRepository.countByWorkspaceId(88L)).willReturn(5L);
             given(frameComponentAssembler.assembleOwned(user, request, 88L)).willReturn(frame);
@@ -133,7 +137,7 @@ class FrameServiceTest {
         @Test
         @DisplayName("한도 초과면 SUBS-003이 전파되고 조립·저장 어느 것도 일어나지 않는다")
         void limitExceeded() {
-            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
+            given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(frameRepository.countPersonalByUser(user)).willReturn(3L);
             given(workspaceService.personalWorkspaceOf(1L)).willReturn(Workspace.personal(1L));
             willThrow(new BusinessException(SubscriptionErrorCode.PLAN_FRAME_RETENTION_EXCEEDED))
@@ -151,7 +155,7 @@ class FrameServiceTest {
         @Test
         @DisplayName("사용자가 없으면 GEN-031이다")
         void userNotFound() {
-            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.empty());
+            given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.empty());
 
             assertThatThrownBy(() -> frameService.createFrame(PUBLIC_ID, request()))
                     .isInstanceOf(BusinessException.class)

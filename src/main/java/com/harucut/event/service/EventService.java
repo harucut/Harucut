@@ -28,7 +28,10 @@ import com.harucut.workspace.entity.Workspace;
 import com.harucut.workspace.enums.WorkspaceRole;
 import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.workspace.service.WorkspaceService;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -75,6 +78,7 @@ public class EventService {
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final EntityManager entityManager;
 
     public EventResponse create(String publicId, String workspacePublicId, EventSettings settings) {
         User user = getUser(publicId);
@@ -154,6 +158,13 @@ public class EventService {
     public EventResponse publish(String publicId, String eventId) {
         Operated operated = operate(publicId, eventId);
         Event event = operated.event();
+        // 같은 행사의 게시를 줄 세운다 — 행사 행을 쓰기 잠금으로 다시 읽고(refresh), 그사이 다른 저장·게시가 커밋됐으면 409.
+        // 잠그지 않으면 두 게시의 경험 버전 insert(FK 공유 잠금)와 행사 UPDATE 가 엇갈려 교착·유니크 위반으로 500 이 난다
+        int seenVersion = event.getSettingsVersion();
+        entityManager.refresh(event, LockModeType.PESSIMISTIC_WRITE);
+        if (event.getSettingsVersion() != seenVersion) {
+            throw new BusinessException(EventErrorCode.SETTINGS_VERSION_CONFLICT, "동시 게시 충돌: " + event.getPublicId());
+        }
         entitlementService.requireApplicable(event);   // 적용 이용권이 없으면 403 ENT-001
         EventExperienceDocument draft = read(event.getSettingsDraft());
 
@@ -164,9 +175,15 @@ public class EventService {
                     Map.of("violations", violations));
         }
 
-        EventExperienceVersion version = experienceVersionRepository.save(EventExperienceVersion.publish(
-                event.getId(), experienceVersionRepository.findMaxVersionNo(event.getId()) + 1,
-                write(draft.published()), operated.user().getId()));
+        EventExperienceVersion version;
+        try {
+            version = experienceVersionRepository.saveAndFlush(EventExperienceVersion.publish(
+                    event.getId(), experienceVersionRepository.findMaxVersionNo(event.getId()) + 1,
+                    write(draft.published()), operated.user().getId()));
+        } catch (DataIntegrityViolationException e) {
+            // 위 잠금으로 같은 행사의 게시는 줄을 서지만, 번호(uk_event_experience_version_no)가 겹치면 같은 409 로 끝낸다(안전망)
+            throw new BusinessException(EventErrorCode.SETTINGS_VERSION_CONFLICT, "동시 게시 충돌: " + event.getPublicId());
+        }
         for (int i = 0; i < draft.frames().size(); i++) {
             EventSettings.FrameRef ref = draft.frames().get(i);
             eventFrameRepository.save(new EventFrame(version.getId(), versions.get(i).getId(), ref.layoutType(),

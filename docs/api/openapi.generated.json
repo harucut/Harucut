@@ -19,6 +19,63 @@
         "required" : [ "agreed", "code" ],
         "type" : "object"
       },
+      "AssetResponse" : {
+        "description" : "자산",
+        "properties" : {
+          "assetId" : {
+            "description" : "자산 public id",
+            "example" : "As8kLm2Pq9Xz",
+            "type" : "string"
+          },
+          "contentType" : {
+            "description" : "MIME",
+            "example" : "image/png",
+            "type" : "string"
+          },
+          "height" : {
+            "description" : "세로 픽셀 — VERIFIED 이후",
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "purpose" : {
+            "description" : "용도",
+            "enum" : [ "FRAME_ASSET", "TEXT_RENDER", "PAGE_THEME_ASSET", "PROFILE", "CAPTURE_INPUT" ],
+            "example" : "FRAME_ASSET",
+            "type" : "string"
+          },
+          "rejectReason" : {
+            "description" : "REJECTED 일 때만 — 오류 코드와 같은 값",
+            "example" : "ASSET-003",
+            "type" : "string"
+          },
+          "size" : {
+            "description" : "실제 바이트 크기 — VERIFIED 이후",
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "status" : {
+            "description" : "검증 상태. VERIFIED 만 프레임·합성에 쓸 수 있다",
+            "enum" : [ "PENDING_UPLOAD", "VERIFIED", "REJECTED" ],
+            "example" : "VERIFIED",
+            "type" : "string"
+          },
+          "url" : {
+            "description" : "VERIFIED 일 때만 — 짧은 GET URL(기본 5분)",
+            "type" : "string"
+          },
+          "urlExpiresAt" : {
+            "description" : "url 만료 시각",
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "width" : {
+            "description" : "가로 픽셀 — VERIFIED 이후",
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "AuthStatusResponse" : {
         "description" : "현재 로그인 상태",
         "properties" : {
@@ -1231,6 +1288,31 @@
         },
         "type" : "object"
       },
+      "ResponseAssetResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/AssetResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseAuthStatusResponse" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -1852,6 +1934,31 @@
         },
         "type" : "object"
       },
+      "ResponseUploadIntentResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/UploadIntentResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseUserInfoResponse" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -2286,6 +2393,80 @@
           }
         },
         "required" : [ "content", "title" ],
+        "type" : "object"
+      },
+      "UploadIntentRequest" : {
+        "description" : "자산 업로드 의도",
+        "properties" : {
+          "contentType" : {
+            "description" : "파일 형식(enum 이름). `FRAME_ASSET` 은 PNG·JPEG, `TEXT_RENDER` 는 PNG, `PROFILE` 은 PNG·JPEG·GIF.\n용도에 맞지 않으면 415 `GEN-051`.",
+            "enum" : [ "JPEG", "PNG", "WEBP", "GIF" ],
+            "example" : "PNG",
+            "type" : "string"
+          },
+          "fileSize" : {
+            "description" : "바이트 크기. 서명에 들어가 S3 가 강제한다. 10MB 이하",
+            "example" : 245760,
+            "format" : "int64",
+            "maximum" : 10485760,
+            "minimum" : 0,
+            "type" : "integer"
+          },
+          "filename" : {
+            "description" : "확장자 검사용 파일명. 저장 key 에는 쓰지 않는다",
+            "example" : "background.png",
+            "minLength" : 1,
+            "type" : "string"
+          },
+          "purpose" : {
+            "description" : "자산 용도. 이 경로는 `FRAME_ASSET`(배경·PHOTO·STICKER·로고) · `TEXT_RENDER`(구운 글자 PNG) · `PROFILE` 만 받는다.\n그 밖의 값은 400 `ASSET-005`.",
+            "enum" : [ "FRAME_ASSET", "TEXT_RENDER", "PAGE_THEME_ASSET", "PROFILE", "CAPTURE_INPUT" ],
+            "example" : "FRAME_ASSET",
+            "type" : "string"
+          },
+          "workspaceId" : {
+            "description" : "올릴 공간의 public id. 생략하면 개인 공간",
+            "example" : "Ws1aB2cD3eF4",
+            "type" : "string"
+          }
+        },
+        "required" : [ "contentType", "fileSize", "filename", "purpose" ],
+        "type" : "object"
+      },
+      "UploadIntentResponse" : {
+        "description" : "S3 로 보낼 PUT 의 전부",
+        "properties" : {
+          "assetId" : {
+            "description" : "자산 public id — 업로드 후 complete 에 쓴다",
+            "example" : "As8kLm2Pq9Xz",
+            "type" : "string"
+          },
+          "expiresAt" : {
+            "description" : "URL 만료 시각",
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "headers" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "description" : "**그대로** 보낼 헤더. 서명에 들어가 있어 빼거나 바꾸면 S3 가 403 이다.\n`If-None-Match: *` 는 서버 설정(storage.upload.conditional-put)이 켜져 있을 때만 있다.\nHost·Content-Length 는 브라우저가 정한다.",
+            "example" : {
+              "Content-Type" : "image/png",
+              "If-None-Match" : "*"
+            },
+            "type" : "object"
+          },
+          "method" : {
+            "description" : "항상 PUT",
+            "example" : "PUT",
+            "type" : "string"
+          },
+          "uploadUrl" : {
+            "description" : "presigned PUT URL",
+            "type" : "string"
+          }
+        },
         "type" : "object"
       },
       "UserInfoResponse" : {
@@ -4728,6 +4909,467 @@
         } ],
         "summary" : "약관 개정",
         "tags" : [ "약관 관리" ]
+      }
+    },
+    "/api/auth/assets/upload-intents" : {
+      "post" : {
+        "description" : "**흐름**\n1. 이 API → `assetId` · `uploadUrl` · `headers`\n2. `uploadUrl` 로 **PUT** — 본문은 파일 바이트, 헤더는 `headers` 를 **그대로**\n3. `POST /api/auth/assets/{assetId}/complete` 로 검증 → `VERIFIED` 여야 프레임에 쓸 수 있다\n\nURL 은 기본 10분 동안 유효하다. key 는 서버가 정한다.\n`If-None-Match: *` 가 있으면 같은 key 에 두 번 올릴 수 없다 — 두 번째 PUT 은 S3 가 412 를 준다.\n첫 응답을 못 받고 다시 올려 412 를 받았다면 complete 로 확인하면 된다.\n",
+        "operationId" : "createIntent",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/UploadIntentRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseUploadIntentResponse"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "ASSET-005" : {
+                    "summary" : "ASSET-005 — 이 경로에서 받지 않는 purpose(CAPTURE_INPUT·PAGE_THEME_ASSET)",
+                    "value" : {
+                      "code" : "ASSET-005",
+                      "message" : "This purpose cannot be uploaded through this endpoint.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `ASSET-005` — 이 경로에서 받지 않는 purpose(CAPTURE_INPUT·PAGE_THEME_ASSET) _(This purpose cannot be uploaded through this endpoint.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — workspaceId 가 없거나 업로드 권한 없음",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — workspaceId 가 없거나 업로드 권한 없음 _(Resource not found.)_"
+          },
+          "415" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-051" : {
+                    "summary" : "GEN-051 — 용도에 맞지 않는 형식이거나 파일명 확장자가 형식과 다름",
+                    "value" : {
+                      "code" : "GEN-051",
+                      "message" : "Unsupported media type.",
+                      "status" : 415
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-051` — 용도에 맞지 않는 형식이거나 파일명 확장자가 형식과 다름 _(Unsupported media type.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "자산 업로드 의도 생성",
+        "tags" : [ "자산" ]
+      }
+    },
+    "/api/auth/assets/{assetId}" : {
+      "get" : {
+        "description" : "VERIFIED 면 짧은 GET URL(기본 5분)이 실린다.",
+        "operationId" : "get_1",
+        "parameters" : [ {
+          "description" : "자산 public id",
+          "example" : "As8kLm2Pq9Xz",
+          "in" : "path",
+          "name" : "assetId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseAssetResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 자산이거나 내 것이 아님",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 자산이거나 내 것이 아님 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "자산 조회",
+        "tags" : [ "자산" ]
+      }
+    },
+    "/api/auth/assets/{assetId}/complete" : {
+      "post" : {
+        "description" : "S3 객체의 존재·크기, 실제 형식(바이트 머리), 픽셀 수, **끝까지 디코드되는지**를 본다.\n통과하면 `VERIFIED`, 실패하면 `REJECTED` 로 기록하고 **422 + 그 오류 코드**를 주며 본문 `data` 에 자산이 실린다.\n\n멱등이다 — 이미 판정이 끝났으면 그대로 돌려준다(REJECTED 면 같은 422).\nREJECTED 는 다시 검사하지 않는다. 새 intent 로 다시 올릴 것.\n",
+        "operationId" : "complete",
+        "parameters" : [ {
+          "description" : "자산 public id",
+          "example" : "As8kLm2Pq9Xz",
+          "in" : "path",
+          "name" : "assetId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseAssetResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 자산이거나 내 것이 아님",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 자산이거나 내 것이 아님 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "ASSET-001" : {
+                    "summary" : "ASSET-001 — S3 에 객체가 없다 — 아직 안 올렸거나 PUT 실패. 상태는 바뀌지 않는다",
+                    "value" : {
+                      "code" : "ASSET-001",
+                      "message" : "The uploaded object was not found.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `ASSET-001` — S3 에 객체가 없다 — 아직 안 올렸거나 PUT 실패. 상태는 바뀌지 않는다 _(The uploaded object was not found.)_"
+          },
+          "422" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "ASSET-002" : {
+                    "summary" : "ASSET-002 — 크기가 선언과 다르거나 10MB 초과",
+                    "value" : {
+                      "code" : "ASSET-002",
+                      "message" : "The uploaded object size does not match or exceeds the limit.",
+                      "status" : 422
+                    }
+                  },
+                  "ASSET-003" : {
+                    "summary" : "ASSET-003 — 선언한 형식이 아니거나 디코드 실패(잘린 파일 포함)",
+                    "value" : {
+                      "code" : "ASSET-003",
+                      "message" : "The uploaded object is not a valid image of the declared type.",
+                      "status" : 422
+                    }
+                  },
+                  "ASSET-004" : {
+                    "summary" : "ASSET-004 — 픽셀 수 상한 초과",
+                    "value" : {
+                      "code" : "ASSET-004",
+                      "message" : "The image exceeds the pixel limit.",
+                      "status" : 422
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `ASSET-002` — 크기가 선언과 다르거나 10MB 초과 _(The uploaded object size does not match or exceeds the limit.)_\n- `ASSET-003` — 선언한 형식이 아니거나 디코드 실패(잘린 파일 포함) _(The uploaded object is not a valid image of the declared type.)_\n- `ASSET-004` — 픽셀 수 상한 초과 _(The image exceeds the pixel limit.)_"
+          },
+          "503" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "ASSET-006" : {
+                    "summary" : "ASSET-006 — 검증이 밀려 있다 — 잠시 뒤 같은 요청을 다시",
+                    "value" : {
+                      "code" : "ASSET-006",
+                      "message" : "Asset verification is busy. Retry shortly.",
+                      "status" : 503
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `ASSET-006` — 검증이 밀려 있다 — 잠시 뒤 같은 요청을 다시 _(Asset verification is busy. Retry shortly.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "업로드 완료 확인",
+        "tags" : [ "자산" ]
       }
     },
     "/api/auth/coupons" : {
@@ -10501,6 +11143,9 @@
   }, {
     "description" : "프레임·자산·초안이 속하는 공간. P1 은 개인 공간 하나",
     "name" : "공간"
+  }, {
+    "description" : "공통 이미지 자산 — 업로드 의도 → S3 PUT → 완료 검증. VERIFIED 만 프레임에 쓴다",
+    "name" : "자산"
   }, {
     "description" : "S3 presigned URL 발급. 업로드는 프론트가 S3로 직접 한다",
     "name" : "파일 업로드"

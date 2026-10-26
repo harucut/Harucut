@@ -1,4 +1,28 @@
 [ {
+  "code" : "ASSET-001",
+  "status" : 409,
+  "message" : "The uploaded object was not found."
+}, {
+  "code" : "ASSET-002",
+  "status" : 422,
+  "message" : "The uploaded object size does not match or exceeds the limit."
+}, {
+  "code" : "ASSET-003",
+  "status" : 422,
+  "message" : "The uploaded object is not a valid image of the declared type."
+}, {
+  "code" : "ASSET-004",
+  "status" : 422,
+  "message" : "The image exceeds the pixel limit."
+}, {
+  "code" : "ASSET-005",
+  "status" : 400,
+  "message" : "This purpose cannot be uploaded through this endpoint."
+}, {
+  "code" : "ASSET-006",
+  "status" : 503,
+  "message" : "Asset verification is busy. Retry shortly."
+}, {
   "code" : "AUTH-001",
   "status" : 400,
   "message" : "Invalid credentials."

@@ -1,6 +1,6 @@
 # ADR-0006 · P1 개인·공통 편집 — Workspace·Asset·FrameVersion·서버 초안 계약
 
-- **상태**: 제안됨 (프론트 합의 전). 구현은 이 문서 기준으로 시작하고, 바뀌면 이 문서를 먼저 고친다
+- **상태**: 합의됨 (프론트 의견 반영 2026-10-26). 바뀌면 이 문서를 먼저 고친다
 - **날짜**: 2026-10-26
 - **관련**: R5 기획서 5·6·14·16·20절, `docs/api/p1-openapi-draft.yaml`, ADR-0005(Flyway)
 
@@ -35,6 +35,8 @@
 - 흐름:
   1. `POST /api/auth/assets/upload-intents` → assetId + presigned PUT URL + **반드시 그대로 보낼 헤더**(`Content-Type`, `If-None-Match: *`) + 만료 시각.
      PUT URL 기본 TTL 10분(`storage.upload.put-ttl`). 서버가 key 를 정한다 — `uploads/users/{publicId}/assets/{assetId}.{ext}`.
+     조건부 PUT 스위치 `storage.upload.conditional-put`(기본 true): 끄면 `If-None-Match` 를 서명에도 응답 headers 에도 넣지 않는다.
+     운영 버킷 CORS 의 AllowedHeaders 에 If-None-Match 가 있는지 확인하기 전에는 끈 채로 배포할 수 있다. 프론트는 응답 headers 를 그대로 보낸다.
   2. 브라우저가 S3 에 PUT. 이미 객체가 있으면 S3 가 412 — 같은 intent 의 재시도면 `complete` 를 불러 확인하면 된다.
   3. `POST /api/auth/assets/{assetId}/complete` → 서버가 HeadObject(존재·크기) → 바이트 머리로 실제 형식 판별 →
      ImageReader 로 크기(픽셀 상한) → **서브샘플링 디코드로 끝까지 읽히는지** 확인 → VERIFIED.
@@ -42,6 +44,10 @@
   4. `GET /api/auth/assets/{assetId}` → 메타데이터 + 짧은 GET URL(기본 5분, `storage.download.get-ttl`).
 - 기존 key 문자열 경로(호환): 프레임 저장은 계속 `source`/`key` 문자열을 받는다. 같은 자리에 `assetId` 를 보내면 그쪽이 우선한다.
   기존 uploads/ key 를 일괄 이동하지 않는다.
+- **참조와 정리**: 자산의 "참조"는 프레임(현재 상태)·발행본·서버 초안(`assetIds`, §5) 세 곳이다.
+  어디서도 참조하지 않는 VERIFIED·REJECTED 자산과 PENDING_UPLOAD 로 남은 자산은 생성 후 `storage.asset.orphan-after`(기본 7일)
+  지나면 정리 배치가 S3 객체와 행을 지운다(매일 03:00). 참조 판정은 DB 관계로만 한다.
+  P1 에서 새로 생긴 자산만 대상이다 — 기존 key 문자열(assetId 없는 프레임 자산)은 지금처럼 프레임 수정·삭제 때 정리한다.
 
 ## 3. 프레임 저장 확장 (기존 POST/PUT `/api/auth/user/frame`)
 
@@ -63,15 +69,17 @@
 | 프레임 | `version` | 다음 PUT 에 그대로 보낸다 |
 | component | `locked`, `assetId`, `renderedAssetId` | 저장한 값 |
 | component(TEXT) | `renderedKey`, `renderedUrl` | 지금은 응답에 없어 재저장마다 다시 굽는다 — 이제 돌려준다 |
-| component(STICKER) | `source` | **uploads/ key 면 PHOTO 와 같이 presigned GET URL**, 정적 경로면 그대로. `key` 에 순수 key |
+| component(STICKER) | `source`, `key` | **uploads/ key 면 PHOTO 와 같이 `source` = presigned GET URL**, 정적 경로면 그대로. **`key` 는 항상 채운다** — 정적 경로면 `key` = `source` |
 
-> ⚠️ 프론트 확인 필요: STICKER `source` 가 URL 로 바뀌면 `needsUpload()` 가 https URL 을 업로드 대상으로 보는지.
-> PHOTO 와 같은 규칙(재저장 땐 `key` 를 `source` 에 넣는다)을 STICKER 에도 적용해 달라.
+> 프론트 합의: 이미지 레이어는 응답 `key` 를 재저장 `source` 로 되돌리고 URL 은 그리기 전용으로 쓴다(harucut_FE lib/frameApi.ts).
+> 그래서 STICKER `key` 가 비면 URL 이 source 로 남아 재저장 때 다시 올라간다 — 서버가 항상 채운다.
 
 검증(저장 시점, 4xx):
 - 레이어 수 상한 `frame.limits.max-layers`(기본 40) → 400 `FRAME-003`.
 - 직렬화한 합성 spec 상한 `frame.limits.max-spec-bytes`(기본 7000, 현 spec_json 8000 컬럼 안) → 400 `FRAME-004`.
-- `assetId` 가 남의 공간·미검증·용도 불일치 → 400 `FRAME-005`.
+- `assetId` 가 남의 공간·미검증·용도 불일치 → 400 `FRAME-005`. PHOTO·STICKER·배경은 FRAME_ASSET,
+  TEXT 의 `renderedAssetId` 는 **이 사용자 공간의 TEXT_RENDER** 여야 한다(`renderedKey` 로 보냈어도 그 key 가 TEXT_RENDER 자산이면
+  같은 검사를 한다). PNG 내용이 글자와 일치하는지는 서버가 검증하지 않는다.
 
 정리:
 - STICKER 의 uploads/ key 도 프레임 수정·삭제 시 참조를 잃으면 삭제 후보에 넣는다(지금은 빠져 있다).
@@ -94,9 +102,12 @@
 
 - 테이블 `frame_draft`: public_id, workspace_id, user_id, frame_id(NULL=새 프레임), document(JSON/TEXT), revision, updated_at.
 - 서버는 `document` 를 해석하지 않는다(편집기 상태 그대로, 상한 `frame.draft.max-bytes` 기본 256KB). 합성에 쓰지 않는다.
+- 초안 저장 요청은 `document` 와 함께 **`assetIds: []`**(document 가 쓰는 자산 id 목록)를 받는다. 서버는 document 를 해석하지 않으므로
+  이 목록이 자산 참조(§2 정리 판정)의 근거다. 목록의 자산은 이 공간의 VERIFIED 자산이어야 한다(아니면 400 `FRAME-005`).
+  사진·배경을 dataURL 로 document 에 넣지 않는다 — 먼저 업로드(intent→complete)하고 assetId 만 넣는다.
 - `POST /api/auth/user/frame-drafts` → 201 `{draftId, revision: 1}`
 - `GET /api/auth/user/frame-drafts?frameId={id|new}` / `GET /api/auth/user/frame-drafts/{draftId}`
-- `PUT /api/auth/user/frame-drafts/{draftId}` 본문 `{revision, document}` → revision 이 서버와 다르면 409 `DRAFT-001`
+- `PUT /api/auth/user/frame-drafts/{draftId}` 본문 `{revision, document, assetIds}` → revision 이 서버와 다르면 409 `DRAFT-001`
   (응답에 서버의 현재 revision·updatedAt). 맞으면 revision+1.
 - `DELETE /api/auth/user/frame-drafts/{draftId}`
 - undo/redo 는 편집기 안의 일이라 서버 계약이 없다. 초안에는 현재 문서만 저장한다.

@@ -162,7 +162,7 @@ components:
         headers:
           type: object
           additionalProperties: { type: string }
-          description: '이 헤더를 **그대로** 보낸다. 빼거나 바꾸면 S3 가 403(서명 불일치). Host·Content-Length 는 브라우저가 정한다'
+          description: '이 헤더를 **그대로** 보낸다. 빼거나 바꾸면 S3 가 403(서명 불일치). Host·Content-Length 는 브라우저가 정한다. If-None-Match 는 storage.upload.conditional-put 이 켜져 있을 때만 들어 있다'
           example: { Content-Type: image/png, If-None-Match: '*' }
         expiresAt: { type: string, format: date-time }
 
@@ -250,7 +250,7 @@ components:
             properties:
               type: { type: string }
               source: { type: string, description: 'PHOTO·(신규)uploads/ STICKER 는 presigned URL, 정적 STICKER 는 경로, TEXT 는 본문' }
-              key: { type: string, description: '순수 key — 재저장 때 source 자리에 넣는다(STICKER 포함)' }
+              key: { type: string, description: '순수 key — 재저장 때 source 자리에 넣는다. PHOTO·STICKER 는 항상 채운다(정적 경로면 source 와 같다)' }
               assetId: { type: string }
               renderedKey: { type: string, description: '(신규) TEXT 구운 PNG key' }
               renderedUrl: { type: string, description: '(신규) TEXT 구운 PNG presigned URL' }
@@ -311,7 +311,8 @@ components:
       properties:
         frameId: { type: integer, format: int64, description: '생략하면 새 프레임 초안' }
         workspaceId: { type: string, description: '생략하면 개인 공간' }
-        document: { type: object, description: '편집기 문서. 서버는 해석하지 않는다. 직렬화 256KB 이하' }
+        document: { type: object, description: '편집기 문서. 서버는 해석하지 않는다. 직렬화 256KB 이하. dataURL 금지 — assetId 로 참조' }
+        assetIds: { type: array, items: { type: string }, description: 'document 가 쓰는 자산 id. 고아 정리에서 참조로 센다' }
 
     DraftUpdateRequest:
       type: object
@@ -319,6 +320,7 @@ components:
       properties:
         revision: { type: integer, description: '마지막으로 받은 revision' }
         document: { type: object }
+        assetIds: { type: array, items: { type: string } }
 
     DraftSummary:
       type: object

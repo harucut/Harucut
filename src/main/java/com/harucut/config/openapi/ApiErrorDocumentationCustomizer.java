@@ -106,6 +106,8 @@ public class ApiErrorDocumentationCustomizer implements GlobalOpenApiCustomizer 
             requireScheme(operation, OpenApiConfig.RESULT_SCHEME);
             errors.put(ResultErrorCode.TOKEN_INVALID.getCode(),
                     DocumentedError.of(ResultErrorCode.TOKEN_INVALID, "결과 토큰이 없거나 틀림"));
+            errors.put(GlobalErrorCode.TOO_MANY_REQUESTS.getCode(),
+                    DocumentedError.of(GlobalErrorCode.TOO_MANY_REQUESTS, "같은 IP 의 틀린 결과 토큰이 너무 잦다(분당 30회)"));
         } else if (path.startsWith("/api/booth/")) {
             requireScheme(operation, OpenApiConfig.BOOTH_SCHEME);
             errors.put(BoothErrorCode.DEVICE_UNAVAILABLE.getCode(),

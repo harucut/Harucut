@@ -26,6 +26,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -45,12 +46,17 @@ public class EventCredentialFilter extends OncePerRequestFilter {
 
     public static final String PARTICIPANT_HEADER = "X-Participant-Token";
     public static final String BOOTH_HEADER = "X-Booth-Token";
+    /** 틀린 결과 토큰이 같은 IP 에서 너무 잦을 때 표시 — 진입점이 401 대신 429 를 쓴다 */
+    static final String RATE_LIMITED = EventCredentialFilter.class.getName() + ".RATE_LIMITED";
+    private static final Duration RATE_WINDOW = Duration.ofMinutes(1);
     private static final String BEARER = "Bearer ";
 
     private final ParticipantSessionRepository sessionRepository;
     private final ParticipantRepository participantRepository;
     private final ResultAccessRepository resultAccessRepository;
     private final BoothDeviceRepository boothDeviceRepository;
+    private final RateLimiter rateLimiter;
+    private final int missesPerMinute;
     private final TransactionTemplate readOnly;
     private final Clock clock;
 
@@ -58,11 +64,14 @@ public class EventCredentialFilter extends OncePerRequestFilter {
                                  ParticipantRepository participantRepository,
                                  ResultAccessRepository resultAccessRepository,
                                  BoothDeviceRepository boothDeviceRepository,
+                                 RateLimiter rateLimiter, int missesPerMinute,
                                  TransactionTemplate readOnly, Clock clock) {
         this.sessionRepository = sessionRepository;
         this.participantRepository = participantRepository;
         this.resultAccessRepository = resultAccessRepository;
         this.boothDeviceRepository = boothDeviceRepository;
+        this.rateLimiter = rateLimiter;
+        this.missesPerMinute = missesPerMinute;
         this.readOnly = readOnly;
         this.clock = clock;
     }
@@ -75,7 +84,13 @@ public class EventCredentialFilter extends OncePerRequestFilter {
         if (path.startsWith("/api/participant/")) {
             authentication = participant(request.getHeader(PARTICIPANT_HEADER));
         } else if (path.startsWith("/api/public/results")) {
-            authentication = resultAccess(request.getHeader(HttpHeaders.AUTHORIZATION));
+            String header = request.getHeader(HttpHeaders.AUTHORIZATION);
+            authentication = resultAccess(header);
+            // 토큰을 냈는데 틀렸다 — 같은 IP 의 틀린 시도를 센다(ADR-0007 §10). 토큰이 없는 요청은 세지 않는다
+            if (authentication.isEmpty() && header != null
+                    && !rateLimiter.tryAcquire("result-token-miss", request.getRemoteAddr(), missesPerMinute, RATE_WINDOW)) {
+                request.setAttribute(RATE_LIMITED, Boolean.TRUE);
+            }
         } else if (path.startsWith("/api/booth/")) {
             authentication = booth(request.getHeader(BOOTH_HEADER));
         }

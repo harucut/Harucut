@@ -17325,6 +17325,26 @@
               }
             },
             "description" : "- `RESULT-001` — 결과 토큰이 없거나 틀림 / 토큰이 없거나 무효·회수 _(The result token is invalid or revoked.)_"
+          },
+          "429" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-061" : {
+                    "summary" : "GEN-061 — 같은 IP 의 틀린 결과 토큰이 너무 잦다(분당 30회)",
+                    "value" : {
+                      "code" : "GEN-061",
+                      "message" : "Too many requests.",
+                      "status" : 429
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-061` — 같은 IP 의 틀린 결과 토큰이 너무 잦다(분당 30회) _(Too many requests.)_"
           }
         },
         "security" : [ {
@@ -17408,6 +17428,26 @@
               }
             },
             "description" : "- `RESULT-002` — 보관 기한이 지났다 _(The result retention period has ended.)_"
+          },
+          "429" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-061" : {
+                    "summary" : "GEN-061 — 같은 IP 의 틀린 결과 토큰이 너무 잦다(분당 30회)",
+                    "value" : {
+                      "code" : "GEN-061",
+                      "message" : "Too many requests.",
+                      "status" : 429
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-061` — 같은 IP 의 틀린 결과 토큰이 너무 잦다(분당 30회) _(Too many requests.)_"
           }
         },
         "security" : [ {

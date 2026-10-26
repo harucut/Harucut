@@ -14,6 +14,7 @@ import com.harucut.event.service.EventGrantService;
 import com.harucut.event.service.EventService;
 import com.harucut.event.service.PhotoService;
 import com.harucut.export.dto.ExportDtos;
+import com.harucut.export.entity.ExportJob;
 import com.harucut.export.enums.ExportStatus;
 import com.harucut.export.exception.ExportErrorCode;
 import com.harucut.export.repository.ExportJobRepository;
@@ -151,6 +152,32 @@ class ExportIntegrationTest {
         // 상태 전이는 벌크 UPDATE 라 영속성 컨텍스트의 작업은 아직 PENDING 이다 — 운영에서는 전이가 다른 트랜잭션이다
         entityManager.flush();
         entityManager.clear();
+    }
+
+    @Test
+    @DisplayName("여러 인스턴스 정리 쿼리: 신호가 끊긴 RUNNING 만 찾고, 조건부 실패는 그사이 신호가 오면 0, 내려놓기는 RUNNING→PENDING")
+    void recoveryQueries() {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime before = now.minusMinutes(5);
+        Long fresh = exportJobRepository.save(ExportJob.pending(event.getWorkspaceId(), event.getId(), event.getPublicId(), owner.getId(), 1)).getId();
+        Long stale = exportJobRepository.save(ExportJob.pending(event.getWorkspaceId(), event.getId(), event.getPublicId(), owner.getId(), 1)).getId();
+        Long lost = exportJobRepository.save(ExportJob.pending(event.getWorkspaceId(), event.getId(), event.getPublicId(), owner.getId(), 1)).getId();
+        exportJobRepository.claim(fresh, now.minusMinutes(1));
+        exportJobRepository.claim(stale, now.minusMinutes(10));
+        exportJobRepository.claim(lost, now.minusMinutes(10));
+
+        assertThat(exportJobRepository.findAllByStatusAndUpdatedAtBefore(ExportStatus.RUNNING, before))
+                .extracting(ExportJob::getId).containsExactlyInAnyOrder(stale, lost);
+        assertThat(exportJobRepository.touch(stale, now)).isEqualTo(1);   // 읽은 뒤 그 작업자가 신호를 보냈다
+        assertThat(exportJobRepository.failStale(stale, before, "WORKER_LOST", now)).isZero();
+        assertThat(exportJobRepository.failStale(fresh, before, "WORKER_LOST", now)).isZero();
+        assertThat(exportJobRepository.failStale(lost, before, "WORKER_LOST", now)).isEqualTo(1);
+        assertThat(exportJobRepository.requeue(fresh, now)).isEqualTo(1);
+        assertThat(exportJobRepository.requeue(lost, now)).isZero();   // 이미 FAILED
+
+        assertThat(exportJobRepository.findById(fresh).orElseThrow().getStatus()).isEqualTo(ExportStatus.PENDING);
+        assertThat(exportJobRepository.findById(stale).orElseThrow().getStatus()).isEqualTo(ExportStatus.RUNNING);
+        assertThat(exportJobRepository.findById(lost).orElseThrow().getStatus()).isEqualTo(ExportStatus.FAILED);
     }
 
     @Test

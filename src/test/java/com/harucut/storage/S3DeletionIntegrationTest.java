@@ -185,6 +185,36 @@ class S3DeletionIntegrationTest {
     }
 
     @Test
+    @DisplayName("업로드 책임: 업로드 중 무효가 돼 다른 곳이 예약해도 미리 소모되지 않고, 커밋 전에 멈추면 책임 시간이 지나 지워진다")
+    void heldKeySurvivesEarlyScheduleAndIsDeletedAfterLease() {
+        transaction.executeWithoutResult(status -> s3Deleter.holdForUpload(KEY, Duration.ofHours(6)));
+        // 업로드 중에 사진 삭제로 무효(ExportService.expire) — 일반 예약은 기존 책임 행에 막혀 첫 시도를 하지 않는다
+        transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(KEY)));
+        then(fileStorageService).should(never()).delete(KEY);
+        // (업로드 완료 → 「무효 → 지금 지우기」 커밋 전에 프로세스가 멈춘다)
+        assertThat(retrier.retryDue().tried()).isZero();   // 책임 시간 전
+
+        makeDue(KEY);   // 책임 시간이 지났다
+        assertThat(retrier.retryDue().deleted()).isEqualTo(1);
+        then(fileStorageService).should().delete(KEY);
+        assertThat(repository.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("업로드 책임: DONE 과 함께 풀면 남지 않고, 무효면 지금 지운다")
+    void releaseOrDeleteHeld() {
+        transaction.executeWithoutResult(status -> s3Deleter.holdForUpload(KEY, Duration.ofHours(6)));
+        transaction.executeWithoutResult(status -> s3Deleter.release(KEY));
+        assertThat(repository.findAll()).isEmpty();
+        then(fileStorageService).should(never()).delete(KEY);
+
+        transaction.executeWithoutResult(status -> s3Deleter.holdForUpload(OTHER, Duration.ofHours(6)));
+        transaction.executeWithoutResult(status -> s3Deleter.deleteHeldAfterCommit(OTHER));
+        then(fileStorageService).should().delete(OTHER);
+        assertThat(repository.findAll()).isEmpty();
+    }
+
+    @Test
     @DisplayName("트랜잭션 밖에서 불러 리스너가 안 불려도 예약 행이 남아 배치가 지운다")
     void outsideTransactionIsPickedUpByRetrier() {
         s3Deleter.deleteAfterCommit(List.of(KEY));

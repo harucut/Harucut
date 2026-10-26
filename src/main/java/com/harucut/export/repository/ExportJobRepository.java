@@ -9,7 +9,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -23,11 +22,7 @@ public interface ExportJobRepository extends JpaRepository<ExportJob, Long> {
 
     List<ExportJob> findAllByStatusAndExpiresAtBefore(ExportStatus status, LocalDateTime now);
 
-    // 재삭제 대상 — 최근에 실패·만료된 묶음(커밋 뒤 삭제가 서버 중단·S3 오류로 빠졌을 수 있다)
-    List<ExportJob> findAllByStatusInAndUpdatedAtAfter(Collection<ExportStatus> statuses, LocalDateTime since);
-
-    // 상태 전이는 전부 벌크 UPDATE 라 BaseEntity 감사(updatedAt)를 거치지 않는다 — updatedAt 을 직접 넣는다.
-    // 재삭제(ExportWorker.reconcileDeletes)가 「최근에 실패·만료된 것」을 updatedAt 으로 고른다
+    // 상태 전이는 전부 벌크 UPDATE 라 BaseEntity 감사(updatedAt)를 거치지 않는다 — updatedAt 을 직접 넣는다
 
     // 워커의 선점 — PENDING 인 것만 RUNNING 으로
     @Modifying(clearAutomatically = true, flushAutomatically = true)

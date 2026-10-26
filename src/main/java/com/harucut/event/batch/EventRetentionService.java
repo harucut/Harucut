@@ -85,9 +85,6 @@ public class EventRetentionService {
         for (Event event : eventRepository.findAllByStatusIn(EnumSet.of(EventStatus.LIVE, EventStatus.CAPTURE_CLOSED))) {
             purged += isolated("결과 정리", event, () -> purge(event.getId()), 0);
         }
-        // 삭제 요청·보관 종료 이틀 안의 결과 객체 삭제를 다시 예약한다 — 커밋 뒤 삭제는 실패해도 다시 시도하지 않는다(없는 key 삭제는 멱등)
-        transaction.executeWithoutResult(status -> composeJobRepository.findRecentlyRemovedResults(now().minusDays(2))
-                .forEach(job -> s3Deleter.deleteAfterCommit(List.of(job.getResultKey(), ComposeService.thumbnailKeyFor(job)))));
         // 재생 기간이 지난 작업의 입력 행만 — 그 안에서는 같은 합성 요청을 다시 보내면 기존 작업을 돌려줘야 한다
         Integer inputs = transaction.execute(status -> assetRepository.deleteSettledCaptureInputs(now().minus(captureInputReplay)));
         int archived = 0;

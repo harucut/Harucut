@@ -357,6 +357,18 @@ class FrameComponentAssemblerTest {
         }
     }
 
+    @Test
+    @DisplayName("scheduleDeletion: 자산 행이 있는 key 는 건너뛴다 — 발행본·초안이 참조할 수 있어 정리 배치 몫")
+    void scheduleDeletionSkipsAssetBackedKeys() {
+        given(frameAssetResolver.assetBackedKeys(any())).willReturn(java.util.Set.of(STICKER_KEY));
+
+        assembler.scheduleDeletion(java.util.Arrays.asList(PHOTO_KEY, STICKER_KEY, null, PHOTO_KEY));
+
+        ArgumentCaptor<Collection<String>> captor = ArgumentCaptor.captor();
+        then(frameAssetManager).should().deleteAfterCommit(captor.capture());
+        assertThat(captor.getValue()).containsExactly(PHOTO_KEY);
+    }
+
     @Nested
     @DisplayName("toFrameResponse — 엔티티 → 응답")
     class ToFrameResponse {
@@ -566,9 +578,7 @@ class FrameComponentAssemblerTest {
 
             assembler.replaceContent(frame, request);
 
-            ArgumentCaptor<Collection<String>> captor = ArgumentCaptor.captor();
-            then(frameAssetManager).should().deleteAfterCommit(captor.capture());
-            assertThat(captor.getValue()).isEmpty();
+            then(frameAssetManager).should(never()).deleteAfterCommit(any());
         }
 
         @Test

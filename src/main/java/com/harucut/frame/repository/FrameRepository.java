@@ -2,15 +2,26 @@ package com.harucut.frame.repository;
 
 import com.harucut.frame.entity.Frame;
 import com.harucut.user.entity.User;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface FrameRepository extends JpaRepository<Frame, Long> {
+
+    // 발행 번호를 매길 때 같은 프레임의 동시 발행을 줄 세운다 — max+1 이 겹치지 않게
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select f from Frame f where f.id = :id")
+    Optional<Frame> findByIdForUpdate(Long id);
+
+    @Query("select f.id from Frame f where f.user.id = :userId")
+    List<Long> findIdsByUserId(Long userId);
 
     // 목록은 프레임 N개 × 지연 컴포넌트 = N+1의 전형이라 fetch join으로 한 방에 가져온다.
     @Query("select f from Frame f left join fetch f.components where f.user = :user order by f.createdAt desc")

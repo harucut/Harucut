@@ -2,7 +2,7 @@ package com.harucut.frame.handler;
 
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.repository.FrameRepository;
-import com.harucut.frame.service.FrameAssetManager;
+import com.harucut.frame.service.FrameVersionCleaner;
 import com.harucut.frame.service.FrameComponentAssembler;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,7 +30,7 @@ class FrameUserDeletionHandlerTest {
     private FrameComponentAssembler frameComponentAssembler;
 
     @Mock
-    private FrameAssetManager frameAssetManager;
+    private FrameVersionCleaner frameVersionCleaner;
 
     @InjectMocks
     private FrameUserDeletionHandler handler;
@@ -46,7 +46,7 @@ class FrameUserDeletionHandlerTest {
 
         handler.handleUserDeletion(1L);
 
-        then(frameAssetManager).should().deleteAfterCommit(List.of("k1", "k2", "k3"));
+        then(frameComponentAssembler).should().scheduleDeletion(List.of("k1", "k2", "k3"));
     }
 
     @Test

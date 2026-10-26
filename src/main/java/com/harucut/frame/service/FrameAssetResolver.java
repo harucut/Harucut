@@ -45,6 +45,10 @@ public class FrameAssetResolver {
         return asset;
     }
 
+    public java.util.Set<String> assetBackedKeys(Collection<String> keys) {
+        return keys.isEmpty() ? java.util.Set.of() : java.util.Set.copyOf(assetRepository.findExistingKeys(keys));
+    }
+
     // 응답 조립용: 내부 id → public id
     public Map<Long, String> publicIds(Collection<Long> ids) {
         if (ids.isEmpty()) {

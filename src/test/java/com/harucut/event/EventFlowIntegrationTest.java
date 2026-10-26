@@ -207,7 +207,7 @@ class EventFlowIntegrationTest {
     }
 
     private static EventSettings settings(String name, String slug) {
-        return new EventSettings(name, slug, null, null, null, null, null, null, null, null, null, null);
+        return new EventSettings(name, slug, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private ObjectNode patch(Map<String, Object> fields) {

@@ -355,6 +355,57 @@
         },
         "type" : "object"
       },
+      "BrandDefaults" : {
+        "description" : "상속 가능한 행사 설정 — 공간·프로젝트 기본값과 행사의 직접 값이 같은 모양이다",
+        "properties" : {
+          "allowedLayouts" : {
+            "description" : "허용 레이아웃 — 목록은 통째로 대체된다",
+            "items" : {
+              "enum" : [ "CLASSIC", "WIDE", "GRID", "POLAROID" ],
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "boothEnabled" : {
+            "description" : "현장 부스 참가 허용",
+            "type" : "boolean"
+          },
+          "byodEnabled" : {
+            "description" : "개인 휴대폰 참가 허용",
+            "type" : "boolean"
+          },
+          "consentItems" : {
+            "description" : "동의 항목 — 목록은 통째로 대체된다",
+            "items" : {
+              "$ref" : "#/components/schemas/ConsentItem"
+            },
+            "type" : "array"
+          },
+          "frames" : {
+            "description" : "제공 프레임 — 목록은 통째로 대체된다",
+            "items" : {
+              "$ref" : "#/components/schemas/FrameRef"
+            },
+            "type" : "array"
+          },
+          "resultRetentionDays" : {
+            "description" : "결과 보관 일수",
+            "example" : 30,
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "theme" : {
+            "$ref" : "#/components/schemas/PageTheme",
+            "description" : "페이지 테마 — 객체째 바꾸고, 그 안에서 빠진 키는 위 단계 값을 쓴다"
+          },
+          "timezone" : {
+            "description" : "표시용 시간대",
+            "example" : "Asia/Seoul",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "Canvas" : {
         "properties" : {
           "height" : {
@@ -1235,6 +1286,28 @@
         },
         "type" : "object"
       },
+      "EffectiveSettingsResponse" : {
+        "description" : "유효 설정 미리보기 — 게시하면 이 값이 발행본에 들어간다(ADR-0009 §2-2)",
+        "properties" : {
+          "settings" : {
+            "$ref" : "#/components/schemas/EventSettings",
+            "description" : "유효값(공간 ⊕ 프로젝트 ⊕ 행사). 테마의 \"\" 로 덮은 키는 빠진다(FE 기본값·이미지 없음)"
+          },
+          "sources" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "description" : "값이 있는 경로(\"\" 로 덮은 경로 포함)마다 출처 — WORKSPACE·PROJECT·EVENT. 키가 없으면 어디에도 값이 없다(시간대·참가 채널·보관 일수는 그때 서버 기본값)",
+            "example" : {
+              "consentItems" : "WORKSPACE",
+              "name" : "EVENT",
+              "theme.colors.bg" : "PROJECT"
+            },
+            "type" : "object"
+          }
+        },
+        "type" : "object"
+      },
       "Entitlement" : {
         "properties" : {
           "contractId" : {
@@ -1609,6 +1682,11 @@
           "name" : {
             "description" : "행사명",
             "example" : "민지 ♥ 준호 결혼식",
+            "type" : "string"
+          },
+          "projectId" : {
+            "description" : "프로젝트 public id(선택) — 같은 공간의 보관되지 않은 프로젝트. 게시 뒤에는 바꿀 수 없다(PROJECT-002). PATCH 에서 null 이면 프로젝트에서 뺀다",
+            "example" : "Pj3kL9mN2qRs",
             "type" : "string"
           },
           "resultRetentionDays" : {
@@ -3672,6 +3750,52 @@
         },
         "type" : "object"
       },
+      "Project" : {
+        "properties" : {
+          "archived" : {
+            "description" : "보관 여부 — 보관하면 새 행사를 지정할 수 없다(PROJECT-001)",
+            "type" : "boolean"
+          },
+          "brandDefaults" : {
+            "$ref" : "#/components/schemas/BrandDefaults",
+            "description" : "브랜드 기본값 — 정한 필드만"
+          },
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "projectId" : {
+            "description" : "프로젝트 public id",
+            "example" : "Pj3kL9mN2qRs",
+            "type" : "string"
+          },
+          "workspaceId" : {
+            "description" : "공간 public id",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ProjectCreateRequest" : {
+        "properties" : {
+          "brandDefaults" : {
+            "$ref" : "#/components/schemas/BrandDefaults",
+            "description" : "브랜드 기본값(선택) — 행사 설정의 상속 가능한 필드"
+          },
+          "name" : {
+            "description" : "프로젝트 이름",
+            "example" : "2026 봄 웨딩 시즌",
+            "maxLength" : 100,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "name" ],
+        "type" : "object"
+      },
       "PublicEventResponse" : {
         "description" : "참가 화면이 보는 행사 정보 — 운영 설정·다른 행사·전체 카탈로그는 없다",
         "properties" : {
@@ -4188,6 +4312,31 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/DraftResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseEffectiveSettingsResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/EffectiveSettingsResponse",
             "description" : "응답 본문. 없으면 키 자체가 없다"
           },
           "message" : {
@@ -5060,6 +5209,34 @@
         },
         "type" : "object"
       },
+      "ResponseListProject" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "description" : "응답 본문. 없으면 키 자체가 없다",
+            "items" : {
+              "$ref" : "#/components/schemas/Project"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseListTermsAdminResponse" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -5407,6 +5584,31 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/PresignedUploadResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseProject" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/Project",
             "description" : "응답 본문. 없으면 키 자체가 없다"
           },
           "message" : {
@@ -5806,6 +6008,31 @@
             "type" : "string"
           },
           "data" : {
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseWorkspaceBrandDefaults" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/WorkspaceBrandDefaults",
             "description" : "응답 본문. 없으면 키 자체가 없다"
           },
           "message" : {
@@ -6649,6 +6876,19 @@
         "required" : [ "code", "email" ],
         "type" : "object"
       },
+      "WorkspaceBrandDefaults" : {
+        "properties" : {
+          "brandDefaults" : {
+            "$ref" : "#/components/schemas/BrandDefaults",
+            "description" : "공간(기업) 단위 브랜드 기본값 — 정한 필드만"
+          },
+          "workspaceId" : {
+            "description" : "공간 public id",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "WorkspaceCreateRequest" : {
         "description" : "조직 공간 만들기",
         "properties" : {
@@ -6734,7 +6974,7 @@
     "/api/admin/audit-logs" : {
       "get" : {
         "description" : "플랫폼 ADMIN. 최신순 50개씩.",
-        "operationId" : "list_4",
+        "operationId" : "list_5",
         "parameters" : [ {
           "description" : "이전 응답의 nextCursor",
           "in" : "query",
@@ -7419,7 +7659,7 @@
       },
       "post" : {
         "description" : "만들자마자 활성 상태다.\n\n⚠️ **만든 뒤에는 아무것도 고칠 수 없다.** 이름·상한·마감일 수정 API 가 없고,\n삭제도 없다. 잘못 만들었으면 비활성화하고 새로 발행하는 수밖에 없다.\n\n`code` 는 대문자로 정규화해 저장한다. 소문자로 만들어도 대문자가 되고,\n사용자는 대소문자 아무렇게나 입력해도 찾힌다.\n\n부여 기간은 **1개월 고정**이라 요청에 넣는 자리가 없다.\n",
-        "operationId" : "create_5",
+        "operationId" : "create_6",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -11761,8 +12001,8 @@
         "tags" : [ "행사 운영" ]
       },
       "patch" : {
-        "description" : "`settings` 에 **보낸 필드만** 바뀐다. null 을 보내면 그 값을 비운다(촬영 기간 등).\n`settingsVersion` 이 서버와 다르면 409 `EVENT-005` + `data.currentSettingsVersion`.\n게시한 행사의 slug 는 바꿀 수 없다.\n",
-        "operationId" : "patch",
+        "description" : "`settings` 에 **보낸 필드만** 바뀐다. null 을 보내면 그 값을 비운다(촬영 기간 등).\n상속 가능한 필드(시간대·참가 채널·보관 일수·레이아웃·프레임·동의 항목·테마)는 null 이면 행사의 직접 값을 지우고\n공간·프로젝트 기본값을 따른다. 테마는 객체째 바꾸고, 그 안에서 빠진 키는 위 단계 값을, 문구·색 \"\" 는 FE 기본값을,\n로고·배경 \"\" 는 이미지 없음을 뜻한다(글꼴 \"\" 는 400). `projectId` 로 프로젝트를 지정·해제한다(게시 뒤 409 PROJECT-002,\n보관된 프로젝트 409 PROJECT-001).\n`settingsVersion` 이 서버와 다르면 409 `EVENT-005` + `data.currentSettingsVersion`.\n게시한 행사의 slug 는 바꿀 수 없다.\n",
+        "operationId" : "patch_1",
         "parameters" : [ {
           "description" : "행사 public id",
           "in" : "path",
@@ -11798,7 +12038,7 @@
               "application/json" : {
                 "examples" : {
                   "GEN-002" : {
-                    "summary" : "GEN-002 — 값이 잘못됐거나 게시 후 slug 변경",
+                    "summary" : "GEN-002 — 값이 잘못됐거나 게시 후 slug 변경·다른 공간의 프로젝트",
                     "value" : {
                       "code" : "GEN-002",
                       "message" : "Invalid input value.",
@@ -11823,7 +12063,7 @@
                 }
               }
             },
-            "description" : "- `GEN-002` — 값이 잘못됐거나 게시 후 slug 변경 _(Invalid input value.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+            "description" : "- `GEN-002` — 값이 잘못됐거나 게시 후 slug 변경·다른 공간의 프로젝트 _(Invalid input value.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
           },
           "401" : {
             "content" : {
@@ -11920,6 +12160,22 @@
                       "message" : "The event settings were modified by another save.",
                       "status" : 409
                     }
+                  },
+                  "PROJECT-001" : {
+                    "summary" : "PROJECT-001 — 보관된 프로젝트",
+                    "value" : {
+                      "code" : "PROJECT-001",
+                      "message" : "The project is archived.",
+                      "status" : 409
+                    }
+                  },
+                  "PROJECT-002" : {
+                    "summary" : "PROJECT-002 — 게시한 행사의 프로젝트 변경",
+                    "value" : {
+                      "code" : "PROJECT-002",
+                      "message" : "The project of a published event cannot be changed.",
+                      "status" : 409
+                    }
                   }
                 },
                 "schema" : {
@@ -11927,7 +12183,7 @@
                 }
               }
             },
-            "description" : "- `EVENT-005` — settingsVersion 불일치 _(The event settings were modified by another save.)_\n- `EVENT-004` — slug 중복 _(The event slug is already in use.)_"
+            "description" : "- `EVENT-005` — settingsVersion 불일치 _(The event settings were modified by another save.)_\n- `EVENT-004` — slug 중복 _(The event slug is already in use.)_\n- `PROJECT-001` — 보관된 프로젝트 _(The project is archived.)_\n- `PROJECT-002` — 게시한 행사의 프로젝트 변경 _(The project of a published event cannot be changed.)_"
           }
         },
         "security" : [ {
@@ -11942,7 +12198,7 @@
     "/api/auth/events/{eventId}/booth-devices" : {
       "get" : {
         "description" : "연결 코드는 싣지 않는다.",
-        "operationId" : "list_3",
+        "operationId" : "list_4",
         "parameters" : [ {
           "description" : "행사 public id",
           "in" : "path",
@@ -12050,7 +12306,7 @@
       },
       "post" : {
         "description" : "기기를 만들고 연결 코드(`XXXX-XXXX`, 10분)를 준다. 행사장 기기 화면에서 코드를 입력하면 연결된다.\n행사당 회수되지 않은 기기는 20대까지.\n",
-        "operationId" : "create_4",
+        "operationId" : "create_5",
         "parameters" : [ {
           "description" : "행사 public id",
           "in" : "path",
@@ -12501,6 +12757,116 @@
         "tags" : [ "행사 운영" ]
       }
     },
+    "/api/auth/events/{eventId}/effective-settings" : {
+      "get" : {
+        "description" : "게시하면 발행본에 들어갈 값 = 공간 기본값 ⊕ 프로젝트 기본값 ⊕ 행사 직접 값(경로 단위로 뒤가 이김).\n`sources` 는 값이 있는 경로마다 출처(WORKSPACE·PROJECT·EVENT). 테마 하위 키(theme.colors.bg 등)까지 준다.\nStudio 는 이것으로 「상속값/직접 변경값」 표시와 「상속으로 되돌리기(그 필드에 null PATCH)」를 만든다.\n",
+        "operationId" : "effectiveSettings",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseEffectiveSettingsResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 행사이거나 권한이 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 행사이거나 권한이 없다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "유효 설정 미리보기",
+        "tags" : [ "행사 운영" ]
+      }
+    },
     "/api/auth/events/{eventId}/exports" : {
       "get" : {
         "description" : "최근 20개. 다른 사람의 묶음은 보이지 않는다.",
@@ -12620,7 +12986,7 @@
       },
       "post" : {
         "description" : "BULK_DOWNLOAD. 202 — 압축은 따로 돈다. photoIds(이 순서로) 또는 filter, 둘 다 없으면 완성 사진 전부.\n이 행사의 완성(DONE)·미삭제 사진만 담고 나머지 id 는 뺀다. 1~2,000장.\n",
-        "operationId" : "create_3",
+        "operationId" : "create_4",
         "parameters" : [ {
           "description" : "행사 public id",
           "in" : "path",
@@ -15311,6 +15677,146 @@
         "tags" : [ "결제" ]
       }
     },
+    "/api/auth/projects/{projectId}" : {
+      "patch" : {
+        "description" : "보낸 키만 바뀐다: `name`, `brandDefaults`(머지 패치 — 키마다 null 이면 그 기본값을 지움, 테마는 객체째 바꿈. 전체를 null 로 보내면 모두 지움),\n`archived`(true 보관 — 새 행사 지정만 막고 기존 행사는 그대로, false 되살림).\n기본값을 바꿔도 이미 게시한 행사는 바뀌지 않는다 — 다시 게시해야 들어간다.\n",
+        "operationId" : "patch",
+        "parameters" : [ {
+          "description" : "프로젝트 public id",
+          "in" : "path",
+          "name" : "projectId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseProject"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — 이름·기본값이 잘못됐다",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — 이름·기본값이 잘못됐다 _(Invalid input value.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 프로젝트가 없거나 권한이 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 프로젝트가 없거나 권한이 없다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "프로젝트 수정",
+        "tags" : [ "프로젝트·브랜드 기본값" ]
+      }
+    },
     "/api/auth/status" : {
       "get" : {
         "description" : "소셜 로그인 콜백 페이지에서 로그인 완료를 확인하는 용도로 쓴다.\n쿠키가 유효하면 200, 아니면 401 이다.\n\n**탈퇴 요청 상태(`DELETED_REQUESTED`)에서도 200 이 나온다.** 다른 API 는 전부 403 인데\n여기만 열어둔 이유는, 프론트가 상태를 읽어 복구 안내 화면으로 보낼 수 있어야 하기 때문이다.\n임의의 API 에서 `GEN-021` 을 받으면 이 API 로 상태를 확인할 것 — 로그아웃시키면 안 된다.\n\n값은 토큰에서 읽는다(DB 조회 없음). 즉 **토큰 발급 시점의 상태**다.\n",
@@ -16654,7 +17160,7 @@
     "/api/auth/user/frame-drafts" : {
       "get" : {
         "description" : "최근 저장 순. `document` 는 빠진다.",
-        "operationId" : "list_2",
+        "operationId" : "list_3",
         "parameters" : [ {
           "description" : "숫자면 그 프레임의 초안, `new` 면 새 프레임 초안만, 생략하면 전부",
           "example" : "new",
@@ -16763,7 +17269,7 @@
       },
       "post" : {
         "description" : "revision 1 로 시작한다. 이후 저장은 PUT 에 마지막 revision 을 보낸다.",
-        "operationId" : "create_2",
+        "operationId" : "create_3",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -17739,7 +18245,7 @@
     "/api/auth/user/frame/{frameId}/versions" : {
       "get" : {
         "description" : "최신 발행 번호부터. `spec` 은 빠진다.",
-        "operationId" : "list_1",
+        "operationId" : "list_2",
         "parameters" : [ {
           "description" : "프레임 ID",
           "example" : 7,
@@ -19479,10 +19985,278 @@
         "tags" : [ "공간 멤버" ]
       }
     },
+    "/api/auth/workspaces/{workspaceId}/brand-defaults" : {
+      "get" : {
+        "description" : "조직 공간의 OWNER·ADMIN 만. 정한 필드만 준다.",
+        "operationId" : "workspaceDefaults",
+        "parameters" : [ {
+          "description" : "공간 public id",
+          "in" : "path",
+          "name" : "workspaceId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseWorkspaceBrandDefaults"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — 개인 공간",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — 개인 공간 _(Invalid input value.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 공간이 없거나 권한이 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 공간이 없거나 권한이 없다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "공간 브랜드 기본값",
+        "tags" : [ "프로젝트·브랜드 기본값" ]
+      },
+      "patch" : {
+        "description" : "본문이 곧 머지 패치 — 상속 가능한 필드만(다른 키는 400), null 이면 지운다, 테마는 객체째. 게시한 행사는 다시 게시해야 바뀐다.",
+        "operationId" : "patchWorkspaceDefaults",
+        "parameters" : [ {
+          "description" : "공간 public id",
+          "in" : "path",
+          "name" : "workspaceId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseWorkspaceBrandDefaults"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — 개인 공간이거나 값이 잘못됐다",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — 개인 공간이거나 값이 잘못됐다 _(Invalid input value.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 공간이 없거나 권한이 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 공간이 없거나 권한이 없다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "공간 브랜드 기본값 수정",
+        "tags" : [ "프로젝트·브랜드 기본값" ]
+      }
+    },
     "/api/auth/workspaces/{workspaceId}/events" : {
       "get" : {
         "description" : "최근에 만든 순.",
-        "operationId" : "list",
+        "operationId" : "list_1",
         "parameters" : [ {
           "description" : "조직 공간 public id",
           "in" : "path",
@@ -19590,7 +20364,7 @@
       },
       "post" : {
         "description" : "조직 공간의 OWNER·ADMIN 만. `name`·`slug` 가 필수이고 나머지는 기본값(BYOD 허용·부스 꺼짐·보관 30일)이다.",
-        "operationId" : "create_1",
+        "operationId" : "create_2",
         "parameters" : [ {
           "description" : "조직 공간 public id",
           "in" : "path",
@@ -20772,6 +21546,286 @@
         } ],
         "summary" : "역할 변경",
         "tags" : [ "공간 멤버" ]
+      }
+    },
+    "/api/auth/workspaces/{workspaceId}/projects" : {
+      "get" : {
+        "description" : "최신순. 보관한 것도 archived=true 로 함께 준다.",
+        "operationId" : "list",
+        "parameters" : [ {
+          "description" : "공간 public id",
+          "in" : "path",
+          "name" : "workspaceId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseListProject"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — 개인 공간",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — 개인 공간 _(Invalid input value.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 공간이 없거나 권한이 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 공간이 없거나 권한이 없다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "프로젝트 목록",
+        "tags" : [ "프로젝트·브랜드 기본값" ]
+      },
+      "post" : {
+        "description" : "조직 공간의 OWNER·ADMIN 만. 프로젝트는 선택 분류다 — 프로젝트 없는 행사는 지금과 같다. brandDefaults 는 행사 설정의 상속 가능한 필드(시간대·참가 채널·보관 일수·레이아웃·프레임·동의 항목·테마).",
+        "operationId" : "create_1",
+        "parameters" : [ {
+          "description" : "공간 public id",
+          "in" : "path",
+          "name" : "workspaceId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ProjectCreateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseProject"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — 개인 공간이거나 이름·기본값이 잘못됐다",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — 개인 공간이거나 이름·기본값이 잘못됐다 _(Invalid input value.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 공간이 없거나 권한이 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 공간이 없거나 권한이 없다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "프로젝트 만들기",
+        "tags" : [ "프로젝트·브랜드 기본값" ]
       }
     },
     "/api/booth/capture-runs/current" : {
@@ -25281,6 +26335,9 @@
   }, {
     "description" : "운영자(조직 공간 OWNER·ADMIN) — 행사 만들기·설정·게시·일시중지·촬영 종료",
     "name" : "행사 운영"
+  }, {
+    "description" : "운영자(조직 공간 OWNER·ADMIN) — 프로젝트와 공간·프로젝트 기본값. 행사 설정이 공간 → 프로젝트 → 행사 순서로 물려받는다",
+    "name" : "프로젝트·브랜드 기본값"
   }, {
     "description" : "로그인 없는 참가자 — 행사 조회 → 세션 → 동의 → 회차 → 촬영 업로드 → 합성 → 결과 토큰. 자격은 `X-Participant-Token` 헤더",
     "name" : "행사 참가"

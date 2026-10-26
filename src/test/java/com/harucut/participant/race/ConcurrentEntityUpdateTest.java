@@ -126,7 +126,7 @@ class ConcurrentEntityUpdateTest {
                 new BackgroundAttributes.Color("#FFFFFF"), null, List.of(), null, org.workspaceId())).frameId();
         Long frameVersionId = frameVersionService.publish(owner.getPublicId(), frameId).frameVersionId();
         EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings("행사", slug, null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("행사", slug, null, null, null, null, null, null, null, null, null, null, null));
         eventService.patch(owner.getPublicId(), created.eventId(), new EventPatchRequest(created.settingsVersion(),
                 objectMapper.valueToTree(Map.of(
                         "allowedLayouts", List.of("CLASSIC"),

@@ -77,6 +77,18 @@
 - Studio 는 이 응답만으로 「상속값/직접 변경값」 표시와 「상속으로 되돌리기(= 그 경로에 null PATCH)」 버튼을 만든다.
 - 게시는 이 계산과 같은 함수를 쓴다(미리보기와 발행본이 갈라지지 않게).
 
+### 2-3. 구현에서 정한 것 (P3-1)
+
+- 행사의 직접 값은 `event.settings_draft`(InheritableSettings JSON)에, 공간·프로젝트 기본값은 `brand_defaults` 에 같은 모양으로 둔다.
+  V19 가 기존 행사의 시간대·참가 채널·보관 일수 컬럼 값을 초안 JSON 에 옮긴다 — 기존 행사는 모든 값이 직접 값이라 상위 기본값이 생겨도 바뀌지 않는다.
+- 행사 컬럼(timezone·byod_enabled·booth_enabled·result_retention_days)은 계속 「지금 적용되는 값」이다(참가·보관 배치가 읽는다).
+  만들 때·프로젝트를 바꿀 때·그 필드를 직접 PATCH 할 때·게시할 때만 유효값으로 다시 계산한다 — 다른 필드를 저장했다고 그사이 바뀐 상위 기본값이
+  운영 중 행사에 끌려 들어오지 않는다.
+- `GET /api/auth/events/{id}` 의 `settings` 는 유효값(지금 게시하면 들어갈 값)이다. 출처는 effective-settings 가 준다.
+- 테마는 PATCH 에서 객체째 바꾼다(그 안에서 빠진 키·null = 상속). 공간·프로젝트 brandDefaults PATCH 는 키마다 머지 패치(테마는 객체째),
+  상속할 수 없는 키는 400.
+- 권한은 P3-1 에서 OWNER·ADMIN 만(OPERATOR 는 P3-2).
+
 ## 3. 권한 위임 (P3-2)
 
 - 공간 역할에 `OPERATOR` 를 더한다 — 공간 전체 권한은 없고, 배정받은 행사·프로젝트만 운영한다(R5 3절 「담당 운영자」).

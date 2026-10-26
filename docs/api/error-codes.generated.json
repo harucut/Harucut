@@ -355,6 +355,14 @@
   "status" : 403,
   "message" : "You do not have this photo permission for the event."
 }, {
+  "code" : "PROJECT-001",
+  "status" : 409,
+  "message" : "The project is archived."
+}, {
+  "code" : "PROJECT-002",
+  "status" : 409,
+  "message" : "The project of a published event cannot be changed."
+}, {
   "code" : "RESULT-001",
   "status" : 401,
   "message" : "The result token is invalid or revoked."

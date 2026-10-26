@@ -120,7 +120,7 @@ class ParticipantFlowIntegrationTest {
 
         slug = "wedding-" + UUID.randomUUID().toString().substring(0, 8);
         EventResponse created = eventService.create(operator.getPublicId(), org.workspaceId(),
-                new EventSettings("민지 ♥ 준호", slug, null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("민지 ♥ 준호", slug, null, null, null, null, null, null, null, null, null, null, null));
         eventService.patch(operator.getPublicId(), created.eventId(), new EventPatchRequest(created.settingsVersion(),
                 objectMapper.valueToTree(Map.of(
                         "allowedLayouts", List.of("CLASSIC"),

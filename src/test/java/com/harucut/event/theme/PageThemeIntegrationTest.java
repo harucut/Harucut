@@ -183,7 +183,7 @@ class PageThemeIntegrationTest {
 
     private EventResponse publishable(User owner, WorkspaceResponse org, Long frameVersionId, String slug, Map<String, Object> theme) {
         EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings("행사", slug, null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("행사", slug, null, null, null, null, null, null, null, null, null, null, null));
         Map<String, Object> patch = new HashMap<>(Map.of(
                 "allowedLayouts", List.of("CLASSIC"),
                 "frames", List.of(Map.of("frameVersionId", frameVersionId, "layoutType", "CLASSIC", "isDefault", true)),

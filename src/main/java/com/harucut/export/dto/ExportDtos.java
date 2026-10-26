@@ -16,7 +16,7 @@ public final class ExportDtos {
     private ExportDtos() {
     }
 
-    @Schema(name = "ExportRequest", description = "photoIds 또는 filter 중 하나. 둘 다 없으면 행사의 완성 사진 전부")
+    @Schema(name = "ExportRequest", description = "photoIds 또는 filter 중 하나. 둘 다 없으면 행사의 완성 사진 전부. photoIds 를 빈 목록으로 보내면 400 EXPORT-003")
     public record ExportRequest(
             @Size(max = 2000) @Schema(description = "고른 사진 id — 이 순서로 담는다") List<Long> photoIds,
             @Valid ExportFilter filter

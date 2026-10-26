@@ -57,11 +57,13 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.times;
@@ -70,7 +72,8 @@ import static org.mockito.Mockito.times;
  * P2B-6 — 행사 결과 보관 종료 배치를 실제 JPA 로 본다(ADR-0008 §7).
  * 테스트 트랜잭션 안이라 단계별 트랜잭션이 하나로 합쳐진다 — 커밋 후 S3 삭제는 예약(deleteAfterCommit)으로 확인한다.
  */
-@SpringBootTest
+// 배치 크기 1 — 배치마다 기준 시각을 다시 계산하는지 본다(다른 테스트는 크기와 무관)
+@SpringBootTest(properties = "event.retention.batch-size=1")
 @ActiveProfiles("test")
 @Transactional
 @DisplayName("행사 보관 종료 — 통합")
@@ -190,6 +193,31 @@ class EventRetentionIntegrationTest {
 
         assertThat(result.purgedResults()).isEqualTo(1);   // 실패한 행사는 0, 다른 행사는 1
         then(s3Deleter).should(atLeast(2)).deleteAfterCommit(anyCollection());
+    }
+
+    @Test
+    @DisplayName("배치 도중 운영자가 보관 일수를 늘리면(1일 → 30일) 그 뒤 배치는 새 기준을 써서 2일 된 결과를 지우지 않는다")
+    void laterBatchesUseUpdatedRetention() {
+        ComposeJob first = done("a", "uploads/r/a.jpg", 2);
+        ComposeJob second = done("b", "uploads/r/b.jpg", 2);
+        ComposeJob third = done("c", "uploads/r/c.jpg", 2);
+        // 첫 배치가 정리하는 동안 운영자가 설정을 저장한다(실제 저장 경로)
+        AtomicBoolean saved = new AtomicBoolean();
+        willAnswer(invocation -> {
+            if (saved.compareAndSet(false, true)) {
+                eventService.patch(owner.getPublicId(), event.getPublicId(), new EventPatchRequest(
+                        eventService.get(owner.getPublicId(), event.getPublicId()).settingsVersion(),
+                        objectMapper.valueToTree(Map.of("resultRetentionDays", 30))));
+            }
+            return null;
+        }).given(s3Deleter).deleteAfterCommit(anyCollection());
+
+        assertThat(retentionService.run().purgedResults()).isEqualTo(1);   // 첫 배치(크기 1)만 예전 기준
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(List.of(first, second, third)).filteredOn(job ->
+                composeJobRepository.findById(job.getId()).orElseThrow().getPurgedAt() == null).hasSize(2);
+        assertThat(eventRepository.findById(event.getId()).orElseThrow().getResultRetentionDays()).isEqualTo(30);
     }
 
     // 보관 1일·게시된 행사 — 공간마다 운영자와 이용권을 따로 만든다

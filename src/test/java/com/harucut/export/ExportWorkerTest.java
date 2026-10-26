@@ -32,8 +32,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -134,23 +135,26 @@ class ExportWorkerTest {
     }
 
     @Test
-    @DisplayName("진행 신호: 압축이 길어지면 staleAfter/5 마다 updatedAt 을 민다 — 다른 인스턴스의 정리가 살아 있는 묶음을 실패로 만들지 않게")
-    void heartbeatsWhileZipping() {
-        AtomicReference<Instant> now = new AtomicReference<>(Instant.parse("2026-10-26T00:00:00Z"));
-        Clock clock = mock(Clock.class);
-        given(clock.instant()).willAnswer(i -> now.get());
-        given(clock.getZone()).willReturn(ZoneOffset.UTC);
-        Fixture f = new Fixture(clock);
+    @DisplayName("진행 신호는 전송과 따로 돈다: 사진 하나를 읽는 데 staleAfter 보다 오래 걸려도 그동안 계속 신호를 보내고, 끝나면 멈춘다")
+    void heartbeatsDuringSlowTransfer() throws InterruptedException {
+        Fixture f = new Fixture(Clock.systemUTC(), Duration.ofMillis(100));   // 신호 간격 20ms
         given(f.exportJobRepository.complete(anyLong(), anyLong(), any(), any())).willReturn(1);
         given(f.fileStorageService.openStream(anyString())).willAnswer(i -> {
-            now.set(now.get().plus(Duration.ofMinutes(2)));   // 사진 하나에 2분
+            Thread.sleep(300);   // 사진 하나가 staleAfter(100ms)의 세 배 — 사진 사이에서만 신호를 보내면 여기서 끊긴다
             return new ByteArrayInputStream(new byte[]{1});
+        });
+        AtomicInteger beatsDuringFirstPhoto = new AtomicInteger();
+        given(f.exportJobRepository.touch(eq(7L), any())).willAnswer(i -> {
+            beatsDuringFirstPhoto.incrementAndGet();
+            return 1;
         });
 
         f.worker.run(7L);
+        int afterRun = beatsDuringFirstPhoto.get();
+        Thread.sleep(100);
 
-        // 사진 2장: 첫 사진 전에는 신호가 필요 없고, 2분 뒤(간격 1분 초과) 두 번째 사진 전에 한 번
-        then(f.exportJobRepository).should(org.mockito.Mockito.times(1)).touch(eq(7L), any());
+        assertThat(afterRun).isGreaterThanOrEqualTo(10);   // 600ms 동안 20ms 간격 — 넉넉히 잡아도 10번 이상
+        assertThat(beatsDuringFirstPhoto.get()).isEqualTo(afterRun);   // 끝난 뒤에는 보내지 않는다
     }
 
     @Test
@@ -186,6 +190,10 @@ class ExportWorkerTest {
         final ExportWorker worker;
 
         Fixture(Clock clock) {
+            this(clock, Duration.ofMinutes(5));
+        }
+
+        Fixture(Clock clock, Duration staleAfter) {
             ExportJob export = ExportJob.pending(9L, 1L, "Ev1", 2L, 2);
             given(exportJobRepository.claim(eq(7L), any())).willReturn(1);
             given(exportJobRepository.findById(7L)).willReturn(Optional.of(export));
@@ -201,7 +209,7 @@ class ExportWorkerTest {
                     .willAnswer(i -> new S3MultipartOutputStream(s3Client, "bucket", i.getArgument(0), "application/zip", 1024));
             worker = new ExportWorker(exportJobRepository, itemRepository, composeJobRepository,
                     mock(com.harucut.event.repository.EventRepository.class), fileStorageService, s3Deleter,
-                    mock(PlatformTransactionManager.class), clock, Duration.ofHours(24), Duration.ofHours(6), Duration.ofMinutes(5));
+                    mock(PlatformTransactionManager.class), clock, Duration.ofHours(24), Duration.ofHours(6), staleAfter);
         }
 
         private static ComposeJob photo(Long id) {

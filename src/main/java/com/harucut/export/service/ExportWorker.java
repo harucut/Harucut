@@ -39,6 +39,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -53,7 +55,7 @@ import java.util.zip.ZipOutputStream;
  * <p>상태 전이는 전부 조건부 UPDATE: 선점(PENDING→RUNNING), 완료(RUNNING→DONE — 그사이 무효가 됐으면 0 이고 올린 객체를 지운다),
  * 실패(→FAILED).
  *
- * <p>인스턴스가 여럿이어도(무중단 배포 중 겹침 포함) 안전하게: 압축 중에는 진행 신호(updatedAt)를 주기적으로 남기고, 정리는 신호가
+ * <p>인스턴스가 여럿이어도(무중단 배포 중 겹침 포함) 안전하게: 압축 중에는 전송과 따로 도는 진행 신호(updatedAt)를 주기적으로 남기고, 정리는 신호가
  * staleAfter 넘게 끊긴 RUNNING 만 FAILED 로 바꾼다(재개하지 않는다). 종료할 때는 하던 것을 PENDING 으로 내려놓고, PENDING 은
  * 어느 인스턴스든 주기적으로 다시 넣는다 — 선점이 조건부라 두 곳이 넣어도 한 곳만 만든다.
  */
@@ -84,6 +86,11 @@ public class ExportWorker {
     // 이 인스턴스의 실행기에 이미 넣은 것 — 주기적으로 다시 넣을 때 같은 작업을 큐에 쌓지 않는다
     private final Set<Long> queued = ConcurrentHashMap.newKeySet();
     private volatile boolean stopping;
+    private final ScheduledExecutorService heartbeat = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "export-heartbeat");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public ExportWorker(ExportJobRepository exportJobRepository, ExportJobItemRepository itemRepository,
                         ComposeJobRepository composeJobRepository, EventRepository eventRepository,
@@ -132,6 +139,26 @@ public class ExportWorker {
         if (!Boolean.TRUE.equals(claimed)) {
             return;
         }
+        // 진행 신호는 전송과 따로 돈다 — 사진 하나의 읽기·쓰기가 아무리 오래 걸려도 살아 있는 동안은 신호가 끊기지 않는다
+        long interval = staleAfter.dividedBy(5).toMillis();
+        ScheduledFuture<?> beating = heartbeat.scheduleAtFixedRate(() -> beat(exportJobId), interval, interval, TimeUnit.MILLISECONDS);
+        try {
+            build(exportJobId);
+        } finally {
+            beating.cancel(false);
+        }
+    }
+
+    // 조건부(RUNNING 일 때만) — 이미 FAILED·EXPIRED 로 바뀐 행은 되살리지 않는다. 실패해도 다음 박자에 다시(예외를 밖으로 내면 반복이 멈춘다)
+    private void beat(Long exportJobId) {
+        try {
+            transaction.executeWithoutResult(status -> exportJobRepository.touch(exportJobId, LocalDateTime.now(clock)));
+        } catch (RuntimeException e) {
+            log.warn("[묶음] {} 진행 신호 실패", exportJobId, e);
+        }
+    }
+
+    private void build(Long exportJobId) {
         ExportJob export = exportJobRepository.findById(exportJobId).orElseThrow();
         S3MultipartOutputStream upload = null;
         boolean uploaded = false;
@@ -151,15 +178,9 @@ public class ExportWorker {
                                 .map(ComposeJob::getEventId).filter(java.util.Objects::nonNull).distinct().toList()).stream()
                         .collect(Collectors.toMap(Event::getId, Event::getSlug));
                 Map<String, Integer> indexes = new java.util.HashMap<>();
-                LocalDateTime lastBeat = LocalDateTime.now(clock);
                 for (ExportJobItem item : items) {
                     if (stopping) {
                         throw new ShutdownInProgress();
-                    }
-                    if (!LocalDateTime.now(clock).isBefore(lastBeat.plus(staleAfter.dividedBy(5)))) {
-                        lastBeat = LocalDateTime.now(clock);
-                        LocalDateTime beat = lastBeat;
-                        transaction.executeWithoutResult(status -> exportJobRepository.touch(exportJobId, beat));
                     }
                     ComposeJob job = jobs.get(item.getComposeJobId());
                     if (job == null || job.isDeleted() || job.getStatus() != ComposeStatus.DONE || job.getResultKey() == null) {
@@ -279,6 +300,7 @@ public class ExportWorker {
         if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
             log.warn("[묶음] 종료 대기 초과 — 진행 중이던 묶음은 신호가 끊긴 뒤 다른 인스턴스가 실패로 정리한다");
         }
+        heartbeat.shutdownNow();
     }
 
     // 종료 중이라 압축을 멈춘다는 신호 — 실패가 아니다

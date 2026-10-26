@@ -159,7 +159,10 @@ public class EventService {
         Operated operated = operate(publicId, eventId);
         Event event = operated.event();
         // 같은 행사의 게시를 줄 세운다 — 행사 행을 쓰기 잠금으로 다시 읽고(refresh), 그사이 다른 저장·게시가 커밋됐으면 409.
-        // 잠그지 않으면 두 게시의 경험 버전 insert(FK 공유 잠금)와 행사 UPDATE 가 엇갈려 교착·유니크 위반으로 500 이 난다
+        // 잠그지 않으면 두 게시의 경험 버전 insert(FK 공유 잠금)와 행사 UPDATE 가 엇갈려 교착·유니크 위반으로 500 이 난다.
+        // 잠금 순서는 늘 「공간 → 행사」: 동시 운영 수 검사(entitlementViolations)가 공간을 잠근 뒤 공간의 행사 행들을 잠금 읽기로 훑으므로,
+        // 행사를 먼저 잠그면 같은 공간의 다른 게시와 서로를 기다려 교착된다
+        workspaceRepository.lockById(event.getWorkspaceId());
         int seenVersion = event.getSettingsVersion();
         entityManager.refresh(event, LockModeType.PESSIMISTIC_WRITE);
         if (event.getSettingsVersion() != seenVersion) {

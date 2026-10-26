@@ -126,6 +126,22 @@ class PublishAndFrameLimitMysqlTest {
                 e -> assertThat(e.getErrorCode()).isEqualTo(FrameErrorCode.WORKSPACE_FRAME_LIMIT));
     }
 
+    @Test
+    @DisplayName("개인 공간이 아직 없는 사용자의 첫 개인 프레임 — 개인 공간 지연 생성(REQUIRES_NEW)이 사용자 잠금과 엇갈려 멈추지 않는다")
+    void firstPersonalFrameCreatesPersonalWorkspace() throws Exception {
+        User user = userRepository.save(User.localUser("first@personal.test", "e", "처음"));
+        assertThat(workspaceRepository.findByPersonalOwnerUserId(user.getId())).isEmpty();
+
+        // 사용자 행을 잡은 채 개인 공간을 만들면 그 insert 의 FK 검사가 같은 행을 기다려 잠금 시간 초과(50초)까지 멈춘다
+        Long frameId = CompletableFuture.supplyAsync(() -> frameService.createFrame(user.getPublicId(), new FrameCreateRequest("첫 프레임",
+                        null, S3Keys.userRoot(user.getPublicId()) + "frames/p.png", FrameType.CLASSIC, null, null,
+                        new BackgroundAttributes.Color("#FFFFFF"), null, List.of(), null, null)).frameId())
+                .get(15, TimeUnit.SECONDS);
+
+        assertThat(frameRepository.findById(frameId)).isPresent();
+        assertThat(workspaceRepository.findByPersonalOwnerUserId(user.getId())).isPresent();
+    }
+
     private Long frame(User owner, WorkspaceResponse org) {
         return frameService.createFrame(owner.getPublicId(), new FrameCreateRequest("프레임", null,
                 S3Keys.userRoot(owner.getPublicId()) + "frames/p.png", FrameType.CLASSIC, null, null,

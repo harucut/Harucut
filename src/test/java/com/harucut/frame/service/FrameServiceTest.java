@@ -26,6 +26,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -75,6 +76,9 @@ class FrameServiceTest {
     @Mock
     private WorkspaceRepository workspaceRepository;
 
+    @Mock
+    private PlatformTransactionManager transactionManager;
+
     private FrameService frameService;
 
     private User user;
@@ -82,7 +86,8 @@ class FrameServiceTest {
     @BeforeEach
     void setUp() {
         frameService = new FrameService(frameRepository, workspaceRepository, userRepository,
-                frameComponentAssembler, frameSubscriptionPolicy, workspaceService, frameVersionCleaner, frameDraftCleaner);
+                frameComponentAssembler, frameSubscriptionPolicy, workspaceService, frameVersionCleaner, frameDraftCleaner,
+                transactionManager);
         user = User.localUser("user@harucut.com", "encoded", "하루컷");
         ReflectionTestUtils.setField(user, "id", 1L);
     }
@@ -97,6 +102,7 @@ class FrameServiceTest {
             FrameCreateRequest request = request();
             Frame frame = ownedFrame(CREATED);
             FrameResponse expected = response(1L);
+            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(frameRepository.countPersonalByUser(user)).willReturn(2L);
             Workspace personal = Workspace.personal(1L);
@@ -137,6 +143,7 @@ class FrameServiceTest {
         @Test
         @DisplayName("한도 초과면 SUBS-003이 전파되고 조립·저장 어느 것도 일어나지 않는다")
         void limitExceeded() {
+            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(frameRepository.countPersonalByUser(user)).willReturn(3L);
             given(workspaceService.personalWorkspaceOf(1L)).willReturn(Workspace.personal(1L));
@@ -155,7 +162,7 @@ class FrameServiceTest {
         @Test
         @DisplayName("사용자가 없으면 GEN-031이다")
         void userNotFound() {
-            given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.empty());
+            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.empty());
 
             assertThatThrownBy(() -> frameService.createFrame(PUBLIC_ID, request()))
                     .isInstanceOf(BusinessException.class)

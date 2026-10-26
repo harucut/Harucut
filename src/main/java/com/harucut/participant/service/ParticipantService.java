@@ -40,6 +40,8 @@ import com.harucut.participant.security.ParticipantPrincipal;
 import com.harucut.result.dto.DownloadUrlResponse;
 import com.harucut.result.dto.ResultTokenResponse;
 import com.harucut.result.service.ResultService;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -81,6 +83,7 @@ public class ParticipantService {
     private final ParticipationProperties properties;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final EntityManager entityManager;
 
     // ── 세션 ──────────────────────
 
@@ -282,6 +285,15 @@ public class ParticipantService {
         if (!event.captureOpen(now())) {
             throw new BusinessException(EventErrorCode.CAPTURE_NOT_OPEN);
         }
+    }
+
+    /**
+     * 합성 접수용 — 행사 행을 공유 잠금으로 다시 읽어(refresh) 그 값으로 촬영 열림을 본다. 보관 종료가 같은 행을 쓰기 잠금으로
+     * 잡으므로, 이 접수가 커밋될 때까지 보관 종료가 기다리고(작업을 보고 판정), 이미 커밋된 보관 종료는 여기서 보인다
+     */
+    void requireCaptureOpenLocked(Event event) {
+        entityManager.refresh(event, LockModeType.PESSIMISTIC_READ);
+        requireCaptureOpen(event);
     }
 
     CaptureRun activeRun(ParticipantPrincipal principal, String captureRunId) {

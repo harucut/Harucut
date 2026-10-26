@@ -59,10 +59,11 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
             + "and (j.deletedAt >= :since or j.purgedAt >= :since)")
     List<ComposeJob> findRecentlyRemovedResults(@Param("since") LocalDateTime since);
 
-    // 행사에 아직 보일 결과·진행 중 작업이 남았는가 — 없으면 보관 종료할 수 있다
-    @Query("select count(j) > 0 from ComposeJob j where j.eventId = :eventId and j.purgedAt is null and j.deletedAt is null "
-            + "and j.status in (com.harucut.media.enums.ComposeStatus.PENDING, com.harucut.media.enums.ComposeStatus.DONE)")
-    boolean hasVisibleResults(@Param("eventId") Long eventId);
+    // 행사에 아직 보일 결과·진행 중 작업이 남았는가 — 없으면 보관 종료할 수 있다.
+    // 잠금 읽기(FOR UPDATE)라 스냅샷이 아니라 최신 커밋을 보고, 아직 커밋되지 않은 접수가 있으면 끝날 때까지 기다린다
+    @Query(value = "select compose_job_id from compose_job where event_id = :eventId and purged_at is null and deleted_at is null "
+            + "and status in ('PENDING', 'DONE') limit 1 for update", nativeQuery = true)
+    List<Long> lockVisibleJobIds(@Param("eventId") Long eventId);
 
     // 보관 종료 표시 — purged_at 만 원자적으로(삭제 표시와 같은 이유: 엔티티 전체 UPDATE 가 다른 변경을 덮지 않게)
     @Modifying(flushAutomatically = true)

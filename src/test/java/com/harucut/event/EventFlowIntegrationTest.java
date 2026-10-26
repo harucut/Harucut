@@ -5,6 +5,7 @@ import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.event.dto.EventPatchRequest;
 import com.harucut.event.dto.EventResponse;
 import com.harucut.event.dto.EventSettings;
+import com.harucut.event.enums.EventKind;
 import com.harucut.event.enums.EventStatus;
 import com.harucut.event.exception.EventErrorCode;
 import com.harucut.event.repository.EventFrameRepository;
@@ -195,6 +196,42 @@ class EventFlowIntegrationTest {
                 .extracting("errorCode").isEqualTo(FrameErrorCode.VERSION_IN_USE);
     }
 
+    @Test
+    @DisplayName("상시 캠페인: 종료 시각이 있으면 게시 위반(captureEndsAt), 비우면 게시된다 — 게시 뒤 종류 변경은 GEN-002, 복제는 종류를 가져가고, 출처는 EVENT")
+    void alwaysOnCampaign() {
+        Long frameVersionId = publishedFrame(FrameType.CLASSIC);
+        EventResponse created = eventService.create(operator.getPublicId(), org.workspaceId(), new EventSettings("상시", "always-1",
+                null, java.time.OffsetDateTime.now().plusDays(30), null, null, null, null, null, null, null, null, null, EventKind.ALWAYS_ON));
+        assertThat(created.settings().kind()).isEqualTo(EventKind.ALWAYS_ON);
+        eventService.patch(operator.getPublicId(), created.eventId(), new EventPatchRequest(created.settingsVersion(), patch(Map.of(
+                "allowedLayouts", List.of("CLASSIC"),
+                "frames", List.of(Map.of("frameVersionId", frameVersionId, "layoutType", "CLASSIC", "isDefault", true)),
+                "consentItems", List.of(Map.of("code", "c", "version", 1, "title", "t", "required", true, "body", "b"))))));
+
+        assertThatThrownBy(() -> eventService.publish(operator.getPublicId(), created.eventId()))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, String>> violations = (List<Map<String, String>>) ((Map<?, ?>) e.getData()).get("violations");
+                    assertThat(violations).extracting(v -> v.get("field")).containsExactly("captureEndsAt");
+                });
+        ObjectNode clearEnd = objectMapper.createObjectNode().putNull("captureEndsAt");
+        eventService.patch(operator.getPublicId(), created.eventId(),
+                new EventPatchRequest(eventService.get(operator.getPublicId(), created.eventId()).settingsVersion(), clearEnd));
+        EventResponse live = eventService.publish(operator.getPublicId(), created.eventId());
+        assertThat(live.status()).isEqualTo(EventStatus.LIVE);
+        assertThat(live.captureOpen()).isTrue();
+
+        assertThatThrownBy(() -> eventService.patch(operator.getPublicId(), created.eventId(),
+                new EventPatchRequest(live.settingsVersion(), patch(Map.of("kind", "SCHEDULED")))))
+                .isInstanceOf(BusinessException.class).extracting("errorCode").isEqualTo(GlobalErrorCode.INVALID_INPUT_VALUE);
+        assertThat(eventService.cloneEvent(operator.getPublicId(), created.eventId(), "상시 복제", "always-2").settings().kind())
+                .isEqualTo(EventKind.ALWAYS_ON);
+        assertThat(eventService.effectiveSettings(operator.getPublicId(), created.eventId()).sources()).containsEntry("kind", "EVENT");
+        // 안 보내면 SCHEDULED
+        assertThat(eventService.create(operator.getPublicId(), org.workspaceId(), settings("기본", "scheduled-1")).settings().kind())
+                .isEqualTo(EventKind.SCHEDULED);
+    }
+
     private Long publishedFrame(FrameType type) {
         return frameVersionService.publish(operator.getPublicId(), orgFrame(type).frameId()).frameVersionId();
     }
@@ -207,7 +244,7 @@ class EventFlowIntegrationTest {
     }
 
     private static EventSettings settings(String name, String slug) {
-        return new EventSettings(name, slug, null, null, null, null, null, null, null, null, null, null, null);
+        return new EventSettings(name, slug, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private ObjectNode patch(Map<String, Object> fields) {

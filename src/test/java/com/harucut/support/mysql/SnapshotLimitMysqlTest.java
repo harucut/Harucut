@@ -117,7 +117,7 @@ class SnapshotLimitMysqlTest {
         WorkspaceResponse org = workspaceService.createOrganization(owner.getPublicId(), "부스 공간");
         Long workspaceId = grant(org, new Contract.Terms(1000, null, 1, null, EnumSet.noneOf(Feature.class)));
         EventResponse event = eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings("부스 행사", "booth-limit", null, null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("부스 행사", "booth-limit", null, null, null, null, null, null, null, null, null, null, null, null));
 
         List<Throwable> failures = raceBehindWorkspaceLock(workspaceId,
                 () -> boothDeviceService.create(owner.getPublicId(), event.eventId(), "기기 1"),
@@ -134,7 +134,7 @@ class SnapshotLimitMysqlTest {
         User owner = userRepository.save(User.localUser("owner@retention.test", "e", "오너"));
         WorkspaceResponse org = workspaceService.createOrganization(owner.getPublicId(), "보관 공간");
         EventResponse event = eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings("보관 행사", "retention-lock", null, null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("보관 행사", "retention-lock", null, null, null, null, null, null, null, null, null, null, null, null));
         Long eventId = eventRepository.findByPublicId(event.eventId()).orElseThrow().getId();
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         CountDownLatch locked = new CountDownLatch(1);
@@ -166,7 +166,7 @@ class SnapshotLimitMysqlTest {
 
     private EventResponse ready(User owner, WorkspaceResponse org, String slug, Long frameVersionId) {
         EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings(slug, slug, null, null, null, null, null, null, null, null, null, null, null));
+                new EventSettings(slug, slug, null, null, null, null, null, null, null, null, null, null, null, null));
         return eventService.patch(owner.getPublicId(), created.eventId(), new EventPatchRequest(created.settingsVersion(),
                 objectMapper.valueToTree(Map.of(
                         "allowedLayouts", List.of("CLASSIC"),

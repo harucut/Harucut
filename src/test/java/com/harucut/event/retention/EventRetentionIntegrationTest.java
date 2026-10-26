@@ -12,6 +12,7 @@ import com.harucut.event.dto.EventPatchRequest;
 import com.harucut.event.dto.EventResponse;
 import com.harucut.event.dto.EventSettings;
 import com.harucut.event.entity.Event;
+import com.harucut.event.enums.EventKind;
 import com.harucut.event.enums.EventStatus;
 import com.harucut.event.repository.EventRepository;
 import com.harucut.event.service.EventService;
@@ -223,8 +224,42 @@ class EventRetentionIntegrationTest {
         assertThat(eventRepository.findById(event.getId()).orElseThrow().getResultRetentionDays()).isEqualTo(30);
     }
 
+    @Test
+    @DisplayName("상시 캠페인은 종료 시각이 지나도 자동 보관 종료하지 않는다 — 촬영 종료(close-capture) 뒤에만, 기한 지난 결과 정리는 똑같다")
+    void alwaysOnIsNotArchivedByTime() {
+        Event campaign = publishedEvent(userRepository.save(User.localUser("c@harucut.com", "e", "캠페인")), "always-on", EventKind.ALWAYS_ON);
+        Participant campaignParticipant = participantRepository.save(Participant.byod(campaign.getId()));
+        ComposeJob old = composeJobRepository.save(ComposeJob.forParticipant(campaignParticipant.getId(), "uploads/events/c/", 1L, "c-old",
+                List.of("a", "b", "c", "d"), new ComposeSpec(2000, 6000, new BackgroundAttributes.Color("#FFF"),
+                        FrameType.CLASSIC.getLayout().slots(), List.of(false, false, false, false), List.of()),
+                campaign.getId(), null, null, 1L));
+        composeJobRepository.markDone(old.getId(), "uploads/r/c-old.jpg", ComposeStatus.PENDING, ComposeStatus.DONE);
+        entityManager.flush();
+        // 오래된 결과 + (게시 뒤 바뀐) 지난 종료 시각 — 그래도 상시 캠페인은 저절로 닫지 않는다
+        jdbcTemplate.update("update compose_job set created_at = ? where compose_job_id = ?", LocalDateTime.now().minusDays(3), old.getId());
+        jdbcTemplate.update("update event set capture_ends_at = ? where event_id = ?", LocalDateTime.now().minusDays(1), campaign.getId());
+        entityManager.clear();
+
+        EventRetentionService.Result first = retentionService.run();
+        assertThat(composeJobRepository.findById(old.getId()).orElseThrow().getPurgedAt()).isNotNull();   // 정리는 똑같다
+        assertThat(eventRepository.findById(campaign.getId()).orElseThrow().getStatus()).isEqualTo(EventStatus.LIVE);
+
+        eventService.closeCapture(campaignOwner(campaign), campaign.getPublicId());
+        retentionService.run();
+        assertThat(eventRepository.findById(campaign.getId()).orElseThrow().getStatus()).isEqualTo(EventStatus.ARCHIVED);
+        assertThat(first.purgedResults()).isGreaterThanOrEqualTo(1);
+    }
+
+    private String campaignOwner(Event event) {
+        return userRepository.findById(event.getCreatedByUserId()).orElseThrow().getPublicId();
+    }
+
     // 보관 1일·게시된 행사 — 공간마다 운영자와 이용권을 따로 만든다
     private Event publishedEvent(User owner, String slug) {
+        return publishedEvent(owner, slug, EventKind.SCHEDULED);
+    }
+
+    private Event publishedEvent(User owner, String slug, EventKind kind) {
         WorkspaceResponse org = workspaceService.createOrganization(owner.getPublicId(), "웨딩홀");
         TestEntitlements.grant(entitlementRepository, workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId());
         Long frameId = frameService.createFrame(owner.getPublicId(), new FrameCreateRequest("프레임", null,
@@ -232,7 +267,7 @@ class EventRetentionIntegrationTest {
                 new BackgroundAttributes.Color("#FFFFFF"), null, List.of(), null, org.workspaceId())).frameId();
         Long frameVersionId = frameVersionService.publish(owner.getPublicId(), frameId).frameVersionId();
         EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings("행사", slug, null, null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("행사", slug, null, null, null, null, null, null, null, null, null, null, null, kind));
         eventService.patch(owner.getPublicId(), created.eventId(), new EventPatchRequest(created.settingsVersion(),
                 objectMapper.valueToTree(Map.of(
                         "resultRetentionDays", 1,

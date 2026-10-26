@@ -64,7 +64,7 @@ class AdminSearchIntegrationTest {
     @DisplayName("행사: slug·이름 부분 일치, 공간 id·이름·상태가 함께 나온다")
     void events() {
         EventResponse event = eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings("민지 ♥ 준호", "minji-junho", null, null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("민지 ♥ 준호", "minji-junho", null, null, null, null, null, null, null, null, null, null, null, null));
 
         assertThat(searchService.events("junho")).singleElement().satisfies(e -> {
             assertThat(e.eventId()).isEqualTo(event.eventId());

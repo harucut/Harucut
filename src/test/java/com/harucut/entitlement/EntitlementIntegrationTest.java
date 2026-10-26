@@ -104,6 +104,7 @@ class EntitlementIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private EntityManager entityManager;
+    @Autowired private com.harucut.audit.repository.AuditLogRepository auditLogRepository;
 
     @MockitoBean private FileStorageService fileStorageService;
     @MockitoBean private RateLimiter rateLimiter;
@@ -355,6 +356,38 @@ class EntitlementIntegrationTest {
                 .containsExactlyInAnyOrder(plain.getPublicId(), covered.getPublicId());
     }
 
+    @Test
+    @DisplayName("한도 알림: 확정 사용량이 80·95·100% 를 처음 넘을 때 한 번씩 — 사용량 alerts[] 오름차순, 감사 로그 ENTITLEMENT_USAGE_ALERT")
+    void usageAlerts() {
+        grant(10, EnumSet.noneOf(Feature.class));
+        Event event = published("alerts");
+        Participant participant = participantRepository.save(Participant.byod(event.getId()));
+        for (int i = 1; i <= 10; i++) {
+            ComposeJob job = job(event, participant, "alert-" + i);
+            entitlementService.reserve(job.getId(), event);
+            assertThat(composeService.completeJob(job.getId(), "uploads/r/" + i + ".jpg", "uploads/r/" + i + "_thumb.jpg")).isTrue();
+            entityManager.flush();
+            entityManager.clear();
+            List<Integer> thresholds = entitlementService.usage(event).alerts().stream()
+                    .map(EntitlementDtos.EventUsage.Alert::threshold).toList();
+            if (i < 8) {
+                assertThat(thresholds).as("used=" + i).isEmpty();
+            } else if (i < 10) {
+                assertThat(thresholds).as("used=" + i).containsExactly(80);   // 9 = 90% 는 95 전
+            } else {
+                assertThat(thresholds).containsExactly(80, 95, 100);
+            }
+        }
+        assertThat(entitlementService.usage(event).alerts()).allSatisfy(a -> assertThat(a.reachedAt()).isNotNull());
+        assertThat(auditLogRepository.findAll()).filteredOn(log -> "ENTITLEMENT_USAGE_ALERT".equals(log.getAction())).hasSize(3);
+
+        // 이용권이 없으면 빈 목록
+        Event other = eventRepository.findByPublicId(ready("no-alerts").eventId()).orElseThrow();
+        entitlementRepository.findAll().forEach(e -> e.endAt(java.time.LocalDateTime.now().minusMinutes(1)));
+        entityManager.flush();
+        assertThat(entitlementService.usage(other).alerts()).isEmpty();
+    }
+
     // ── helpers ──────────────────────────────
 
     private void grant(int quota, Set<Feature> features) {
@@ -363,7 +396,7 @@ class EntitlementIntegrationTest {
 
     private EventResponse ready(String slug) {
         EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(),
-                new EventSettings("행사", slug, null, null, null, null, null, null, null, null, null, null, null));
+                new EventSettings("행사", slug, null, null, null, null, null, null, null, null, null, null, null, null));
         return eventService.patch(owner.getPublicId(), created.eventId(), new EventPatchRequest(created.settingsVersion(),
                 objectMapper.valueToTree(Map.of(
                         "allowedLayouts", List.of("CLASSIC"),

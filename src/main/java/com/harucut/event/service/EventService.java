@@ -12,6 +12,7 @@ import com.harucut.event.dto.EventPatchRequest;
 import com.harucut.event.dto.EventResponse;
 import com.harucut.event.dto.EventSettings;
 import com.harucut.event.entity.Event;
+import com.harucut.event.enums.EventKind;
 import com.harucut.event.enums.EventStatus;
 import com.harucut.event.enums.OperationPermission;
 import com.harucut.event.entity.EventExperienceVersion;
@@ -145,6 +146,7 @@ public class EventService {
         Event copy = Event.draft(source.getWorkspaceId(), newSlug, requireText(name, "name"), operated.user().getId(),
                 source.getSettingsDraft());
         copy.configure(source.getTimezone(), source.isByodEnabled(), source.isBoothEnabled(), source.getResultRetentionDays());
+        copy.changeKind(source.getKind());
         if (source.getProjectId() != null) {
             // 같은 프로젝트에 새 행사를 넣는 것이다 — 보관된 프로젝트면 PROJECT-001
             if (projectRepository.findById(source.getProjectId()).map(Project::isArchived).orElse(false)) {
@@ -284,6 +286,15 @@ public class EventService {
         }
         event.schedule(starts, ends);
 
+        if (settings.has("kind")) {
+            EventKind kind = typed.kind() == null ? EventKind.SCHEDULED : typed.kind();
+            if (kind != event.getKind() && event.getCurrentExperienceVersionId() != null) {
+                throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE,
+                        "게시한 행사의 종류는 바꿀 수 없습니다 — 게시 전 초안에서만 바꿉니다.");
+            }
+            event.changeKind(kind);
+        }
+
         // 검사를 다 마친 뒤에 바꾼다 — 거절된 요청이 엔티티에 흔적을 남기지 않게(같은 트랜잭션의 다음 작업이 보지 않게)
         Project project = settings.has("projectId") ? projectFor(event, settings.get("projectId"))
                 : event.getProjectId() == null ? null : projectRepository.findById(event.getProjectId()).orElse(null);
@@ -344,6 +355,9 @@ public class EventService {
                                                   List<Map<String, String>> violations) {
         if (!event.isByodEnabled() && !event.isBoothEnabled()) {
             violations.add(violation("byodEnabled", "개인 휴대폰·부스 중 하나 이상을 허용해야 한다"));
+        }
+        if (event.isAlwaysOn() && event.getCaptureEndsAt() != null) {
+            violations.add(violation("captureEndsAt", "상시 캠페인은 종료 시각을 두지 않는다"));
         }
         List<FrameType> layouts = orEmpty(draft.allowedLayouts());
         if (layouts.isEmpty()) {
@@ -520,6 +534,7 @@ public class EventService {
         Map<String, String> sources = new LinkedHashMap<>();
         sources.put("name", EffectiveSettingsResolver.Source.EVENT.name());
         sources.put("slug", EffectiveSettingsResolver.Source.EVENT.name());
+        sources.put("kind", EffectiveSettingsResolver.Source.EVENT.name());
         if (event.getCaptureStartsAt() != null) {
             sources.put("captureStartsAt", EffectiveSettingsResolver.Source.EVENT.name());
         }
@@ -561,7 +576,7 @@ public class EventService {
                 effective.byodEnabled(), effective.boothEnabled(), effective.resultRetentionDays(),
                 effective.orEmpty(values.allowedLayouts()), effective.orEmpty(values.frames()),
                 effective.orEmpty(values.consentItems()), values.theme(),
-                resolved.project() == null ? null : resolved.project().getPublicId());
+                resolved.project() == null ? null : resolved.project().getPublicId(), event.getKind());
     }
 
     private static EventExperienceDocument document(EffectiveSettingsResolver.Effective effective) {

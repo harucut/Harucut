@@ -305,7 +305,7 @@ class OperatorIntegrationTest {
     }
 
     private static EventSettings settings(String slug, String projectId) {
-        return new EventSettings("행사", slug, null, null, null, null, null, null, null, null, null, null, projectId);
+        return new EventSettings("행사", slug, null, null, null, null, null, null, null, null, null, null, projectId, null);
     }
 
     private EventResponse patch(User actor, EventResponse event, Map<String, Object> settings) {

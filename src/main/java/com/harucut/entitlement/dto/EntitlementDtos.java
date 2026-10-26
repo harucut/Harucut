@@ -132,7 +132,13 @@ public final class EntitlementDtos {
     @Schema(name = "EventUsage", description = "행사 사용량 — 적용 이용권이 없으면 entitlement 키가 없고 수치는 0")
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record EventUsage(Applied entitlement, int composeQuota, int used, int reserved, int remaining,
-                             Integer retentionDays, Integer maxBoothDevices) {
+                             Integer retentionDays, Integer maxBoothDevices,
+                             @Schema(description = "한도 알림 — 확정 사용량이 처음 넘은 비율(80·95·100)과 그 시각. 넘은 것만, 오름차순. 없으면 빈 목록")
+                             List<Alert> alerts) {
+
+        @Schema(name = "EventUsageAlert")
+        public record Alert(@Schema(example = "80", allowableValues = {"80", "95", "100"}) int threshold, OffsetDateTime reachedAt) {
+        }
 
         @Schema(name = "EventUsageEntitlement")
         public record Applied(EntitlementScope scope, OffsetDateTime validFrom, OffsetDateTime validTo, Set<Feature> features) {

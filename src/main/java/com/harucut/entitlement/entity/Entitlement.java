@@ -102,6 +102,16 @@ public class Entitlement extends BaseEntity {
     @Column(name = "revoke_reason", length = 500)
     private String revokeReason;
 
+    // 한도 알림(ADR-0009 §4-1) — 확정 사용량이 그 비율을 처음 넘은 시각. 조건부 UPDATE 로 한 번만 채운다
+    @Column(name = "notified_80_at")
+    private LocalDateTime notified80At;
+
+    @Column(name = "notified_95_at")
+    private LocalDateTime notified95At;
+
+    @Column(name = "notified_100_at")
+    private LocalDateTime notified100At;
+
     private Entitlement(EntitlementScope scope, Long workspaceId, Long eventId, EntitlementSource source, Long contractId,
                         Contract.Terms terms, LocalDateTime validFrom, LocalDateTime validTo, Long grantedByUserId,
                         String grantorNote) {

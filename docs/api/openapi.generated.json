@@ -1688,6 +1688,12 @@
             },
             "type" : "array"
           },
+          "kind" : {
+            "description" : "행사 종류 — SCHEDULED(정해진 기간, 기본)·ALWAYS_ON(상시 캠페인: 종료 시각을 두지 않고 close-capture 로 끝낸다). 게시 전 초안에서만 바꿀 수 있다(게시 뒤 400 GEN-002). 상속하지 않는다",
+            "enum" : [ "SCHEDULED", "ALWAYS_ON" ],
+            "example" : "SCHEDULED",
+            "type" : "string"
+          },
           "name" : {
             "description" : "행사명",
             "example" : "민지 ♥ 준호 결혼식",
@@ -1724,6 +1730,13 @@
       "EventUsage" : {
         "description" : "행사 사용량 — 적용 이용권이 없으면 entitlement 키가 없고 수치는 0",
         "properties" : {
+          "alerts" : {
+            "description" : "한도 알림 — 확정 사용량이 처음 넘은 비율(80·95·100)과 그 시각. 넘은 것만, 오름차순. 없으면 빈 목록",
+            "items" : {
+              "$ref" : "#/components/schemas/EventUsageAlert"
+            },
+            "type" : "array"
+          },
           "composeQuota" : {
             "format" : "int32",
             "type" : "integer"
@@ -1748,6 +1761,21 @@
             "type" : "integer"
           },
           "used" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "EventUsageAlert" : {
+        "properties" : {
+          "reachedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "threshold" : {
+            "enum" : [ "80", "95", "100" ],
+            "example" : 80,
             "format" : "int32",
             "type" : "integer"
           }

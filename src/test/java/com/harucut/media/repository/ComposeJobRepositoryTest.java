@@ -102,17 +102,30 @@ class ComposeJobRepositoryTest {
         }
 
         @Test
-        @DisplayName("findByUserAndIdempotencyKey가 같은 key의 재시도에게 기존 Job을 돌려준다")
+        @DisplayName("멱등 조회는 주체(scope)+key 로 — 개인 작업의 scope 는 U:{userId}")
         void findByIdempotencyKey() {
             User user = persistUser("owner@harucut.com");
             ComposeJob job = em.persist(ComposeJob.create(user, 7L, "retry-key", FOUR_KEYS, spec()));
             em.flush();
             em.clear();
 
-            assertThat(composeJobRepository.findByUserAndIdempotencyKey(user, "retry-key"))
+            assertThat(job.getIdempotencyScope()).isEqualTo("U:" + user.getId());
+            assertThat(job.getStorageRoot()).isEqualTo("uploads/users/" + user.getPublicId() + "/");
+            assertThat(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:" + user.getId(), "retry-key"))
                     .map(ComposeJob::getId).hasValue(job.getId());
-            assertThat(composeJobRepository.findByUserAndIdempotencyKey(user, "unknown-key"))
+            assertThat(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:" + user.getId(), "unknown-key"))
                     .isEmpty();
+        }
+
+        @Test
+        @DisplayName("다른 주체는 같은 key 를 써도 독립 작업이다")
+        void sameKeyDifferentScopes() {
+            User first = persistUser("a@harucut.com");
+            User second = persistUser("b@harucut.com");
+            em.persist(ComposeJob.create(first, 7L, "same-key", FOUR_KEYS, spec()));
+            em.persist(ComposeJob.create(second, 7L, "same-key", FOUR_KEYS, spec()));
+
+            org.assertj.core.api.Assertions.assertThatCode(() -> em.flush()).doesNotThrowAnyException();
         }
     }
 
@@ -301,6 +314,17 @@ class ComposeJobRepositoryTest {
             markFailed(failed, "터졌다");
 
             assertThat(stalled()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("User 가 없는 작업(행사 참가자)도 재실행 대상에 잡힌다 — inner join 이면 조용히 빠진다")
+        void picksUpJobWithoutUser() {
+            Long jobId = persistJob("idem-no-user");
+            em.getEntityManager().createNativeQuery("UPDATE compose_job SET user_id = NULL WHERE compose_job_id = ?")
+                    .setParameter(1, jobId).executeUpdate();
+            em.clear();
+
+            assertThat(stalled()).extracting(ComposeJob::getId).containsExactly(jobId);
         }
 
         @Test

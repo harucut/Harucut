@@ -4,6 +4,7 @@ import com.harucut.common.entity.BaseEntity;
 import com.harucut.media.compose.ComposeSpec;
 import com.harucut.media.converter.ComposeSpecConverter;
 import com.harucut.media.enums.ComposeStatus;
+import com.harucut.storage.util.S3Keys;
 import com.harucut.user.entity.User;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -27,11 +28,15 @@ import java.util.List;
         // ⚠️ ddl-auto가 운영은 update(Flyway 편입 전), load는 validate인데 Hibernate의 validate는 인덱스를
         //    검사하지 않는다(테이블·컬럼·타입만 본다). 이 애노테이션만으로는 기존 DB에
         //    인덱스가 생기지 않는다 — local(update)로 새로 만들거나 CREATE INDEX를 직접 쳐야 한다
-        indexes = @Index(name = "idx_compose_job_status_started_at",
-                columnList = "status, started_at"),
+        indexes = {
+                @Index(name = "idx_compose_job_status_started_at", columnList = "status, started_at"),
+                @Index(name = "idx_compose_job_user_id", columnList = "user_id")
+        },
+        // 멱등은 "같은 주체의 같은 요청"이다. 주체는 개인(U:{userId})과 행사 참가자(P:{participantId})다 —
+        // user_id 만으로는 User 가 없는 참가자 작업의 멱등을 걸 수 없다 (ADR-0007 §6)
         uniqueConstraints =
-        @UniqueConstraint(name = "uk_compose_job_user_idempotency",
-                columnNames = {"user_id", "idempotency_key"}))
+        @UniqueConstraint(name = "uk_compose_job_scope_idempotency",
+                columnNames = {"idempotency_scope", "idempotency_key"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ComposeJob extends BaseEntity {
@@ -41,9 +46,18 @@ public class ComposeJob extends BaseEntity {
     @Column(name = "compose_job_id")
     private Long id;
 
+    // 개인 작업의 소유자. 행사 참가자 작업은 NULL — 참가자는 participant 쪽으로 이어진다(P2A)
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false)
+    @JoinColumn(name = "user_id")
     private User user;
+
+    // 서버가 정규화한 멱등 범위 — 요청자가 고를 수 없다. U:{userId} / P:{participantId}
+    @Column(name = "idempotency_scope", nullable = false, length = 80)
+    private String idempotencyScope;
+
+    // 결과·썸네일을 쓸 폴더(끝에 / 포함). 재실행이 User 를 다시 읽지 않고 같은 key 를 만들게 생성 때 고정한다
+    @Column(name = "storage_root", nullable = false, length = 255)
+    private String storageRoot;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
@@ -89,9 +103,11 @@ public class ComposeJob extends BaseEntity {
     @Column(name = "started_at")
     private LocalDateTime startedAt;
 
-    private ComposeJob(User user, Long frameId, String idempotencyKey,
-                       List<String> sourceKeys, ComposeSpec spec) {
+    private ComposeJob(User user, String idempotencyScope, String storageRoot, Long frameId,
+                       String idempotencyKey, List<String> sourceKeys, ComposeSpec spec) {
         this.user = user;
+        this.idempotencyScope = idempotencyScope;
+        this.storageRoot = storageRoot;
         this.status = ComposeStatus.PENDING;
         this.idempotencyKey = idempotencyKey;
         this.frameId = frameId;
@@ -111,7 +127,12 @@ public class ComposeJob extends BaseEntity {
                 || sourceKeys.stream().anyMatch(key -> key == null || key.isBlank())) {
             throw new IllegalArgumentException("원본 사진 key는 정확히 4개여야 한다");
         }
-        return new ComposeJob(user, frameId, idempotencyKey, sourceKeys, spec);
+        return new ComposeJob(user, personalScope(user.getId()), S3Keys.userRoot(user.getPublicId()),
+                frameId, idempotencyKey, sourceKeys, spec);
+    }
+
+    public static String personalScope(Long userId) {
+        return "U:" + userId;
     }
 
     // 완료·실패 전이는 엔티티 메서드가 아니라 ComposeJobRepository 의 조건부 UPDATE 다.

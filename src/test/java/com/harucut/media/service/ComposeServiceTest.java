@@ -98,6 +98,8 @@ class ComposeServiceTest {
                 eventPublisher, new ComposeMetrics(new SimpleMeterRegistry()), fixed, JsonMapper.builder().build());
         user = User.localUser("owner@harucut.com", "encoded", "소유자");
         ReflectionTestUtils.setField(user, "id", 1L);
+        // 결과 key 는 작업이 생성 때 고정한 storage_root(= 사용자 폴더)에서 나온다
+        ReflectionTestUtils.setField(user, "publicId", PUBLIC_ID);
     }
 
     @Nested
@@ -108,7 +110,7 @@ class ComposeServiceTest {
         @DisplayName("정상 접수: Job을 저장하고 커밋 후 실행할 이벤트를 발행한다")
         void acceptsAndPublishes() {
             givenUser();
-            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+            given(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:1", IDEM_KEY))
                     .willReturn(Optional.empty());
             Frame frame = frame();
             given(frameService.getComposableFrame(user, FRAME_ID)).willReturn(frame);
@@ -139,7 +141,7 @@ class ComposeServiceTest {
         @DisplayName("원본 key가 presigned URL로 와도 정규화된 key로 저장된다")
         void sourceUrlsNormalized() {
             givenUser();
-            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+            given(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:1", IDEM_KEY))
                     .willReturn(Optional.empty());
             Frame frame = frame();
             given(frameService.getComposableFrame(user, FRAME_ID)).willReturn(frame);
@@ -161,7 +163,7 @@ class ComposeServiceTest {
         void idempotentReplay() {
             givenUser();
             ComposeJob existing = doneJob(RESULT_KEY, 42L);
-            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+            given(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:1", IDEM_KEY))
                     .willReturn(Optional.of(existing));
 
             ComposeJobResponse response =
@@ -178,7 +180,7 @@ class ComposeServiceTest {
         @DisplayName("같은 멱등 key 에 다른 원본이 오면 409 MEDIA-001 이다")
         void sameKeyDifferentSourcesConflicts() {
             givenUser();
-            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+            given(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:1", IDEM_KEY))
                     .willReturn(Optional.of(doneJob(RESULT_KEY, 42L)));
             List<String> others = List.of(SOURCE_KEYS.get(1), SOURCE_KEYS.get(0),
                     SOURCE_KEYS.get(2), SOURCE_KEYS.get(3));
@@ -194,7 +196,7 @@ class ComposeServiceTest {
         @DisplayName("같은 멱등 key 에 다른 프레임이 오면 409 다")
         void sameKeyDifferentFrameConflicts() {
             givenUser();
-            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+            given(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:1", IDEM_KEY))
                     .willReturn(Optional.of(job()));
 
             assertThatThrownBy(() -> composeService.requestCompose(PUBLIC_ID,
@@ -208,7 +210,7 @@ class ComposeServiceTest {
         @DisplayName("원본을 URL 로 감싸 보낸 재요청도 같은 요청으로 본다 — 정규화한 뒤 비교한다")
         void urlWrappedReplayMatches() {
             givenUser();
-            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+            given(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:1", IDEM_KEY))
                     .willReturn(Optional.of(job()));
             List<String> urls = SOURCE_KEYS.stream()
                     .map(key -> "https://harucut-test.s3.amazonaws.com/" + key + "?X-Amz-Signature=x")
@@ -232,7 +234,7 @@ class ComposeServiceTest {
         @DisplayName("동시 중복의 패자는 승자의 Job 을 다시 읽어 돌려받는다")
         void replayAfterConflictReturnsWinner() {
             givenUser();
-            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+            given(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:1", IDEM_KEY))
                     .willReturn(Optional.of(job()));
 
             assertThat(composeService.replayAfterConflict(PUBLIC_ID, request(SOURCE_KEYS)).jobId())
@@ -243,7 +245,7 @@ class ComposeServiceTest {
         @DisplayName("동시 중복인데 승자가 없으면 null — 다른 제약 위반이라 호출자가 원래 예외를 던진다")
         void replayAfterConflictWithoutWinner() {
             givenUser();
-            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+            given(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:1", IDEM_KEY))
                     .willReturn(Optional.empty());
 
             assertThat(composeService.replayAfterConflict(PUBLIC_ID, request(SOURCE_KEYS))).isNull();
@@ -253,7 +255,7 @@ class ComposeServiceTest {
         @DisplayName("남의 원본 key는 403 GEN-021이고 Job이 만들어지지 않는다")
         void othersSourceKeyForbidden() {
             givenUser();
-            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+            given(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:1", IDEM_KEY))
                     .willReturn(Optional.empty());
             List<String> othersKeys = List.of(
                     "uploads/users/SomeoneElse1/fourcuts/sources/1.jpg",
@@ -275,7 +277,7 @@ class ComposeServiceTest {
         @DisplayName("내 key라도 원본 폴더 밖이면 403이다 — 자기 자산 자폭 차단")
         void ownKeyOutsideSourceFolderForbidden() {
             givenUser();
-            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+            given(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:1", IDEM_KEY))
                     .willReturn(Optional.empty());
             List<String> myOtherFolderKeys = List.of(
                     "uploads/users/" + PUBLIC_ID + "/components/sticker.png",
@@ -294,7 +296,7 @@ class ComposeServiceTest {
         @DisplayName("프레임 관문의 404가 그대로 전파된다 — 남의/없는 프레임")
         void framGatePropagates() {
             givenUser();
-            given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY))
+            given(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:1", IDEM_KEY))
                     .willReturn(Optional.empty());
             given(frameService.getComposableFrame(user, FRAME_ID))
                     .willThrow(new BusinessException(GlobalErrorCode.NOT_FOUND));
@@ -433,7 +435,7 @@ class ComposeServiceTest {
     @DisplayName("합성 스펙이 spec_json(8000자)을 넘으면 저장 전에 400 FRAME-004 — DB 오류(500)가 아니다")
     void specTooLargeRejectedBeforeSave() {
         givenUser();
-        given(composeJobRepository.findByUserAndIdempotencyKey(user, IDEM_KEY)).willReturn(Optional.empty());
+        given(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:1", IDEM_KEY)).willReturn(Optional.empty());
         Frame frame = frame();
         given(frameService.getComposableFrame(user, FRAME_ID)).willReturn(frame);
         List<ComposeSpec.Layer> layers = java.util.stream.IntStream.range(0, 80)

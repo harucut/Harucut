@@ -4,6 +4,8 @@ import com.harucut.asset.entity.Asset;
 import com.harucut.asset.enums.AssetPurpose;
 import com.harucut.asset.repository.AssetRepository;
 import com.harucut.common.exception.BusinessException;
+import com.harucut.entitlement.enums.Feature;
+import com.harucut.entitlement.repository.EntitlementRepository;
 import com.harucut.event.dto.EventPatchRequest;
 import com.harucut.event.dto.EventResponse;
 import com.harucut.event.dto.EventSettings;
@@ -19,6 +21,7 @@ import com.harucut.frame.service.FrameService;
 import com.harucut.frame.service.FrameVersionService;
 import com.harucut.storage.service.FileStorageService;
 import com.harucut.storage.util.S3Keys;
+import com.harucut.support.TestEntitlements;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.dto.WorkspaceResponse;
@@ -35,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +66,7 @@ class PageThemeIntegrationTest {
     @Autowired private AssetRepository assetRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private ObjectMapper objectMapper;
+    @Autowired private EntitlementRepository entitlementRepository;
 
     @MockitoBean private FileStorageService fileStorageService;
 
@@ -74,6 +79,8 @@ class PageThemeIntegrationTest {
         given(fileStorageService.generatePresignedGetUrl(anyString())).willAnswer(i -> "https://s3/" + i.getArgument(0));
         owner = userRepository.save(User.localUser("owner@harucut.com", "e", "오너"));
         org = workspaceService.createOrganization(owner.getPublicId(), "웨딩홀");
+        // 디자인 기능만 있고 하루컷 표시 숨김(WHITE_LABEL)은 없는 이용권
+        TestEntitlements.grant(entitlementRepository, workspaceId(), 100, EnumSet.of(Feature.CUSTOM_THEME));
         Long frameId = frameService.createFrame(owner.getPublicId(), new FrameCreateRequest("프레임", null,
                 S3Keys.userRoot(owner.getPublicId()) + "frames/p.png", FrameType.CLASSIC, null, null,
                 new BackgroundAttributes.Color("#FFFFFF"), null, List.of(), null, org.workspaceId())).frameId();
@@ -141,9 +148,38 @@ class PageThemeIntegrationTest {
                 });
     }
 
+    @Test
+    @DisplayName("CUSTOM_THEME 이 없으면 디자인(색·글꼴·로고·배경)은 게시 위반, 문구만이면 게시된다")
+    void customThemeFeature() {
+        User plain = userRepository.save(User.localUser("plain@harucut.com", "e", "기본"));
+        WorkspaceResponse plainOrg = workspaceService.createOrganization(plain.getPublicId(), "기본 계약");
+        TestEntitlements.grant(entitlementRepository,
+                workspaceRepository.findByPublicId(plainOrg.workspaceId()).orElseThrow().getId(), 100, EnumSet.noneOf(Feature.class));
+        Long plainFrame = frameVersionService.publish(plain.getPublicId(), frameService.createFrame(plain.getPublicId(),
+                new FrameCreateRequest("프레임", null, S3Keys.userRoot(plain.getPublicId()) + "frames/p.png", FrameType.CLASSIC,
+                        null, null, new BackgroundAttributes.Color("#FFFFFF"), null, List.of(), null, plainOrg.workspaceId())).frameId())
+                .frameVersionId();
+
+        EventResponse designed = publishable(plain, plainOrg, plainFrame, "plain-designed", Map.of("font", "PRETENDARD"));
+        assertThatThrownBy(() -> eventService.publish(plain.getPublicId(), designed.eventId()))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, String>> violations = (List<Map<String, String>>) ((Map<?, ?>) e.getData()).get("violations");
+                    assertThat(violations).extracting(v -> v.get("field")).containsExactly("theme");
+                });
+
+        EventResponse copyOnly = publishable(plain, plainOrg, plainFrame, "plain-copy", Map.of("copy", Map.of("welcome", "어서 오세요")));
+        eventService.publish(plain.getPublicId(), copyOnly.eventId());
+        assertThat(publicEventService.getBySlug("plain-copy").theme().copy().welcome()).isEqualTo("어서 오세요");
+    }
+
     // ── helpers ──────────────────────────────
 
     private EventResponse publishable(String slug, Map<String, Object> theme) {
+        return publishable(owner, org, frameVersionId, slug, theme);
+    }
+
+    private EventResponse publishable(User owner, WorkspaceResponse org, Long frameVersionId, String slug, Map<String, Object> theme) {
         EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(),
                 new EventSettings("행사", slug, null, null, null, null, null, null, null, null, null, null));
         Map<String, Object> patch = new HashMap<>(Map.of(

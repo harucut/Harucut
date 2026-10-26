@@ -12,6 +12,7 @@ import com.harucut.booth.repository.BoothPairingRepository;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.common.utils.OpaqueTokens;
+import com.harucut.entitlement.service.EntitlementService;
 import com.harucut.event.entity.Event;
 import com.harucut.event.service.EventService;
 import com.harucut.participant.config.ParticipationProperties;
@@ -28,6 +29,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 운영자의 부스 기기 관리 (ADR-0007 §4) — 등록·연결 코드 발급·회수. 권한은 행사 공간의 OWNER·ADMIN.
@@ -49,6 +51,7 @@ public class BoothDeviceService {
     private final CaptureRunRepository captureRunRepository;
     private final ParticipantSessionRepository sessionRepository;
     private final EventService eventService;
+    private final EntitlementService entitlementService;
     private final AuditLogService auditLogService;
     private final UserRepository userRepository;
     private final ParticipationProperties properties;
@@ -56,8 +59,10 @@ public class BoothDeviceService {
 
     public BoothDtos.DeviceResponse create(String userPublicId, String eventPublicId, String name) {
         Event event = eventService.requireOperable(userPublicId, eventPublicId);
-        if (deviceRepository.countByEventIdAndStatusNot(event.getId(), BoothDeviceStatus.REVOKED)
-                >= properties.maxBoothDevicesPerEvent()) {
+        // 적용 이용권의 부스 수가 설정값을 대신한다(ADR-0008 §6-2)
+        int limit = entitlementService.applicable(event).map(e -> e.getMaxBoothDevices())
+                .filter(Objects::nonNull).orElse(properties.maxBoothDevicesPerEvent());
+        if (deviceRepository.countByEventIdAndStatusNot(event.getId(), BoothDeviceStatus.REVOKED) >= limit) {
             throw new BusinessException(BoothErrorCode.DEVICE_LIMIT);
         }
         BoothDevice device = deviceRepository.save(BoothDevice.pending(event.getWorkspaceId(), event.getId(), name.strip()));

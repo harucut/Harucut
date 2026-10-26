@@ -52,11 +52,20 @@ public class ThemeResolver {
                         branding == null ? "NONE" : or(branding.outputLogo(), "NONE")));
     }
 
-    /** 게시 검사 — 위반을 모두 모은다. whiteLabelAllowed: 이 행사에 적용되는 이용권에 WHITE_LABEL 기능이 있는가 */
-    public List<Map<String, String>> violations(PageTheme theme, Long workspaceId, boolean whiteLabelAllowed) {
+    /**
+     * 게시 검사 — 위반을 모두 모은다. customThemeAllowed·whiteLabelAllowed: 적용 이용권에 CUSTOM_THEME·WHITE_LABEL 기능이 있는가.
+     * 디자인(색·글꼴·로고·배경)은 CUSTOM_THEME 이 있어야 한다. 화면 문구는 기능 없이 쓸 수 있다.
+     */
+    public List<Map<String, String>> violations(PageTheme theme, Long workspaceId, boolean customThemeAllowed,
+                                                boolean whiteLabelAllowed) {
         List<Map<String, String>> violations = new ArrayList<>();
         if (theme == null) {
             return violations;
+        }
+        boolean designed = theme.colors() != null || theme.font() != null || theme.logoAssetId() != null
+                || theme.backgroundAssetId() != null;
+        if (designed && !customThemeAllowed) {
+            violations.add(violation("theme", "이용권 기능 CUSTOM_THEME 이 있어야 색·글꼴·로고·배경을 바꿀 수 있다"));
         }
         if (theme.schemaVersion() != null && theme.schemaVersion() != 1) {
             violations.add(violation("theme.schemaVersion", "지원하는 버전은 1 이다"));

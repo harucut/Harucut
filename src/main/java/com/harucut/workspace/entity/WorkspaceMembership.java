@@ -48,8 +48,26 @@ public class WorkspaceMembership extends BaseEntity {
         return new WorkspaceMembership(workspaceId, userId, WorkspaceRole.OWNER);
     }
 
-    // 초대 수락(P2B)이 쓸 입구 — 지금은 테스트가 다른 역할의 멤버를 만들 때 쓴다
+    // 초대 수락이 쓰는 입구
     public static WorkspaceMembership member(Long workspaceId, Long userId, WorkspaceRole role) {
         return new WorkspaceMembership(workspaceId, userId, role);
+    }
+
+    public boolean isActive() {
+        return status == MembershipStatus.ACTIVE;
+    }
+
+    public void changeRole(WorkspaceRole role) {
+        this.role = role;
+    }
+
+    public void remove() {
+        this.status = MembershipStatus.REMOVED;
+    }
+
+    // (workspace_id, user_id) 가 유니크라 내보냈던 사람을 다시 들일 때는 같은 행을 되살린다
+    public void rejoin(WorkspaceRole role) {
+        this.role = role;
+        this.status = MembershipStatus.ACTIVE;
     }
 }

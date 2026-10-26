@@ -1,5 +1,6 @@
 package com.harucut.event.service;
 
+import com.harucut.audit.service.AuditLogService;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.event.dto.EventExperienceDocument;
@@ -61,6 +62,8 @@ public class EventService {
     private final FrameVersionRepository frameVersionRepository;
     private final FrameRepository frameRepository;
     private final WorkspaceService workspaceService;
+    private final EventGrantService eventGrantService;
+    private final AuditLogService auditLogService;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -85,7 +88,10 @@ public class EventService {
         List<String> nulls = sent.propertyNames().stream().filter(name -> sent.get(name).isNull()).toList();
         nulls.forEach(sent::remove);
         apply(event, sent, true);
-        return response(eventRepository.save(event), workspace);
+        Event saved = eventRepository.save(event);
+        eventGrantService.grantCreator(saved.getId(), user.getId());
+        auditLogService.record(user.getId(), workspace.getId(), saved.getId(), "EVENT_CREATED", "EVENT", saved.getPublicId(), null);
+        return response(saved, workspace);
     }
 
     @Transactional(readOnly = true)
@@ -110,6 +116,9 @@ public class EventService {
             throw versionConflict(event);
         }
         apply(event, request.settings(), false);
+        // 바뀐 필드 이름만 남긴다 — 값(동의 문구·테마 등)은 길고 발행본에 남는다
+        auditLogService.record(operated.user().getId(), event.getWorkspaceId(), event.getId(), "EVENT_SETTINGS_CHANGED",
+                "EVENT", event.getPublicId(), Map.of("fields", request.settings().propertyNames().stream().sorted().toList()));
         return response(flush(event), operated.workspace());
     }
 
@@ -134,19 +143,21 @@ public class EventService {
                     ref.sortOrder() == null ? i : ref.sortOrder(), Boolean.TRUE.equals(ref.isDefault())));
         }
         event.publish(version.getId());
+        auditLogService.record(operated.user().getId(), event.getWorkspaceId(), event.getId(), "EVENT_PUBLISHED", "EVENT",
+                event.getPublicId(), Map.of("experienceVersion", version.getVersionNo()));
         return response(flush(event), operated.workspace());
     }
 
     public EventResponse pause(String publicId, String eventId) {
-        return transition(publicId, eventId, Event::pause);
+        return transition(publicId, eventId, Event::pause, "EVENT_PAUSED");
     }
 
     public EventResponse resume(String publicId, String eventId) {
-        return transition(publicId, eventId, Event::resume);
+        return transition(publicId, eventId, Event::resume, "EVENT_RESUMED");
     }
 
     public EventResponse closeCapture(String publicId, String eventId) {
-        return transition(publicId, eventId, Event::closeCapture);
+        return transition(publicId, eventId, Event::closeCapture, "EVENT_CAPTURE_CLOSED");
     }
 
     // ── 설정 적용 ──────────────────────
@@ -282,13 +293,16 @@ public class EventService {
 
     // ── 공통 ──────────────────────
 
-    private EventResponse transition(String publicId, String eventId, java.util.function.Consumer<Event> action) {
+    private EventResponse transition(String publicId, String eventId, java.util.function.Consumer<Event> action,
+                                     String auditAction) {
         Operated operated = operate(publicId, eventId);
         try {
             action.accept(operated.event());
         } catch (IllegalStateException e) {
             throw new BusinessException(EventErrorCode.CAPTURE_NOT_OPEN, e.getMessage());
         }
+        auditLogService.record(operated.user().getId(), operated.event().getWorkspaceId(), operated.event().getId(),
+                auditAction, "EVENT", operated.event().getPublicId(), null);
         return response(flush(operated.event()), operated.workspace());
     }
 

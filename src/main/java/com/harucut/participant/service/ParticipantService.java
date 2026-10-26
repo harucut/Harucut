@@ -2,6 +2,7 @@ package com.harucut.participant.service;
 
 import com.harucut.asset.dto.UploadIntentResponse;
 import com.harucut.asset.service.AssetService;
+import com.harucut.booth.exception.BoothErrorCode;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.common.utils.OpaqueTokens;
@@ -39,6 +40,7 @@ import com.harucut.result.dto.DownloadUrlResponse;
 import com.harucut.result.dto.ResultTokenResponse;
 import com.harucut.result.service.ResultService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -169,12 +171,33 @@ public class ParticipantService {
         Event event = requireOwnEvent(principal, eventPublicId);
         requireActive(principal);
         requireCaptureOpen(event);
-        CaptureRun run = captureRunRepository.save(CaptureRun.start(principal.participantId(), event.getId(),
-                event.getCurrentExperienceVersionId(), principal.isBooth() ? principal.boothDeviceId() : null,
-                now().plus(properties.captureRunTtl())));
+        if (principal.isBooth()) {
+            releaseExpiredBoothRun(principal.boothDeviceId());
+        }
+        CaptureRun run;
+        try {
+            run = captureRunRepository.saveAndFlush(CaptureRun.start(principal.participantId(), event.getId(),
+                    event.getCurrentExperienceVersionId(), principal.isBooth() ? principal.boothDeviceId() : null,
+                    now().plus(properties.captureRunTtl())));
+        } catch (DataIntegrityViolationException e) {
+            // 기기당 활성 회차 유니크(active_booth_device_id) — 이미 진행 중인 손님이 있다
+            throw new BusinessException(BoothErrorCode.RUN_ALREADY_ACTIVE);
+        }
         int versionNo = experienceVersionRepository.findById(run.getExperienceVersionId())
                 .map(EventExperienceVersion::getVersionNo).orElseThrow();
         return new ParticipantDtos.RunStartResponse(run.getPublicId(), versionNo, run.getStateVersion(), offset(run.getExpiresAt()));
+    }
+
+    // 기기의 활성 회차가 시간만 지나 남아 있으면 비운다 — 닫지 않고 떠난 손님 때문에 부스가 멈추지 않게.
+    // 아직 유효한 회차면 BOOTH-004
+    private void releaseExpiredBoothRun(Long boothDeviceId) {
+        captureRunRepository.findByActiveBoothDeviceId(boothDeviceId).ifPresent(existing -> {
+            if (existing.activeAt(now())) {
+                throw new BusinessException(BoothErrorCode.RUN_ALREADY_ACTIVE);
+            }
+            existing.expire(now());
+            captureRunRepository.flush();
+        });
     }
 
     @Transactional(readOnly = true)

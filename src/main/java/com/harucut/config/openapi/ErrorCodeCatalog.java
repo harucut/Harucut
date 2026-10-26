@@ -2,6 +2,7 @@ package com.harucut.config.openapi;
 
 import com.harucut.asset.exception.AssetErrorCode;
 import com.harucut.auth.exception.AuthErrorCode;
+import com.harucut.booth.exception.BoothErrorCode;
 import com.harucut.common.exception.ErrorCode;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.coupon.exception.CouponErrorCode;
@@ -48,6 +49,7 @@ public final class ErrorCodeCatalog {
                     CouponErrorCode.values(),
                     MediaErrorCode.values(),
                     AssetErrorCode.values(),
+                    BoothErrorCode.values(),
                     DraftErrorCode.values(),
                     EventErrorCode.values(),
                     ParticipantErrorCode.values(),

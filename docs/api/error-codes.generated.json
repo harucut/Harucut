@@ -87,6 +87,30 @@
   "status" : 500,
   "message" : "Failed to unlink OAuth2 provider account."
 }, {
+  "code" : "BOOTH-001",
+  "status" : 400,
+  "message" : "The pairing code is wrong or expired."
+}, {
+  "code" : "BOOTH-002",
+  "status" : 410,
+  "message" : "The pairing was closed after too many failed attempts."
+}, {
+  "code" : "BOOTH-003",
+  "status" : 403,
+  "message" : "The booth device is revoked, unassigned or its token is invalid."
+}, {
+  "code" : "BOOTH-004",
+  "status" : 409,
+  "message" : "The booth device already has an active capture run."
+}, {
+  "code" : "BOOTH-005",
+  "status" : 409,
+  "message" : "The capture run state version does not match."
+}, {
+  "code" : "BOOTH-006",
+  "status" : 403,
+  "message" : "The event has reached its booth device limit."
+}, {
   "code" : "COUPON-001",
   "status" : 404,
   "message" : "The requested coupon does not exist."

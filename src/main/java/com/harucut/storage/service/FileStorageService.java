@@ -7,6 +7,7 @@ import com.harucut.storage.dto.PresignedUploadResponse;
 import com.harucut.storage.enums.ContentType;
 import com.harucut.storage.enums.UploadType;
 
+import java.io.InputStream;
 import java.time.Duration;
 import java.util.Optional;
 
@@ -19,6 +20,12 @@ public interface FileStorageService {
     String generatePresignedGetUrl(String key);
 
     String generatePresignedDownloadUrl(String key, String downloadFileName);
+
+    /** 큰 객체를 흘려 읽는다 — 닫는 것은 호출자 몫 */
+    InputStream openStream(String key);
+
+    /** 큰 객체를 흘려 올린다(S3 multipart). close 가 완료, 실패하면 abort 를 부른다 */
+    S3MultipartOutputStream openMultipartUpload(String key, String contentType);
 
     /** 파일 이름(RFC 5987)을 붙인 짧은 다운로드 URL — 사진함·ZIP 처럼 수명을 따로 정하는 곳 */
     String generatePresignedDownloadUrl(String key, String downloadFileName, Duration ttl);

@@ -6,6 +6,7 @@ import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.event.dto.PhotoDtos;
 import com.harucut.event.entity.Event;
 import com.harucut.event.enums.PhotoPermission;
+import com.harucut.export.service.ExportService;
 import com.harucut.media.entity.ComposeJob;
 import com.harucut.media.enums.ComposeStatus;
 import com.harucut.media.repository.ComposeJobRepository;
@@ -51,6 +52,7 @@ public class PhotoService {
     private final StorageProperties storageProperties;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
+    private final ExportService exportService;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -95,6 +97,7 @@ public class PhotoService {
         if (composeJobRepository.markDeleted(job.getId(), LocalDateTime.now(clock)) != 1) {
             throw new BusinessException(GlobalErrorCode.NOT_FOUND);   // 동시에 다른 삭제가 먼저 했다
         }
+        exportService.invalidateContaining(job.getId());   // 이 사진을 담은 묶음은 더는 받을 수 없다
         // 읽은 뒤 완료됐을 수 있다 — 잠금 읽기로 지금 결과 key 를 다시 본다. 아직 없으면 완료 쪽이 지운다(ComposeService.completeJob)
         String resultKey = composeJobRepository.lockResultKey(job.getId()).stream().filter(Objects::nonNull).findFirst().orElse(null);
         if (resultKey != null) {

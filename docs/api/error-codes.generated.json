@@ -127,6 +127,26 @@
   "status" : 413,
   "message" : "The draft document is too large."
 }, {
+  "code" : "EVENT-001",
+  "status" : 409,
+  "message" : "The event is not open for capture."
+}, {
+  "code" : "EVENT-002",
+  "status" : 403,
+  "message" : "This participation channel is not allowed for the event."
+}, {
+  "code" : "EVENT-003",
+  "status" : 400,
+  "message" : "The event settings cannot be published."
+}, {
+  "code" : "EVENT-004",
+  "status" : 409,
+  "message" : "The event slug is already in use."
+}, {
+  "code" : "EVENT-005",
+  "status" : 409,
+  "message" : "The event settings were modified by another save."
+}, {
   "code" : "FRAME-001",
   "status" : 404,
   "message" : "The requested system frame does not exist."
@@ -146,6 +166,10 @@
   "code" : "FRAME-005",
   "status" : 400,
   "message" : "The referenced asset cannot be used in this frame."
+}, {
+  "code" : "FRAME-006",
+  "status" : 409,
+  "message" : "A published version of this frame is used by an event."
 }, {
   "code" : "GEN-001",
   "status" : 400,

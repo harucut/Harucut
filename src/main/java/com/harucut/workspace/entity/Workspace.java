@@ -44,6 +44,15 @@ public class Workspace extends BaseEntity {
         this.personalOwnerUserId = personalOwnerUserId;
     }
 
+    // 행사·기업이 쓰는 공유 공간. 만든 사람이 OWNER 멤버가 된다 — 소유자 컬럼은 PERSONAL 전용이라 비워 둔다
+    public static Workspace organization(String name) {
+        return new Workspace(WorkspaceType.ORGANIZATION, name, null);
+    }
+
+    public boolean isPersonal() {
+        return type == WorkspaceType.PERSONAL;
+    }
+
     public static Workspace personal(Long ownerUserId) {
         if (ownerUserId == null) {
             throw new IllegalArgumentException("개인 공간에는 소유자가 필요하다");

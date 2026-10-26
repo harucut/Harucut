@@ -2,14 +2,20 @@ package com.harucut.workspace.controller;
 
 import com.harucut.auth.security.AuthenticatedUser;
 import com.harucut.common.response.Response;
+import com.harucut.workspace.dto.WorkspaceCreateRequest;
 import com.harucut.workspace.dto.WorkspaceResponse;
 import com.harucut.workspace.service.WorkspaceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -31,5 +37,18 @@ public class WorkspaceController {
     @GetMapping
     public Response<List<WorkspaceResponse>> listMine(@AuthenticationPrincipal AuthenticatedUser principal) {
         return Response.ok(workspaceService.listMine(principal.publicId()));
+    }
+
+    @Operation(
+            summary = "조직 공간 만들기",
+            description = """
+                    행사를 운영할 공유 공간. 만든 사람이 OWNER 가 된다. **행사는 조직 공간에만 만들 수 있다** —
+                    개인 공간은 회원 탈퇴 때 통째로 지워지기 때문이다. 행사에 쓸 프레임도 이 공간에 만든다(`workspaceId`).
+                    """)
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public Response<WorkspaceResponse> createOrganization(@AuthenticationPrincipal AuthenticatedUser principal,
+                                                          @RequestBody @Valid WorkspaceCreateRequest request) {
+        return Response.ok(workspaceService.createOrganization(principal.publicId(), request.name()));
     }
 }

@@ -21,6 +21,10 @@ public interface FrameVersionRepository extends JpaRepository<FrameVersion, Long
     @Query("select v.id from FrameVersion v where v.frameId in :frameIds")
     List<Long> findIdsByFrameIdIn(Collection<Long> frameIds);
 
+    // 행사 발행본(event_frame)이 쓰는 발행본 수. event 패키지에 의존하지 않으려고 네이티브로 센다
+    @Query(value = "select count(*) from event_frame where frame_version_id in (:ids)", nativeQuery = true)
+    long countUsedByEvents(Collection<Long> ids);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("delete from FrameVersion v where v.id in :ids")
     void deleteByIdIn(Collection<Long> ids);

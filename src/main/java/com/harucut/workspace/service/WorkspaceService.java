@@ -84,6 +84,28 @@ public class WorkspaceService {
         return workspace;
     }
 
+    /**
+     * 조직 공간을 만든다. 만든 사람이 OWNER. 행사는 조직 공간에만 만들 수 있다 — 개인 공간은 회원 탈퇴 때 통째로
+     * 지워지는데, 행사 사진을 개인 탈퇴로 연쇄 삭제하지 않기 위해서다(R5 14절). 계약 CMS(P2B) 전의 최소 경로다.
+     */
+    public WorkspaceResponse createOrganization(String publicId, String name) {
+        User user = getUser(publicId);
+        Workspace workspace = workspaceRepository.save(Workspace.organization(name));
+        membershipRepository.save(WorkspaceMembership.owner(workspace.getId(), user.getId()));
+        return WorkspaceResponse.of(workspace, WorkspaceRole.OWNER);
+    }
+
+    /** 내부 id 로 권한을 본다. 없거나 역할이 모자라면 404 */
+    @Transactional(readOnly = true)
+    public Workspace requireRole(Long workspaceId, Long userId, Collection<WorkspaceRole> allowed) {
+        Workspace workspace = workspaceRepository.findById(workspaceId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        membershipRepository.findByWorkspaceIdAndUserIdAndStatus(workspaceId, userId, MembershipStatus.ACTIVE)
+                .filter(m -> allowed.contains(m.getRole()))
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        return workspace;
+    }
+
     /** 이 공간의 활성 멤버인가. 자산·초안처럼 공간 id 를 이미 가진 행의 접근 판정에 쓴다 */
     @Transactional(readOnly = true)
     public boolean isMember(Long workspaceId, Long userId) {

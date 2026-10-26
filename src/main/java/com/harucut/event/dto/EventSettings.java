@@ -1,0 +1,72 @@
+package com.harucut.event.dto;
+
+import com.harucut.frame.enums.FrameType;
+import io.swagger.v3.oas.annotations.media.Schema;
+import tools.jackson.databind.JsonNode;
+
+import java.time.OffsetDateTime;
+import java.util.List;
+
+/**
+ * 행사 설정(초안). 만들 때는 name·slug 만 필수이고, 수정(PATCH)은 보낸 필드만 바꾼다.
+ * 허용 레이아웃·프레임·동의 항목·테마는 게시할 때 경험 발행본으로 굳는다 (ADR-0007 §4).
+ */
+@Schema(description = "행사 설정")
+public record EventSettings(
+        @Schema(description = "행사명", example = "민지 ♥ 준호 결혼식")
+        String name,
+
+        @Schema(description = "입장 주소 /e/{slug}. 영문 소문자·숫자·하이픈 3~40자. **게시 후에는 바꿀 수 없다**",
+                example = "wedding-1027")
+        String slug,
+
+        @Schema(description = "촬영 시작 시각(없으면 게시 즉시)")
+        OffsetDateTime captureStartsAt,
+
+        @Schema(description = "촬영 종료 시각(없으면 상시형 — close-capture 로 끝낸다)")
+        OffsetDateTime captureEndsAt,
+
+        @Schema(description = "표시용 시간대", example = "Asia/Seoul")
+        String timezone,
+
+        @Schema(description = "개인 휴대폰 링크·QR 참가 허용", example = "true")
+        Boolean byodEnabled,
+
+        @Schema(description = "현장 부스 참가 허용", example = "false")
+        Boolean boothEnabled,
+
+        @Schema(description = "결과 보관 일수 — 결과 링크·재다운로드가 이 기간 동안 열린다", example = "30")
+        Integer resultRetentionDays,
+
+        @Schema(description = "허용 레이아웃(기존 네 종류의 부분집합)")
+        List<FrameType> allowedLayouts,
+
+        @Schema(description = "제공할 프레임 발행본 — 허용 레이아웃마다 하나 이상, 기본값은 전체에서 정확히 하나")
+        List<FrameRef> frames,
+
+        @Schema(description = "참가 동의 항목 — 사진 수신 주체·목적·보관 안내를 담는다. 하나 이상")
+        List<ConsentItem> consentItems,
+
+        @Schema(description = "페이지 테마(P2A 는 자리표시자 — 서버는 해석하지 않는다)")
+        JsonNode theme
+) {
+
+    @Schema(description = "제공 프레임 발행본")
+    public record FrameRef(
+            @Schema(description = "프레임 발행본 ID", example = "41") Long frameVersionId,
+            @Schema(description = "이 발행본의 레이아웃 — 발행본의 frameType 과 같아야 한다", example = "CLASSIC") FrameType layoutType,
+            @Schema(description = "표시 순서", example = "1") Integer sortOrder,
+            @Schema(description = "기본 선택", example = "true") Boolean isDefault
+    ) {
+    }
+
+    @Schema(description = "참가 동의 항목")
+    public record ConsentItem(
+            @Schema(description = "항목 코드", example = "photo-collection") String code,
+            @Schema(description = "항목 버전 — 문구를 바꾸면 올린다", example = "1") Integer version,
+            @Schema(description = "제목", example = "사진 수집·이용 동의") String title,
+            @Schema(description = "필수 여부", example = "true") Boolean required,
+            @Schema(description = "본문 — 사진을 받는 주체·목적·보관 기간") String body
+    ) {
+    }
+}

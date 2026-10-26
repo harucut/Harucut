@@ -17,7 +17,9 @@ public enum FrameErrorCode implements ErrorCode {
     // 합성 스냅샷(spec_json)에 담기지 않는 크기 — DB 오류(500)로 죽기 전에 설명 가능한 4xx 로 끊는다
     SPEC_TOO_LARGE("FRAME-004", HttpStatus.BAD_REQUEST, "The frame is too large to compose."),
     // 남의 공간·미검증·용도 불일치 자산
-    ASSET_NOT_USABLE("FRAME-005", HttpStatus.BAD_REQUEST, "The referenced asset cannot be used in this frame.");
+    ASSET_NOT_USABLE("FRAME-005", HttpStatus.BAD_REQUEST, "The referenced asset cannot be used in this frame."),
+    // 이 프레임의 발행본을 행사가 쓰고 있다 — 행사 경험을 다시 게시해 빼거나 행사를 정리한 뒤 지운다
+    VERSION_IN_USE("FRAME-006", HttpStatus.CONFLICT, "A published version of this frame is used by an event.");
 
     private final String code;
     private final HttpStatus httpStatus;

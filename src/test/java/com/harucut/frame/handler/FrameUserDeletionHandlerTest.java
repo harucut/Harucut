@@ -2,6 +2,8 @@ package com.harucut.frame.handler;
 
 import com.harucut.draft.service.FrameDraftCleaner;
 import com.harucut.frame.entity.Frame;
+import com.harucut.workspace.entity.Workspace;
+import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.frame.repository.FrameRepository;
 import com.harucut.frame.service.FrameVersionCleaner;
 import com.harucut.frame.service.FrameComponentAssembler;
@@ -28,6 +30,9 @@ class FrameUserDeletionHandlerTest {
     private FrameRepository frameRepository;
 
     @Mock
+    private WorkspaceRepository workspaceRepository;
+
+    @Mock
     private FrameComponentAssembler frameComponentAssembler;
 
     @Mock
@@ -44,7 +49,7 @@ class FrameUserDeletionHandlerTest {
     void collectsAllKeys() {
         Frame frame1 = mock(Frame.class);
         Frame frame2 = mock(Frame.class);
-        given(frameRepository.findAllWithComponentsByUserId(1L)).willReturn(List.of(frame1, frame2));
+        given(frameRepository.findPersonalWithComponents(1L, null)).willReturn(List.of(frame1, frame2));
         given(frameComponentAssembler.collectAllKeys(frame1)).willReturn(List.of("k1", "k2"));
         given(frameComponentAssembler.collectAllKeys(frame2)).willReturn(List.of("k3"));
 
@@ -54,15 +59,30 @@ class FrameUserDeletionHandlerTest {
     }
 
     @Test
-    @DisplayName("컴포넌트가 프레임보다 먼저 지워진다")
-    void deletesComponentsFirst() {
-        given(frameRepository.findAllWithComponentsByUserId(1L)).willReturn(List.of());
+    @DisplayName("지울 프레임이 없으면 삭제 쿼리를 내지 않는다")
+    void noFramesNoDelete() {
+        given(frameRepository.findPersonalWithComponents(1L, null)).willReturn(List.of());
+
+        handler.handleUserDeletion(1L);
+
+        then(frameRepository).should(org.mockito.Mockito.never()).deleteByIdIn(org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
+    @DisplayName("개인 공간의 프레임만 지운다 — 컴포넌트를 먼저, 프레임을 나중에(FK)")
+    void deletesPersonalFramesComponentsFirst() {
+        Workspace personal = Workspace.personal(1L);
+        org.springframework.test.util.ReflectionTestUtils.setField(personal, "id", 10L);
+        given(workspaceRepository.findByPersonalOwnerUserId(1L)).willReturn(java.util.Optional.of(personal));
+        Frame frame = mock(Frame.class);
+        given(frame.getId()).willReturn(7L);
+        given(frameRepository.findPersonalWithComponents(1L, 10L)).willReturn(List.of(frame));
 
         handler.handleUserDeletion(1L);
 
         InOrder order = inOrder(frameRepository);
-        order.verify(frameRepository).deleteComponentsByUserId(1L);
-        order.verify(frameRepository).deleteByUserId(1L);
+        order.verify(frameRepository).deleteComponentsByFrameIdIn(List.of(7L));
+        order.verify(frameRepository).deleteByIdIn(List.of(7L));
     }
 
     @Test
@@ -70,13 +90,13 @@ class FrameUserDeletionHandlerTest {
     void deletesVersionsAndDraftsBeforeFrames() {
         Frame frame = mock(Frame.class);
         given(frame.getId()).willReturn(7L);
-        given(frameRepository.findAllWithComponentsByUserId(1L)).willReturn(List.of(frame));
+        given(frameRepository.findPersonalWithComponents(1L, null)).willReturn(List.of(frame));
 
         handler.handleUserDeletion(1L);
 
         InOrder order = inOrder(frameVersionCleaner, frameDraftCleaner, frameRepository);
         order.verify(frameVersionCleaner).deleteForFrames(List.of(7L));
         order.verify(frameDraftCleaner).deleteForUser(1L);
-        order.verify(frameRepository).deleteByUserId(1L);
+        order.verify(frameRepository).deleteByIdIn(List.of(7L));
     }
 }

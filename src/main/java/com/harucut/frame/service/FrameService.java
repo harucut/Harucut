@@ -11,6 +11,7 @@ import com.harucut.frame.repository.FrameRepository;
 import com.harucut.subscription.exception.SubscriptionErrorCode;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
+import com.harucut.workspace.enums.WorkspaceRole;
 import com.harucut.workspace.service.WorkspaceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -18,12 +19,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 
 @Service
 @Transactional
 @RequiredArgsConstructor
 public class FrameService {
+
+    private static final Set<WorkspaceRole> FRAME_EDIT_ROLES =
+            Set.of(WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.DESIGNER);
 
     private final FrameRepository frameRepository;
     private final UserRepository userRepository;
@@ -38,7 +43,9 @@ public class FrameService {
         frameSubscriptionPolicy.assertFrameRetentionLimit(user.getId(), (int) frameRepository.countByUser(user));
 
         Frame frame = frameComponentAssembler.assembleOwned(user, request);
-        frame.assignWorkspace(workspaceService.personalWorkspaceOf(user.getId()).getId());
+        frame.assignWorkspace(request.workspaceId() == null
+                ? workspaceService.personalWorkspaceOf(user.getId()).getId()
+                : workspaceService.requireRole(request.workspaceId(), user.getId(), FRAME_EDIT_ROLES).getId());
         return frameComponentAssembler.toFrameResponse(frameRepository.save(frame));
     }
 

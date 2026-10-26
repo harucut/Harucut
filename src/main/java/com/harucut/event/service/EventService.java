@@ -13,6 +13,7 @@ import com.harucut.event.dto.EventResponse;
 import com.harucut.event.dto.EventSettings;
 import com.harucut.event.entity.Event;
 import com.harucut.event.enums.EventStatus;
+import com.harucut.event.enums.OperationPermission;
 import com.harucut.event.entity.EventExperienceVersion;
 import com.harucut.event.entity.EventFrame;
 import com.harucut.event.exception.EventErrorCode;
@@ -26,6 +27,7 @@ import com.harucut.frame.repository.FrameRepository;
 import com.harucut.frame.repository.FrameVersionRepository;
 import com.harucut.project.entity.Project;
 import com.harucut.project.exception.ProjectErrorCode;
+import com.harucut.project.repository.ProjectMembershipRepository;
 import com.harucut.project.repository.ProjectRepository;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
@@ -65,6 +67,8 @@ import java.util.regex.Pattern;
 public class EventService {
 
     private static final Set<WorkspaceRole> OPERATOR_ROLES = Set.of(WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
+    // 공간의 행사 목록·행사 만들기를 부를 수 있는 역할 — OPERATOR 는 그 안에서 다시 배정·프로젝트 권한으로 거른다
+    private static final Set<WorkspaceRole> MEMBER_OPERATOR_ROLES = Set.of(WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.OPERATOR);
     private static final Pattern SLUG = Pattern.compile("^[a-z0-9-]{3,40}$");
 
     private final EventRepository eventRepository;
@@ -85,13 +89,22 @@ public class EventService {
     private final EntityManager entityManager;
     private final ProjectRepository projectRepository;
     private final EffectiveSettingsResolver settingsResolver;
+    private final EventAccessPolicy accessPolicy;
+    private final ProjectMembershipRepository projectMembershipRepository;
 
     public EventResponse create(String publicId, String workspacePublicId, EventSettings settings) {
         User user = getUser(publicId);
-        Workspace workspace = workspaceService.requireRole(workspacePublicId, user.getId(), OPERATOR_ROLES);
+        Workspace workspace = workspaceService.requireRole(workspacePublicId, user.getId(), MEMBER_OPERATOR_ROLES);
         if (workspace.isPersonal()) {
             // 개인 공간은 회원 탈퇴 때 통째로 지워진다 — 행사 사진을 개인 탈퇴로 연쇄 삭제하지 않는다(R5 14절)
             throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "행사는 조직 공간에만 만들 수 있습니다.");
+        }
+        // OPERATOR 는 MANAGE_EVENT 를 받은 프로젝트 안에서만 만든다(그 프로젝트 권한으로 새 행사도 운영한다)
+        boolean admin = isAdmin(workspace.getId(), user.getId());
+        if (!admin) {
+            Long projectId = settings.projectId() == null ? null : projectRepository.findByPublicId(settings.projectId())
+                    .filter(p -> p.getWorkspaceId().equals(workspace.getId())).map(Project::getId).orElse(null);
+            requireProjectOperation(projectId, user.getId());
         }
         requireText(settings.name(), "name");
         String slug = requireSlug(settings.slug());
@@ -105,9 +118,11 @@ public class EventService {
         ObjectNode sent = objectMapper.valueToTree(settings);
         List<String> nulls = sent.propertyNames().stream().filter(name -> sent.get(name).isNull()).toList();
         nulls.forEach(sent::remove);
-        apply(event, sent, true, workspace);
+        apply(event, sent, true, workspace, true);
         Event saved = eventRepository.save(event);
-        eventGrantService.grantCreator(saved.getId(), user.getId());
+        if (admin) {
+            eventGrantService.grantCreator(saved.getId(), user.getId());
+        }
         auditLogService.record(user.getId(), workspace.getId(), saved.getId(), "EVENT_CREATED", "EVENT", saved.getPublicId(), null);
         return response(saved, workspace);
     }
@@ -117,8 +132,12 @@ public class EventService {
      * 일정은 복제하지 않는다(다시 정하고 게시). 사진·참가자·세션·결과 토큰·고객 초대·권한·동의 기록·부스는 복제하지 않는다.
      */
     public EventResponse cloneEvent(String publicId, String eventId, String name, String slug) {
-        Operated operated = operate(publicId, eventId);
+        Operated operated = operate(publicId, eventId, OperationPermission.MANAGE_EVENT);
         Event source = operated.event();
+        if (!operated.admin()) {
+            // 복제본은 같은 프로젝트에 생긴다 — 프로젝트 권한이 있어야 새 행사도 운영할 수 있다
+            requireProjectOperation(source.getProjectId(), operated.user().getId());
+        }
         String newSlug = requireSlug(slug);
         if (eventRepository.existsBySlug(newSlug)) {
             throw new BusinessException(EventErrorCode.SLUG_TAKEN);
@@ -134,7 +153,9 @@ public class EventService {
             copy.assignProject(source.getProjectId());
         }
         Event saved = eventRepository.save(copy);
-        eventGrantService.grantCreator(saved.getId(), operated.user().getId());
+        if (operated.admin()) {
+            eventGrantService.grantCreator(saved.getId(), operated.user().getId());
+        }
         auditLogService.record(operated.user().getId(), saved.getWorkspaceId(), saved.getId(), "EVENT_CLONED", "EVENT",
                 saved.getPublicId(), Map.of("from", source.getPublicId()));
         return response(saved, operated.workspace());
@@ -143,25 +164,28 @@ public class EventService {
     @Transactional(readOnly = true)
     public List<EventResponse> list(String publicId, String workspacePublicId) {
         User user = getUser(publicId);
-        Workspace workspace = workspaceService.requireRole(workspacePublicId, user.getId(), OPERATOR_ROLES);
+        Workspace workspace = workspaceService.requireRole(workspacePublicId, user.getId(), MEMBER_OPERATOR_ROLES);
+        boolean admin = isAdmin(workspace.getId(), user.getId());
+        // OPERATOR 는 운영 권한(행사·프로젝트)이 하나라도 있는 행사만
         return eventRepository.findAllByWorkspaceIdOrderByCreatedAtDesc(workspace.getId()).stream()
+                .filter(event -> admin || !accessPolicy.accessOf(event, user.getId()).operations().isEmpty())
                 .map(event -> response(event, workspace))
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public EventResponse get(String publicId, String eventId) {
-        Operated operated = operate(publicId, eventId);
+        Operated operated = operate(publicId, eventId, null);
         return response(operated.event(), operated.workspace());
     }
 
     public EventResponse patch(String publicId, String eventId, EventPatchRequest request) {
-        Operated operated = operate(publicId, eventId);
+        Operated operated = operate(publicId, eventId, OperationPermission.MANAGE_EVENT);
         Event event = operated.event();
         if (request.settingsVersion() != event.getSettingsVersion()) {
             throw versionConflict(event);
         }
-        apply(event, request.settings(), false, operated.workspace());
+        apply(event, request.settings(), false, operated.workspace(), operated.admin());
         // 바뀐 필드 이름만 남긴다 — 값(동의 문구·테마 등)은 길고 발행본에 남는다
         auditLogService.record(operated.user().getId(), event.getWorkspaceId(), event.getId(), "EVENT_SETTINGS_CHANGED",
                 "EVENT", event.getPublicId(), Map.of("fields", request.settings().propertyNames().stream().sorted().toList()));
@@ -169,7 +193,7 @@ public class EventService {
     }
 
     public EventResponse publish(String publicId, String eventId) {
-        Operated operated = operate(publicId, eventId);
+        Operated operated = operate(publicId, eventId, OperationPermission.MANAGE_EVENT);
         Event event = operated.event();
         // 같은 행사의 게시를 줄 세운다 — 행사 행을 쓰기 잠금으로 다시 읽고(refresh), 그사이 다른 저장·게시가 커밋됐으면 409.
         // 잠그지 않으면 두 게시의 경험 버전 insert(FK 공유 잠금)와 행사 UPDATE 가 엇갈려 교착·유니크 위반으로 500 이 난다.
@@ -233,7 +257,8 @@ public class EventService {
     // 상속 가능한 필드는 행사의 「직접 값」(settings_draft)에 넣고 뺀다 — null 이면 빼서 위 단계 값을 따른다(ADR-0009 §2-1).
     // 컬럼(지금 적용되는 값)은 만들 때·프로젝트를 바꿀 때·그 필드를 직접 바꿀 때만 유효값으로 다시 계산한다 — 다른 필드를 저장했다고
     // 그사이 바뀐 상위 기본값이 운영 중 행사에 끌려 들어오지 않게
-    private void apply(Event event, ObjectNode settings, boolean creating, Workspace workspace) {
+    // admin = 공간 OWNER·ADMIN(또는 만들기에서 이미 검사를 마침) — 프로젝트를 바꾸는 것은 이들만 한다
+    private void apply(Event event, ObjectNode settings, boolean creating, Workspace workspace, boolean admin) {
         if (!creating && settings.has("name")) {
             event.rename(requireText(settings.get("name").isNull() ? null : settings.get("name").asString(), "name"));
         }
@@ -264,6 +289,9 @@ public class EventService {
                 : event.getProjectId() == null ? null : projectRepository.findById(event.getProjectId()).orElse(null);
         Long projectId = project == null ? null : project.getId();
         boolean projectChanged = !Objects.equals(projectId, event.getProjectId());
+        if (projectChanged && !admin) {
+            throw new BusinessException(GlobalErrorCode.FORBIDDEN, "행사의 프로젝트는 공간 OWNER·ADMIN 만 바꿀 수 있습니다.");
+        }
 
         Set<String> touched = new HashSet<>(EffectiveSettingsResolver.KEYS);
         touched.retainAll(settings.propertyNames());
@@ -420,7 +448,7 @@ public class EventService {
 
     private EventResponse transition(String publicId, String eventId, java.util.function.Consumer<Event> action,
                                      String auditAction) {
-        Operated operated = operate(publicId, eventId);
+        Operated operated = operate(publicId, eventId, OperationPermission.MANAGE_EVENT);
         try {
             action.accept(operated.event());
         } catch (IllegalStateException e) {
@@ -431,10 +459,10 @@ public class EventService {
         return response(flush(operated.event()), operated.workspace());
     }
 
-    /** 부스 기기 관리처럼 행사를 운영하는 다른 기능의 관문 — 그 공간의 OWNER·ADMIN. 아니면 404 */
+    /** 부스 기기 관리의 관문 — MANAGE_BOOTH(공간 OWNER·ADMIN 은 늘 가진다). 볼 수 없으면 404, 권한이 없으면 403 GEN-021 */
     @Transactional(readOnly = true)
     public Event requireOperable(String userPublicId, String eventPublicId) {
-        return operate(userPublicId, eventPublicId).event();
+        return operate(userPublicId, eventPublicId, OperationPermission.MANAGE_BOOTH).event();
     }
 
     /** 내부 id 판 — 기기처럼 행사 id 를 이미 가진 행에서 */
@@ -442,16 +470,31 @@ public class EventService {
     public Event requireOperable(String userPublicId, Long eventId) {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
-        workspaceService.requireRole(event.getWorkspaceId(), getUser(userPublicId).getId(), OPERATOR_ROLES);
+        accessPolicy.requireOperation(event, getUser(userPublicId).getId(), OperationPermission.MANAGE_BOOTH);
         return event;
     }
 
-    private Operated operate(String publicId, String eventId) {
+    // 운영 관문 — operation 이 null 이면 운영 권한이 하나라도 있으면 된다(조회·미리보기)
+    private Operated operate(String publicId, String eventId, OperationPermission operation) {
         User user = getUser(publicId);
         Event event = eventRepository.findByPublicId(eventId)
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
-        Workspace workspace = workspaceService.requireRole(event.getWorkspaceId(), user.getId(), OPERATOR_ROLES);
-        return new Operated(user, event, workspace);
+        EventAccessPolicy.Access access = accessPolicy.requireOperation(event, user.getId(), operation);
+        Workspace workspace = workspaceRepository.findById(event.getWorkspaceId()).orElseThrow();
+        return new Operated(user, event, workspace, access.admin());
+    }
+
+    private boolean isAdmin(Long workspaceId, Long userId) {
+        return workspaceService.roleOf(workspaceId, userId).filter(OPERATOR_ROLES::contains).isPresent();
+    }
+
+    // OPERATOR 가 프로젝트 단위로 행사를 만들 수 있는가 — 그 프로젝트의 MANAGE_EVENT. 아니면 403 GEN-021
+    private void requireProjectOperation(Long projectId, Long userId) {
+        boolean allowed = projectId != null && projectMembershipRepository.findByProjectIdAndUserId(projectId, userId)
+                .filter(m -> m.getOperations().contains(OperationPermission.MANAGE_EVENT)).isPresent();
+        if (!allowed) {
+            throw new BusinessException(GlobalErrorCode.FORBIDDEN, "MANAGE_EVENT 를 받은 프로젝트 안에서만 행사를 만들 수 있습니다.");
+        }
     }
 
     private Event flush(Event event) {
@@ -471,7 +514,7 @@ public class EventService {
     /** 유효 설정 미리보기(ADR-0009 §2-2) — 게시와 같은 계산, 값이 있는 경로마다 출처 */
     @Transactional(readOnly = true)
     public EffectiveSettingsResponse effectiveSettings(String publicId, String eventId) {
-        Operated operated = operate(publicId, eventId);
+        Operated operated = operate(publicId, eventId, null);
         Event event = operated.event();
         Resolved resolved = effective(event, operated.workspace());
         Map<String, String> sources = new LinkedHashMap<>();
@@ -571,6 +614,6 @@ public class EventService {
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
     }
 
-    private record Operated(User user, Event event, Workspace workspace) {
+    private record Operated(User user, Event event, Workspace workspace, boolean admin) {
     }
 }

@@ -6,11 +6,15 @@ import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.event.service.EffectiveSettingsResolver;
 import com.harucut.project.dto.ProjectDtos;
 import com.harucut.project.entity.Project;
+import com.harucut.project.entity.ProjectMembership;
+import com.harucut.project.repository.ProjectMembershipRepository;
 import com.harucut.project.repository.ProjectRepository;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.entity.Workspace;
+import com.harucut.workspace.enums.MembershipStatus;
 import com.harucut.workspace.enums.WorkspaceRole;
+import com.harucut.workspace.repository.WorkspaceMembershipRepository;
 import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.workspace.service.WorkspaceService;
 import jakarta.persistence.EntityManager;
@@ -28,6 +32,8 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 프로젝트와 브랜드 기본값 (ADR-0009 §2, P3-1). 조직 공간의 OWNER·ADMIN 만.
@@ -39,8 +45,12 @@ import java.util.Set;
 public class ProjectService {
 
     private static final Set<WorkspaceRole> OPERATOR_ROLES = EnumSet.of(WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
+    // 프로젝트 목록 — OPERATOR 는 멤버인 프로젝트만 본다
+    private static final Set<WorkspaceRole> LIST_ROLES = EnumSet.of(WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.OPERATOR);
 
     private final ProjectRepository projectRepository;
+    private final ProjectMembershipRepository membershipRepository;
+    private final WorkspaceMembershipRepository workspaceMembershipRepository;
     private final WorkspaceRepository workspaceRepository;
     private final EntityManager entityManager;
     private final WorkspaceService workspaceService;
@@ -62,9 +72,74 @@ public class ProjectService {
 
     @Transactional(readOnly = true)
     public List<ProjectDtos.Project> list(String userPublicId, String workspacePublicId) {
-        Workspace workspace = organization(workspacePublicId, user(userPublicId));
+        User user = user(userPublicId);
+        Workspace workspace = organization(workspacePublicId, user, LIST_ROLES);
+        boolean admin = workspaceService.roleOf(workspace.getId(), user.getId()).filter(OPERATOR_ROLES::contains).isPresent();
         return projectRepository.findAllByWorkspaceIdOrderByIdDesc(workspace.getId()).stream()
+                .filter(project -> admin || membershipRepository.findByProjectIdAndUserId(project.getId(), user.getId()).isPresent())
                 .map(project -> view(project, workspace)).toList();
+    }
+
+    // ── 프로젝트 멤버(ADR-0009 §3) — 공간 OWNER·ADMIN 이 OPERATOR 멤버에게 준다 ──
+
+    @Transactional(readOnly = true)
+    public List<ProjectDtos.Member> members(String userPublicId, String projectPublicId) {
+        Project project = adminProject(user(userPublicId), projectPublicId);
+        List<ProjectMembership> members = membershipRepository.findAllByProjectIdOrderByIdAsc(project.getId());
+        Map<Long, User> users = userRepository.findAllById(members.stream().map(ProjectMembership::getUserId).toList()).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
+        return members.stream().filter(m -> users.containsKey(m.getUserId()))
+                .map(m -> memberView(m, users.get(m.getUserId()))).toList();
+    }
+
+    /** 권한을 통째로 바꾼다(없으면 만든다). 둘 다 비면 멤버에서 뺀다. 대상은 그 공간의 OPERATOR 멤버 */
+    public ProjectDtos.Member putMember(String userPublicId, String projectPublicId, String targetPublicId,
+                                        ProjectDtos.MemberRequest request) {
+        User actor = user(userPublicId);
+        Project project = adminProject(actor, projectPublicId);
+        User target = user(targetPublicId);
+        if (workspaceMembershipRepository.findByWorkspaceIdAndUserIdAndStatus(project.getWorkspaceId(), target.getId(), MembershipStatus.ACTIVE)
+                .filter(m -> m.getRole() == WorkspaceRole.OPERATOR).isEmpty()) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "이 공간의 OPERATOR 멤버만 프로젝트 멤버가 될 수 있습니다.");
+        }
+        ProjectMembership member = membershipRepository.findByProjectIdAndUserId(project.getId(), target.getId())
+                .orElseGet(() -> new ProjectMembership(project.getId(), target.getId(), actor.getId()));
+        member.replace(request.operations(), request.permissions());
+        if (request.operations().isEmpty() && request.permissions().isEmpty()) {
+            if (member.getId() != null) {
+                membershipRepository.delete(member);
+            }
+        } else {
+            member = membershipRepository.save(member);
+        }
+        auditLogService.record(actor.getId(), project.getWorkspaceId(), null, "PROJECT_MEMBER_CHANGED", "USER", target.getPublicId(),
+                Map.of("project", project.getPublicId(),
+                        "operations", request.operations().stream().map(Enum::name).sorted().toList(),
+                        "permissions", request.permissions().stream().map(Enum::name).sorted().toList()));
+        return memberView(member, target);
+    }
+
+    public void deleteMember(String userPublicId, String projectPublicId, String targetPublicId) {
+        User actor = user(userPublicId);
+        Project project = adminProject(actor, projectPublicId);
+        User target = user(targetPublicId);
+        ProjectMembership member = membershipRepository.findByProjectIdAndUserId(project.getId(), target.getId())
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        membershipRepository.delete(member);
+        auditLogService.record(actor.getId(), project.getWorkspaceId(), null, "PROJECT_MEMBER_REMOVED", "USER", target.getPublicId(),
+                Map.of("project", project.getPublicId()));
+    }
+
+    private Project adminProject(User user, String projectPublicId) {
+        Project project = projectRepository.findByPublicId(projectPublicId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        workspaceService.requireRole(project.getWorkspaceId(), user.getId(), OPERATOR_ROLES);
+        return project;
+    }
+
+    private ProjectDtos.Member memberView(ProjectMembership member, User user) {
+        return new ProjectDtos.Member(user.getPublicId(), user.getUsername(), member.getOperations(), member.getPermissions(),
+                offset(member.getCreatedAt()));
     }
 
     /** body: name·brandDefaults(머지 패치 — 키마다 null 이면 지움, 테마는 객체째)·archived(true 보관, false 되살림) 중 보낸 것만 */
@@ -124,7 +199,11 @@ public class ProjectService {
     }
 
     private Workspace organization(String workspacePublicId, User user) {
-        Workspace workspace = workspaceService.requireRole(workspacePublicId, user.getId(), OPERATOR_ROLES);
+        return organization(workspacePublicId, user, OPERATOR_ROLES);
+    }
+
+    private Workspace organization(String workspacePublicId, User user, Set<WorkspaceRole> roles) {
+        Workspace workspace = workspaceService.requireRole(workspacePublicId, user.getId(), roles);
         if (workspace.isPersonal()) {
             throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "프로젝트·기본값은 조직 공간에만 둘 수 있습니다.");
         }

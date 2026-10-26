@@ -109,16 +109,16 @@ class WorkspaceFrameIntegrationTest {
     }
 
     @Test
-    @DisplayName("조회는 멤버 누구나, 수정·삭제·발행은 OWNER·ADMIN·DESIGNER — 아니면 404")
+    @DisplayName("조회는 멤버 누구나, 수정·삭제·발행은 OWNER·ADMIN·DESIGNER — 다른 멤버는 403 GEN-021, 멤버가 아니면 404")
     void rolesGovernAccess() {
         FrameResponse frame = create(owner, org.workspaceId(), photo(owner, "a.png"));
 
         assertThat(frameService.getFrame(viewer.getPublicId(), frame.frameId()).frameId()).isEqualTo(frame.frameId());
         assertNotFound(() -> frameService.getFrame(stranger.getPublicId(), frame.frameId()));
-        assertNotFound(() -> frameService.updateFrame(viewer.getPublicId(), frame.frameId(),
+        assertForbidden(() -> frameService.updateFrame(viewer.getPublicId(), frame.frameId(),
                 request(owner, org.workspaceId(), frame.version(), photo(owner, "a.png"))));
-        assertNotFound(() -> frameVersionService.publish(viewer.getPublicId(), frame.frameId()));
-        assertNotFound(() -> frameService.deleteFrame(viewer.getPublicId(), frame.frameId()));
+        assertForbidden(() -> frameVersionService.publish(viewer.getPublicId(), frame.frameId()));
+        assertForbidden(() -> frameService.deleteFrame(viewer.getPublicId(), frame.frameId()));
         // 발행본 목록은 읽기 권한
         assertThat(frameVersionService.list(viewer.getPublicId(), frame.frameId())).isEmpty();
 
@@ -190,6 +190,11 @@ class WorkspaceFrameIntegrationTest {
         return new FrameCreateRequest.ComponentRequest(null, ComponentType.PHOTO,
                 S3Keys.userRoot(user.getPublicId()) + "components/" + name, null,
                 0.0, 0.0, 100.0, 100.0, 1.0, 0.0, 0, null);
+    }
+
+    private static void assertForbidden(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
+        assertThatThrownBy(call).isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(GlobalErrorCode.FORBIDDEN);
     }
 
     private static void assertNotFound(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {

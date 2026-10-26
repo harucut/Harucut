@@ -168,9 +168,9 @@ class MembersAndGrantsIntegrationTest {
             assertThat(mine.access().role()).isNull();
             assertThat(mine.access().permissions()).containsExactlyInAnyOrder(PhotoPermission.VIEW_PHOTOS, PhotoPermission.DOWNLOAD_PHOTOS);
         });
-        // 고객은 공간 멤버가 아니다 — 멤버 목록도 행사 운영도 존재를 모른다
+        // 고객은 공간 멤버가 아니다 — 공간은 존재를 모르고(404), 사진 권한이 있는 행사는 알지만 운영 권한이 없다(403)
         assertCode(() -> membershipService.members(customer.getPublicId(), org.workspaceId()), GlobalErrorCode.NOT_FOUND);
-        assertCode(() -> eventGrantService.grants(customer.getPublicId(), event.eventId()), GlobalErrorCode.NOT_FOUND);
+        assertCode(() -> eventGrantService.grants(customer.getPublicId(), event.eventId()), GlobalErrorCode.FORBIDDEN);
 
         // 같은 권한이면 MEMBER-003, 더 넓은 권한이면 합친다
         assertCode(() -> invitationService.accept(customer.getPublicId(), eventGrantService.inviteCustomer(owner.getPublicId(),

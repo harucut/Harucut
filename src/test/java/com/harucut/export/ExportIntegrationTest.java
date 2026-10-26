@@ -1,0 +1,263 @@
+package com.harucut.export;
+
+import com.harucut.common.exception.BusinessException;
+import com.harucut.common.exception.ErrorCode;
+import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.event.dto.EventResponse;
+import com.harucut.event.dto.EventSettings;
+import com.harucut.event.entity.Event;
+import com.harucut.event.enums.PhotoPermission;
+import com.harucut.event.exception.PhotoErrorCode;
+import com.harucut.event.repository.EventRepository;
+import com.harucut.event.service.EventGrantService;
+import com.harucut.event.service.EventService;
+import com.harucut.event.service.PhotoService;
+import com.harucut.export.dto.ExportDtos;
+import com.harucut.export.enums.ExportStatus;
+import com.harucut.export.exception.ExportErrorCode;
+import com.harucut.export.repository.ExportJobRepository;
+import com.harucut.export.service.ExportService;
+import com.harucut.export.service.ExportWorker;
+import com.harucut.frame.attributes.BackgroundAttributes;
+import com.harucut.frame.enums.FrameType;
+import com.harucut.media.compose.ComposeSpec;
+import com.harucut.media.entity.ComposeJob;
+import com.harucut.media.enums.ComposeStatus;
+import com.harucut.media.repository.ComposeJobRepository;
+import com.harucut.participant.entity.Participant;
+import com.harucut.participant.repository.ParticipantRepository;
+import com.harucut.result.dto.DownloadUrlResponse;
+import com.harucut.storage.service.FileStorageService;
+import com.harucut.storage.service.S3Deleter;
+import com.harucut.storage.service.S3MultipartOutputStream;
+import com.harucut.user.entity.User;
+import com.harucut.user.repository.UserRepository;
+import com.harucut.workspace.dto.MemberDtos;
+import com.harucut.workspace.dto.WorkspaceResponse;
+import com.harucut.workspace.service.InvitationService;
+import com.harucut.workspace.service.WorkspaceService;
+import jakarta.persistence.EntityManager;
+import org.assertj.core.api.ThrowableAssert;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.annotation.Transactional;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.mock;
+
+/*
+ * P2B-3 — 묶음 다운로드: 접수 → 워커가 결과를 ZIP 으로 흘려 multipart 로 올림 → 수령(권한·기한·삭제 재검사)을 실제 JPA 로 본다.
+ * S3 는 가짜 클라이언트로 multipart 파트 바이트를 모아 실제 ZIP 을 풀어 확인한다. 워커는 커밋 뒤 비동기 대신 직접 부른다.
+ */
+@SpringBootTest
+@ActiveProfiles("test")
+@Transactional
+@DisplayName("묶음 다운로드 — 통합")
+class ExportIntegrationTest {
+
+    @Autowired private ExportService exportService;
+    @Autowired private ExportWorker exportWorker;
+    @Autowired private ExportJobRepository exportJobRepository;
+    @Autowired private PhotoService photoService;
+    @Autowired private EventService eventService;
+    @Autowired private EventGrantService eventGrantService;
+    @Autowired private InvitationService invitationService;
+    @Autowired private WorkspaceService workspaceService;
+    @Autowired private EventRepository eventRepository;
+    @Autowired private ParticipantRepository participantRepository;
+    @Autowired private ComposeJobRepository composeJobRepository;
+    @Autowired private UserRepository userRepository;
+    @Autowired private EntityManager entityManager;
+
+    @MockitoBean private FileStorageService fileStorageService;
+    @MockitoBean private S3Deleter s3Deleter;
+
+    private final ByteArrayOutputStream uploaded = new ByteArrayOutputStream();
+    private S3Client s3Client;
+    private User owner;
+    private Event event;
+    private ComposeJob first;
+    private ComposeJob second;
+    private ComposeJob failed;
+
+    @BeforeEach
+    void setUp() {
+        s3Client = mock(S3Client.class);
+        given(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class)))
+                .willReturn(CreateMultipartUploadResponse.builder().uploadId("up").build());
+        given(s3Client.uploadPart(any(UploadPartRequest.class), any(RequestBody.class))).willAnswer(invocation -> {
+            uploaded.write(((RequestBody) invocation.getArgument(1)).contentStreamProvider().newStream().readAllBytes());
+            return UploadPartResponse.builder().eTag("e").build();
+        });
+        given(fileStorageService.openMultipartUpload(anyString(), anyString()))
+                .willAnswer(invocation -> new S3MultipartOutputStream(s3Client, "bucket", invocation.getArgument(0), "application/zip", 1024));
+        given(fileStorageService.openStream(anyString()))
+                .willAnswer(invocation -> new ByteArrayInputStream(("photo:" + invocation.getArgument(0)).getBytes()));
+        given(fileStorageService.generatePresignedDownloadUrl(anyString(), anyString(), any())).willReturn("https://s3/zip");
+
+        owner = userRepository.save(User.localUser("owner@harucut.com", "e", "오너"));
+        WorkspaceResponse org = workspaceService.createOrganization(owner.getPublicId(), "웨딩홀");
+        EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(),
+                new EventSettings("민지 ♥ 준호", "export-event", null, null, null, null, null, null, null, null, null, null));
+        event = eventRepository.findByPublicId(created.eventId()).orElseThrow();
+        Participant participant = participantRepository.save(Participant.byod(event.getId()));
+        first = done(participant, "k1", "uploads/events/e/results/1.jpg");
+        second = done(participant, "k2", "uploads/events/e/results/2.jpg");
+        failed = job(participant, "k3");
+        composeJobRepository.markFailed(failed.getId(), "x", ComposeStatus.PENDING, ComposeStatus.FAILED);
+        // 상태 전이는 벌크 UPDATE 라 영속성 컨텍스트의 작업은 아직 PENDING 이다 — 운영에서는 전이가 다른 트랜잭션이다
+        entityManager.flush();
+        entityManager.clear();
+    }
+
+    @Test
+    @DisplayName("고른 순서대로 완성 사진만 ZIP 에 담고, 받으면 「{행사명}-{YYYYMMDD}.zip」 5분 URL")
+    void selectedPhotosZipped() throws IOException {
+        ExportDtos.Export export = exportService.create(owner.getPublicId(), event.getPublicId(),
+                new ExportDtos.ExportRequest(List.of(second.getId(), failed.getId(), first.getId()), null));
+        assertThat(export.status()).isEqualTo(ExportStatus.PENDING);
+        assertThat(export.photoCount()).isEqualTo(2);   // 실패 사진은 뺐다
+        assertCode(() -> download(export), ExportErrorCode.NOT_READY);
+
+        exportWorker.run(id(export));
+
+        ExportDtos.Export done = exportService.get(owner.getPublicId(), event.getPublicId(), export.exportId());
+        assertThat(done.status()).isEqualTo(ExportStatus.DONE);
+        assertThat(done.sizeBytes()).isEqualTo(uploaded.size());
+        assertThat(done.expiresAt()).isNotNull();
+        assertThat(unzip(uploaded.toByteArray())).containsExactly(
+                Map.entry("0001-" + second.getId() + ".jpg", "photo:uploads/events/e/results/2.jpg"),
+                Map.entry("0002-" + first.getId() + ".jpg", "photo:uploads/events/e/results/1.jpg"));
+
+        assertThat(download(export).url()).isEqualTo("https://s3/zip");
+        String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        then(fileStorageService).should().generatePresignedDownloadUrl(anyString(), eq("민지 ♥ 준호-" + today + ".zip"), any());
+    }
+
+    @Test
+    @DisplayName("고른 것이 비면 EXPORT-003, 아무것도 안 고르면 완성 사진 전부")
+    void selection() {
+        assertCode(() -> exportService.create(owner.getPublicId(), event.getPublicId(),
+                new ExportDtos.ExportRequest(List.of(failed.getId()), null)), ExportErrorCode.INVALID_SELECTION);
+        assertThat(exportService.create(owner.getPublicId(), event.getPublicId(),
+                new ExportDtos.ExportRequest(null, null)).photoCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("담긴 사진을 지우면 묶음이 무효(EXPIRED)가 되고 객체 삭제 예약, 받으면 410 EXPORT-002")
+    void deletedPhotoInvalidates() {
+        ExportDtos.Export export = exportService.create(owner.getPublicId(), event.getPublicId(),
+                new ExportDtos.ExportRequest(null, null));
+        exportWorker.run(id(export));
+        String key = exportJobRepository.findById(id(export)).orElseThrow().getS3Key();
+
+        photoService.delete(owner.getPublicId(), event.getPublicId(), first.getId());
+
+        assertThat(exportService.get(owner.getPublicId(), event.getPublicId(), export.exportId()).status())
+                .isEqualTo(ExportStatus.EXPIRED);
+        then(s3Deleter).should().deleteAfterCommit(List.of(key));
+        assertCode(() -> download(export), ExportErrorCode.GONE);
+    }
+
+    @Test
+    @DisplayName("읽기가 실패하면 multipart 를 취소하고 FAILED, 받으면 EXPORT-002")
+    void failureAborts() {
+        given(fileStorageService.openStream(anyString())).willThrow(new RuntimeException("s3 down"));
+        ExportDtos.Export export = exportService.create(owner.getPublicId(), event.getPublicId(),
+                new ExportDtos.ExportRequest(null, null));
+
+        exportWorker.run(id(export));
+
+        assertThat(exportService.get(owner.getPublicId(), event.getPublicId(), export.exportId()).status())
+                .isEqualTo(ExportStatus.FAILED);
+        then(s3Client).should().abortMultipartUpload(any(AbortMultipartUploadRequest.class));
+        assertCode(() -> download(export), ExportErrorCode.GONE);
+    }
+
+    @Test
+    @DisplayName("다른 사람의 묶음은 없는 것처럼 404, 묶음 권한이 없으면 403 PHOTO-001")
+    void ownership() {
+        ExportDtos.Export export = exportService.create(owner.getPublicId(), event.getPublicId(),
+                new ExportDtos.ExportRequest(null, null));
+        User customer = userRepository.save(User.localUser("c@harucut.com", "e", "고객"));
+        invitationService.accept(customer.getPublicId(), eventGrantService.inviteCustomer(owner.getPublicId(), event.getPublicId(),
+                new MemberDtos.EventInvitationRequest(Set.of(PhotoPermission.VIEW_PHOTOS, PhotoPermission.BULK_DOWNLOAD), null)).inviteToken());
+
+        assertCode(() -> exportService.get(customer.getPublicId(), event.getPublicId(), export.exportId()), GlobalErrorCode.NOT_FOUND);
+        assertThat(exportService.mine(customer.getPublicId(), event.getPublicId())).isEmpty();
+
+        User viewer = userRepository.save(User.localUser("v@harucut.com", "e", "열람"));
+        invitationService.accept(viewer.getPublicId(), eventGrantService.inviteCustomer(owner.getPublicId(), event.getPublicId(),
+                new MemberDtos.EventInvitationRequest(Set.of(PhotoPermission.VIEW_PHOTOS), null)).inviteToken());
+        assertCode(() -> exportService.create(viewer.getPublicId(), event.getPublicId(), new ExportDtos.ExportRequest(null, null)),
+                PhotoErrorCode.PERMISSION_REQUIRED);
+    }
+
+    // ── helpers ──────────────────────────────
+
+    private DownloadUrlResponse download(ExportDtos.Export export) {
+        return exportService.download(owner.getPublicId(), event.getPublicId(), export.exportId());
+    }
+
+    private Long id(ExportDtos.Export export) {
+        return exportJobRepository.findByPublicId(export.exportId()).orElseThrow().getId();
+    }
+
+    private ComposeJob done(Participant participant, String key, String resultKey) {
+        ComposeJob job = job(participant, key);
+        composeJobRepository.markDone(job.getId(), resultKey, ComposeStatus.PENDING, ComposeStatus.DONE);
+        return job;
+    }
+
+    private ComposeJob job(Participant participant, String key) {
+        return composeJobRepository.save(ComposeJob.forParticipant(participant.getId(), "uploads/events/e/", 1L, key,
+                List.of("a", "b", "c", "d"), new ComposeSpec(2000, 6000, new BackgroundAttributes.Color("#FFF"),
+                        FrameType.CLASSIC.getLayout().slots(), List.of(false, false, false, false), List.of()),
+                event.getId(), null, null, 41L));
+    }
+
+    private static Map<String, String> unzip(byte[] zip) throws IOException {
+        Map<String, String> entries = new LinkedHashMap<>();
+        try (ZipInputStream in = new ZipInputStream(new ByteArrayInputStream(zip))) {
+            ZipEntry entry;
+            while ((entry = in.getNextEntry()) != null) {
+                entries.put(entry.getName(), new String(in.readAllBytes()));
+            }
+        }
+        return entries;
+    }
+
+    private static void assertCode(ThrowableAssert.ThrowingCallable call, ErrorCode code) {
+        assertThatThrownBy(call).isInstanceOf(BusinessException.class).extracting("errorCode").isEqualTo(code);
+    }
+}

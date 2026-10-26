@@ -23,6 +23,7 @@ import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignReques
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
+import java.io.InputStream;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -98,6 +99,16 @@ public class S3FileStorageService implements FileStorageService {
                 .responseContentDisposition(ContentDispositions.attachment(filename))
                 .responseContentType("application/octet-stream")
                 .build());
+    }
+
+    @Override
+    public InputStream openStream(String key) {
+        return s3Client.getObject(GetObjectRequest.builder().bucket(bucket).key(key).build());
+    }
+
+    @Override
+    public S3MultipartOutputStream openMultipartUpload(String key, String contentType) {
+        return new S3MultipartOutputStream(s3Client, bucket, key, contentType, S3MultipartOutputStream.PART_SIZE);
     }
 
     @Override

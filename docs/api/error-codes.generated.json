@@ -171,6 +171,18 @@
   "status" : 409,
   "message" : "The event settings were modified by another save."
 }, {
+  "code" : "EXPORT-001",
+  "status" : 409,
+  "message" : "The export is not ready yet."
+}, {
+  "code" : "EXPORT-002",
+  "status" : 410,
+  "message" : "The export has expired, failed or been invalidated."
+}, {
+  "code" : "EXPORT-003",
+  "status" : 400,
+  "message" : "The export selection is empty or too large."
+}, {
   "code" : "FRAME-001",
   "status" : 404,
   "message" : "The requested system frame does not exist."

@@ -6,6 +6,7 @@ import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.event.dto.PhotoDtos;
 import com.harucut.event.entity.Event;
 import com.harucut.event.enums.PhotoPermission;
+import com.harucut.export.service.ExportService;
 import com.harucut.media.entity.ComposeJob;
 import com.harucut.media.enums.ComposeStatus;
 import com.harucut.media.repository.ComposeJobRepository;
@@ -50,6 +51,7 @@ public class PhotoService {
     private final StorageProperties storageProperties;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
+    private final ExportService exportService;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -91,6 +93,7 @@ public class PhotoService {
         Event event = policy.requirePhoto(actorId, eventPublicId, PhotoPermission.DELETE_PHOTOS);
         ComposeJob job = photoOf(event, photoId);
         job.markDeleted(LocalDateTime.now(clock));
+        exportService.invalidateContaining(job.getId());   // 이 사진을 담은 묶음은 더는 받을 수 없다
         if (job.getResultKey() != null) {
             s3Deleter.deleteAfterCommit(List.of(job.getResultKey(), ComposeService.thumbnailKeyFor(job)));
         }

@@ -1,0 +1,320 @@
+# P2A 계약 초안 — ADR-0007. 구현 전 합의용. 응답은 공통 봉투 { code, status, message?, data? } 의 data 만 적는다.
+openapi: 3.1.0
+info:
+  title: Harucut P2A — 행사 데이터와 인증 (초안)
+  version: 0.1.0-draft
+components:
+  securitySchemes:
+    cookieAuth: { type: apiKey, in: cookie, name: accessToken }
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+    participantToken: { type: apiKey, in: header, name: X-Participant-Token, description: '불투명 난수 토큰(JWT 아님)' }
+    boothToken: { type: apiKey, in: header, name: X-Booth-Token, description: '불투명 난수 토큰(JWT 아님)' }
+    resultAccess: { type: http, scheme: bearer, bearerFormat: opaque, description: '결과 토큰. 회원 bearerAuth 와 다른 검증기' }
+  parameters:
+    EventId: { name: eventId, in: path, required: true, schema: { type: string, description: 'event public id' } }
+    Slug: { name: slug, in: path, required: true, schema: { type: string, pattern: '^[a-z0-9-]{3,40}$' } }
+    DeviceId: { name: deviceId, in: path, required: true, schema: { type: string } }
+  schemas:
+    LayoutType: { type: string, enum: [CLASSIC, WIDE, GRID, POLAROID] }
+    EventStatus: { type: string, enum: [DRAFT, LIVE, CAPTURE_CLOSED, ARCHIVED] }
+    EventFrameRef:
+      type: object
+      required: [frameVersionId, layoutType, sortOrder, isDefault]
+      properties:
+        frameVersionId: { type: integer, format: int64 }
+        layoutType: { $ref: '#/components/schemas/LayoutType' }
+        sortOrder: { type: integer }
+        isDefault: { type: boolean }
+        previewUrl: { type: string, readOnly: true }
+    ConsentItem:
+      type: object
+      required: [code, version, title, required]
+      properties:
+        code: { type: string, example: photo-collection }
+        version: { type: integer, minimum: 1 }
+        title: { type: string }
+        required: { type: boolean }
+        body: { type: string, description: '사진 수신 주체·목적·보관 안내 본문' }
+    EventSettings:
+      type: object
+      properties:
+        name: { type: string }
+        slug: { type: string }
+        captureStartsAt: { type: string, format: date-time, nullable: true }
+        captureEndsAt: { type: string, format: date-time, nullable: true }
+        timezone: { type: string, example: Asia/Seoul }
+        byodEnabled: { type: boolean }
+        boothEnabled: { type: boolean }
+        resultRetentionDays: { type: integer, minimum: 1, default: 30 }
+        allowedLayouts: { type: array, items: { $ref: '#/components/schemas/LayoutType' } }
+        frames: { type: array, items: { $ref: '#/components/schemas/EventFrameRef' } }
+        consentItems: { type: array, items: { $ref: '#/components/schemas/ConsentItem' } }
+        theme: { type: object, description: 'P2A placeholder — P2B 에서 페이지 테마 스키마 확정' }
+    Event:
+      type: object
+      properties:
+        eventId: { type: string }
+        workspaceId: { type: string }
+        status: { $ref: '#/components/schemas/EventStatus' }
+        paused: { type: boolean }
+        settingsVersion: { type: integer, description: 'PATCH 낙관적 잠금' }
+        settings: { $ref: '#/components/schemas/EventSettings' }
+        currentExperienceVersion: { type: integer, nullable: true }
+        joinUrlPath: { type: string, example: /e/wedding-1027 }
+    PublicEvent:
+      type: object
+      description: '참가 정보만. 운영 설정·다른 행사·전체 카탈로그 없음'
+      properties:
+        eventId: { type: string }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/EventStatus' }
+        captureOpen: { type: boolean }
+        byodEnabled: { type: boolean }
+        boothEnabled: { type: boolean }
+        experienceVersion: { type: integer }
+        allowedLayouts: { type: array, items: { $ref: '#/components/schemas/LayoutType' } }
+        frames: { type: array, items: { $ref: '#/components/schemas/EventFrameRef' } }
+        consentItems: { type: array, items: { $ref: '#/components/schemas/ConsentItem' } }
+        theme: { type: object }
+    UploadIntent:
+      type: object
+      properties:
+        assetId: { type: string }
+        uploadUrl: { type: string }
+        method: { const: PUT }
+        headers: { type: object, additionalProperties: { type: string }, example: { Content-Type: image/jpeg, If-None-Match: '*' } }
+        expiresAt: { type: string, format: date-time }
+    JobStatus: { type: string, enum: [PENDING, DONE, FAILED] }
+paths:
+  # ── 운영자(회원) ──
+  /api/auth/workspaces/{workspaceId}/events:
+    parameters: [ { name: workspaceId, in: path, required: true, schema: { type: string } } ]
+    post:
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      summary: 행사 초안 생성
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/EventSettings' } } } }
+      responses: { '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Event' } } } }, '409': { description: EVENT-004 } }
+    get:
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      summary: 공간의 행사 목록
+      responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Event' } } } } } }
+  /api/auth/events/{eventId}:
+    parameters: [ { $ref: '#/components/parameters/EventId' } ]
+    get:
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      summary: 행사 상세(설정 초안 포함)
+      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Event' } } } } }
+    patch:
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      summary: 설정 초안 수정 — 보낸 필드만 바뀐다
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [settingsVersion], properties: { settingsVersion: { type: integer }, settings: { $ref: '#/components/schemas/EventSettings' } } } } }
+      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Event' } } } }, '409': { description: 'EVENT-005 · EVENT-004' } }
+  /api/auth/events/{eventId}/publish:
+    parameters: [ { $ref: '#/components/parameters/EventId' } ]
+    post:
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      summary: 경험 발행 — 검증 후 새 EventExperienceVersion, 상태 LIVE
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Event' } } } }
+        '400': { description: 'EVENT-003 — data.violations: [{ field, reason }]' }
+  /api/auth/events/{eventId}/pause: { parameters: [ { $ref: '#/components/parameters/EventId' } ], post: { security: [ { cookieAuth: [] }, { bearerAuth: [] } ], summary: 일시 중지(새 세션·회차·합성 차단), responses: { '200': { description: OK } } } }
+  /api/auth/events/{eventId}/resume: { parameters: [ { $ref: '#/components/parameters/EventId' } ], post: { security: [ { cookieAuth: [] }, { bearerAuth: [] } ], summary: 재개, responses: { '200': { description: OK } } } }
+  /api/auth/events/{eventId}/close-capture: { parameters: [ { $ref: '#/components/parameters/EventId' } ], post: { security: [ { cookieAuth: [] }, { bearerAuth: [] } ], summary: '촬영 종료(결과 수령은 계속)', responses: { '200': { description: OK } } } }
+  /api/auth/events/{eventId}/booth-devices:
+    parameters: [ { $ref: '#/components/parameters/EventId' } ]
+    post:
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      summary: 부스 기기 등록 + 연결 코드 발급
+      requestBody: { content: { application/json: { schema: { type: object, properties: { name: { type: string } } } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { type: object, properties: { deviceId: { type: string }, pairingCode: { type: string, example: 'K7QM-3XRP' }, pairingExpiresAt: { type: string, format: date-time } } } } } }
+    get:
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      summary: 행사의 기기 목록
+      responses: { '200': { description: OK } }
+  /api/auth/booth-devices/{deviceId}/pairing-codes:
+    parameters: [ { $ref: '#/components/parameters/DeviceId' } ]
+    post: { security: [ { cookieAuth: [] }, { bearerAuth: [] } ], summary: '연결 코드 재발급 — 이전 코드·기기 토큰 폐기', responses: { '201': { description: Created } } }
+  /api/auth/booth-devices/{deviceId}/revoke:
+    parameters: [ { $ref: '#/components/parameters/DeviceId' } ]
+    post: { security: [ { cookieAuth: [] }, { bearerAuth: [] } ], summary: '기기 회수 — 새 참가·업로드 완료·합성 차단', responses: { '200': { description: OK } } }
+
+  # ── 공개·참가자 ──
+  /api/public/events/{slug}:
+    parameters: [ { $ref: '#/components/parameters/Slug' } ]
+    get:
+      security: []
+      summary: 참가 정보 (게시 전·보관 종료는 404)
+      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/PublicEvent' } } } }, '404': { description: GEN-031 } }
+  /api/public/events/{slug}/sessions:
+    parameters: [ { $ref: '#/components/parameters/Slug' } ]
+    post:
+      security: []
+      summary: BYOD 참가자 세션 발급 (RESTRICTED)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [channel], properties: { channel: { const: BYOD } } } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { type: object, properties: { participantToken: { type: string }, participantId: { type: string }, status: { const: RESTRICTED }, expiresAt: { type: string, format: date-time } } } } } }
+        '403': { description: EVENT-002 }
+        '409': { description: EVENT-001 }
+        '429': { description: GEN-061 }
+  /api/participant/events/{eventId}/consents:
+    parameters: [ { $ref: '#/components/parameters/EventId' } ]
+    post:
+      security: [ { participantToken: [] } ]
+      summary: 참가 동의 기록 — 필수 항목 모두 AGREED 면 ACTIVE
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { type: object, required: [code, version, decision], properties: { code: { type: string }, version: { type: integer }, decision: { type: string, enum: [AGREED, DECLINED, WITHDRAWN] } } } } } } } }
+      responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [RESTRICTED, ACTIVE] } } } } } }, '401': { description: PART-001 } }
+  /api/participant/events/{eventId}/capture-runs:
+    parameters: [ { $ref: '#/components/parameters/EventId' } ]
+    post:
+      security: [ { participantToken: [] } ]
+      summary: 새 촬영 회차 — 서버가 경험 버전을 부여
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { type: object, properties: { captureRunId: { type: string }, experienceVersion: { type: integer }, stateVersion: { type: integer }, expiresAt: { type: string, format: date-time } } } } } }
+        '403': { description: PART-002 }
+        '409': { description: 'EVENT-001 · BOOTH-004(부스 세션)' }
+  /api/participant/events/{eventId}/frame-versions/{frameVersionId}:
+    parameters: [ { $ref: '#/components/parameters/EventId' }, { name: frameVersionId, in: path, required: true, schema: { type: integer, format: int64 } }, { name: captureRunId, in: query, required: true, schema: { type: string } } ]
+    get:
+      security: [ { participantToken: [] } ]
+      summary: 회차에 제공된 발행 프레임(FrameSpec v2, ADR-0006)
+      responses: { '200': { description: OK }, '403': { description: PART-004 } }
+  /api/participant/events/{eventId}/upload-intents:
+    parameters: [ { $ref: '#/components/parameters/EventId' } ]
+    post:
+      security: [ { participantToken: [] } ]
+      summary: 촬영 입력 업로드 의도 — purpose 는 항상 CAPTURE_INPUT
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [captureRunId, slotIndex, contentType, fileSize], properties: { captureRunId: { type: string }, slotIndex: { type: integer, minimum: 0, maximum: 3 }, contentType: { type: string, enum: [JPEG, PNG] }, fileSize: { type: integer, maximum: 10485760 } } } } }
+      responses: { '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/UploadIntent' } } } }, '409': { description: PART-003 } }
+  /api/participant/assets/{assetId}/complete:
+    parameters: [ { name: assetId, in: path, required: true, schema: { type: string } } ]
+    post:
+      security: [ { participantToken: [] } ]
+      summary: 업로드 완료 확인 (P1 complete 와 같은 검증 + 회차 귀속)
+      responses: { '200': { description: OK }, '409': { description: 'ASSET-001 · PART-003' }, '422': { description: 'ASSET-002/003/004' } }
+  /api/participant/events/{eventId}/compose-jobs:
+    parameters: [ { $ref: '#/components/parameters/EventId' } ]
+    post:
+      security: [ { participantToken: [] } ]
+      summary: 행사 합성 접수 + 결과 토큰 발급
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [captureRunId, frameVersionId, sourceAssetIds, idempotencyKey], properties: { captureRunId: { type: string }, frameVersionId: { type: integer, format: int64 }, sourceAssetIds: { type: array, minItems: 4, maxItems: 4, items: { type: string } }, idempotencyKey: { type: string, maxLength: 64 } } } } }
+      responses:
+        '202': { description: 'Accepted — 같은 키 재요청이면 기존 job + 새 resultToken', content: { application/json: { schema: { type: object, properties: { jobId: { type: integer, format: int64 }, status: { $ref: '#/components/schemas/JobStatus' }, resultToken: { type: string }, resultExpiresAt: { type: string, format: date-time } } } } } }
+        '403': { description: 'PART-002 · PART-004' }
+        '409': { description: 'EVENT-001 · PART-003 · PART-005 · MEDIA-001' }
+  /api/participant/compose-jobs/{jobId}:
+    parameters: [ { name: jobId, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    get:
+      security: [ { participantToken: [] } ]
+      summary: 본인 job 상태
+      responses: { '200': { description: OK }, '404': { description: GEN-031 } }
+  /api/participant/session:
+    get:
+      security: [ { participantToken: [] } ]
+      summary: 세션 복원 — 새로고침·재방문
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  participantId: { type: string }
+                  eventId: { type: string }
+                  eventSlug: { type: string }
+                  channel: { type: string, enum: [BYOD, BOOTH] }
+                  status: { type: string, enum: [RESTRICTED, ACTIVE] }
+                  expiresAt: { type: string, format: date-time }
+                  pendingConsents: { type: array, items: { type: object, properties: { code: { type: string }, version: { type: integer } } } }
+                  activeCaptureRun: { type: object, nullable: true, properties: { captureRunId: { type: string }, stateVersion: { type: integer }, expiresAt: { type: string, format: date-time } } }
+        '401': { description: PART-001 }
+  /api/participant/compose-jobs/{jobId}/download:
+    parameters: [ { name: jobId, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    post:
+      security: [ { participantToken: [] } ]
+      summary: 본인 결과 다운로드 URL(5분) — BYOD 만
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { url: { type: string }, expiresAt: { type: string, format: date-time } } } } } }
+        '403': { description: PART-006 }
+        '409': { description: RESULT-003 }
+        '410': { description: RESULT-002 }
+  /api/participant/compose-jobs/{jobId}/result-access:
+    parameters: [ { name: jobId, in: path, required: true, schema: { type: integer, format: int64 } } ]
+    post:
+      security: [ { participantToken: [] } ]
+      summary: 공유 링크용 결과 토큰 새로 발급(이전 토큰 유지) — BYOD 만
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { type: object, properties: { resultToken: { type: string }, resultExpiresAt: { type: string, format: date-time } } } } } }
+        '403': { description: PART-006 }
+  /api/participant/events/{eventId}/results:
+    parameters: [ { $ref: '#/components/parameters/EventId' } ]
+    get:
+      security: [ { participantToken: [] } ]
+      summary: 이 행사에서 만든 본인 결과(BYOD 만)
+      responses: { '200': { description: OK }, '403': { description: PART-006 } }
+
+  # ── 부스 ──
+  /api/public/booth-pairings/redeem:
+    post:
+      security: []
+      summary: 연결 코드 → 기기 토큰
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [code], properties: { code: { type: string, example: 'K7QM-3XRP' } } } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { boothToken: { type: string }, deviceId: { type: string }, eventId: { type: string } } } } } }
+        '400': { description: BOOTH-001 }
+        '410': { description: BOOTH-002 }
+        '429': { description: GEN-061 }
+  /api/booth/me:
+    get:
+      security: [ { boothToken: [] } ]
+      summary: 기기 상태 + 배정 행사 참가 정보
+      responses: { '200': { description: OK }, '403': { description: BOOTH-003 } }
+  /api/booth/participant-sessions:
+    post:
+      security: [ { boothToken: [] } ]
+      summary: 다음 손님 — 새 Participant(BOOTH) + RESTRICTED 세션
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { type: object, properties: { participantToken: { type: string }, participantId: { type: string }, expiresAt: { type: string, format: date-time } } } } } }
+        '403': { description: BOOTH-003 }
+        '409': { description: EVENT-001 }
+  /api/booth/capture-runs/current:
+    get:
+      security: [ { boothToken: [] } ]
+      summary: 기기의 활성 회차 상태 — version 불일치면 job·resultToken 생략
+      parameters: [ { name: version, in: query, required: true, schema: { type: integer } } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { captureRunId: { type: string, nullable: true }, stateVersion: { type: integer }, status: { type: string }, job: { type: object, nullable: true, properties: { jobId: { type: integer }, status: { $ref: '#/components/schemas/JobStatus' } } }, resultToken: { type: string, nullable: true } } } } } }
+  /api/booth/capture-runs/{captureRunId}/close:
+    parameters: [ { name: captureRunId, in: path, required: true, schema: { type: string } } ]
+    post:
+      security: [ { boothToken: [] } ]
+      summary: 회차 종료 + 그 참가자 세션 회수
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [stateVersion], properties: { stateVersion: { type: integer } } } } } }
+      responses: { '200': { description: OK }, '409': { description: BOOTH-005 } }
+
+  # ── 결과 수령 ──
+  /api/public/results:
+    get:
+      security: [ { resultAccess: [] } ]
+      summary: 결과 상태 (토큰은 Authorization 헤더로만)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [PENDING, DONE, FAILED, EXPIRED] }, eventName: { type: string }, thumbnailUrl: { type: string, nullable: true }, expiresAt: { type: string, format: date-time }, theme: { type: object, description: 'job 에 고정된 경험 버전의 테마·브랜드 표시(P2A placeholder)' } } } } } }
+        '401': { description: RESULT-001 }
+  /api/public/results/download:
+    post:
+      security: [ { resultAccess: [] } ]
+      summary: 짧은 다운로드 URL(5분)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { url: { type: string }, expiresAt: { type: string, format: date-time } } } } } }
+        '401': { description: RESULT-001 }
+        '409': { description: RESULT-003 }
+        '410': { description: RESULT-002 }

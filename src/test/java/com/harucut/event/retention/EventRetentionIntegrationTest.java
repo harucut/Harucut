@@ -133,15 +133,18 @@ class EventRetentionIntegrationTest {
     }
 
     @Test
-    @DisplayName("결과가 확정된 작업의 촬영 입력 행만 지운다 — 진행 중 작업의 입력은 남긴다")
+    @DisplayName("재생 기간(30일)이 지난 확정 작업의 촬영 입력 행만 지운다 — 최근 확정·진행 중 작업의 입력은 남긴다(같은 요청 재생이 대조한다)")
     void deletesSettledCaptureInputs() {
-        ComposeJob settled = done("s", "uploads/r/s.jpg", 0);
+        ComposeJob settledLongAgo = done("s", "uploads/r/s.jpg", 31);
+        ComposeJob settledRecently = done("r", "uploads/r/r.jpg", 0);
         ComposeJob pending = job("p");
-        Asset settledInput = input("a.png", settled);
+        Asset oldInput = input("a.png", settledLongAgo);
+        Asset recentInput = input("c.png", settledRecently);
         Asset pendingInput = input("b.png", pending);
 
         assertThat(retentionService.run().deletedCaptureInputs()).isEqualTo(1);
-        assertThat(assetRepository.findById(settledInput.getId())).isEmpty();
+        assertThat(assetRepository.findById(oldInput.getId())).isEmpty();
+        assertThat(assetRepository.findById(recentInput.getId())).isPresent();
         assertThat(assetRepository.findById(pendingInput.getId())).isPresent();
     }
 

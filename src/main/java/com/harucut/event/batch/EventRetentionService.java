@@ -56,13 +56,15 @@ public class EventRetentionService {
     private final Clock clock;
     private final int batchSize;
     private final Duration cleanupAfterArchive;
+    private final Duration captureInputReplay;
 
     public EventRetentionService(EventRepository eventRepository, ComposeJobRepository composeJobRepository,
                                  AssetRepository assetRepository, ResultAccessRepository resultAccessRepository,
                                  ParticipantSessionRepository sessionRepository, BoothDeviceRepository boothDeviceRepository,
                                  ExportService exportService, S3Deleter s3Deleter, PlatformTransactionManager transactionManager,
                                  Clock clock, @Value("${event.retention.batch-size:500}") int batchSize,
-                                 @Value("${event.retention.cleanup-after-archive:30d}") Duration cleanupAfterArchive) {
+                                 @Value("${event.retention.cleanup-after-archive:30d}") Duration cleanupAfterArchive,
+                                 @Value("${event.retention.capture-input-replay:30d}") Duration captureInputReplay) {
         this.eventRepository = eventRepository;
         this.composeJobRepository = composeJobRepository;
         this.assetRepository = assetRepository;
@@ -75,6 +77,7 @@ public class EventRetentionService {
         this.clock = clock;
         this.batchSize = batchSize;
         this.cleanupAfterArchive = cleanupAfterArchive;
+        this.captureInputReplay = captureInputReplay;
     }
 
     public Result run() {
@@ -85,7 +88,8 @@ public class EventRetentionService {
         // 삭제 요청·보관 종료 이틀 안의 결과 객체 삭제를 다시 예약한다 — 커밋 뒤 삭제는 실패해도 다시 시도하지 않는다(없는 key 삭제는 멱등)
         transaction.executeWithoutResult(status -> composeJobRepository.findRecentlyRemovedResults(now().minusDays(2))
                 .forEach(job -> s3Deleter.deleteAfterCommit(List.of(job.getResultKey(), ComposeService.thumbnailKeyFor(job)))));
-        Integer inputs = transaction.execute(status -> assetRepository.deleteSettledCaptureInputs());
+        // 재생 기간이 지난 작업의 입력 행만 — 그 안에서는 같은 합성 요청을 다시 보내면 기존 작업을 돌려줘야 한다
+        Integer inputs = transaction.execute(status -> assetRepository.deleteSettledCaptureInputs(now().minus(captureInputReplay)));
         int archived = 0;
         for (Event event : eventRepository.findAllByStatusIn(EnumSet.of(EventStatus.LIVE, EventStatus.CAPTURE_CLOSED))) {
             if (isolated("보관 종료", event, () -> archiveIfDone(event.getId()), false)) {
@@ -148,13 +152,15 @@ public class EventRetentionService {
     // 촬영이 끝났고(종료 상태이거나 종료 시각이 지났고) 보일 결과·진행 중 작업이 없으면 ARCHIVED
     private boolean archiveIfDone(Long eventId) {
         return Boolean.TRUE.equals(transaction.execute(status -> {
-            Event event = eventRepository.findById(eventId).orElse(null);
+            // 행사 행을 쓰기 잠금으로 — 촬영 열림 검사를 통과하고 아직 커밋 전인 접수(공유 잠금)가 끝나기를 기다리고,
+            // 이 판정이 커밋될 때까지 새 접수가 촬영 열림을 확인하지 못하게 한다. 작업 존재도 잠금 읽기로 다시 본다
+            Event event = eventRepository.lockById(eventId).orElse(null);
             if (event == null) {
                 return false;
             }
             boolean captureOver = event.getStatus() == EventStatus.CAPTURE_CLOSED
                     || (event.getCaptureEndsAt() != null && !now().isBefore(event.getCaptureEndsAt()));
-            if (!captureOver || composeJobRepository.hasVisibleResults(eventId)) {
+            if (!captureOver || !composeJobRepository.lockVisibleJobIds(eventId).isEmpty()) {
                 return false;
             }
             event.archive(now());

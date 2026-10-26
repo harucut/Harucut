@@ -1,6 +1,7 @@
 package com.harucut.participant;
 
 import com.harucut.config.RateLimiter;
+import com.harucut.event.batch.EventRetentionService;
 import com.harucut.event.dto.EventPatchRequest;
 import com.harucut.event.dto.EventResponse;
 import com.harucut.event.dto.EventSettings;
@@ -10,6 +11,7 @@ import com.harucut.frame.dto.FrameCreateRequest;
 import com.harucut.frame.enums.FrameType;
 import com.harucut.frame.service.FrameService;
 import com.harucut.frame.service.FrameVersionService;
+import com.harucut.media.service.ComposeService;
 import com.harucut.storage.dto.PresignedPut;
 import com.harucut.storage.dto.StoredObject;
 import com.harucut.storage.service.FileStorageService;
@@ -21,6 +23,7 @@ import com.harucut.workspace.service.WorkspaceService;
 import com.harucut.entitlement.repository.EntitlementRepository;
 import com.harucut.support.TestEntitlements;
 import com.harucut.workspace.repository.WorkspaceRepository;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,6 +32,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
@@ -42,6 +46,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -81,6 +86,10 @@ class ParticipantFlowIntegrationTest {
     @Autowired private EntitlementRepository entitlementRepository;
 
     @Autowired private WorkspaceRepository workspaceRepository;
+    @Autowired private ComposeService composeService;
+    @Autowired private EventRetentionService retentionService;
+    @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private EntityManager entityManager;
 
     @MockitoBean private FileStorageService fileStorageService;
     @MockitoBean private RateLimiter rateLimiter;
@@ -207,6 +216,53 @@ class ParticipantFlowIntegrationTest {
     }
 
     @Test
+    @DisplayName("작업이 확정되고 보관 배치가 돈 뒤에도 같은 합성 요청을 다시 보내면 같은 작업이다(입력 행은 재생 기간 동안 남는다)")
+    void replayAfterRetentionRun() throws Exception {
+        String token = activeParticipant();
+        String runId = data(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId)
+                .header(TOKEN_HEADER, token).exchange(), 201).path("captureRunId").asString();
+        List<String> assetIds = new ArrayList<>();
+        for (int slot = 0; slot < 4; slot++) {
+            String assetId = data(post("/api/participant/events/" + eventId + "/upload-intents", token,
+                    Map.of("captureRunId", runId, "slotIndex", slot, "contentType", "PNG", "fileSize", png.length)), 201)
+                    .path("assetId").asString();
+            ok(mvc.post().uri("/api/participant/assets/{id}/complete", assetId).header(TOKEN_HEADER, token).exchange());
+            assetIds.add(assetId);
+        }
+        Map<String, Object> compose = Map.of("captureRunId", runId, "frameVersionId", frameVersionId,
+                "sourceAssetIds", assetIds, "idempotencyKey", "key-replay");
+        long jobId = data(post("/api/participant/events/" + eventId + "/compose-jobs", token, compose), 202).path("jobId").asLong();
+        assertThat(composeService.completeJob(jobId, "uploads/r/replay.jpg", "uploads/r/replay_thumb.jpg")).isTrue();
+
+        retentionService.run();
+
+        assertThat(data(post("/api/participant/events/" + eventId + "/compose-jobs", token, compose), 202).path("jobId").asLong())
+                .isEqualTo(jobId);
+    }
+
+    @Test
+    @DisplayName("보관 종료된 행사에는 합성을 접수하지 않는다 — 촬영 열림을 잠금으로 다시 읽은 값으로 본다")
+    void composeRejectedAfterArchive() throws Exception {
+        String token = activeParticipant();
+        String runId = data(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId)
+                .header(TOKEN_HEADER, token).exchange(), 201).path("captureRunId").asString();
+        List<String> assetIds = new ArrayList<>();
+        for (int slot = 0; slot < 4; slot++) {
+            String assetId = data(post("/api/participant/events/" + eventId + "/upload-intents", token,
+                    Map.of("captureRunId", runId, "slotIndex", slot, "contentType", "PNG", "fileSize", png.length)), 201)
+                    .path("assetId").asString();
+            ok(mvc.post().uri("/api/participant/assets/{id}/complete", assetId).header(TOKEN_HEADER, token).exchange());
+            assetIds.add(assetId);
+        }
+        // 다른 트랜잭션의 보관 종료가 커밋된 상황 — 영속성 컨텍스트를 거치지 않고 행만 바꾼다
+        entityManager.flush();
+        jdbcTemplate.update("update event set status = 'ARCHIVED', archived_at = ? where public_id = ?", LocalDateTime.now(), eventId);
+
+        assertCode(post("/api/participant/events/" + eventId + "/compose-jobs", token, Map.of("captureRunId", runId,
+                "frameVersionId", frameVersionId, "sourceAssetIds", assetIds, "idempotencyKey", "key-archived")), 409, "EVENT-001");
+    }
+
+    @Test
     @DisplayName("자격이 없거나 엉뚱하면 경로에 맞는 401 — 참가자 PART-001, 결과 RESULT-001")
     void credentials() {
         assertCode(mvc.get().uri("/api/participant/session").exchange(), 401, "PART-001");
@@ -250,6 +306,16 @@ class ParticipantFlowIntegrationTest {
     }
 
     // ── helpers ──────────────────────────────
+
+    // 세션 발급 + 필수 동의 → ACTIVE 참가자 토큰
+    private String activeParticipant() {
+        String token = data(mvc.post().uri("/api/public/events/{slug}/sessions", slug)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"channel\":\"BYOD\"}").exchange(), 201)
+                .path("participantToken").asString();
+        ok(post("/api/participant/events/" + eventId + "/consents", token,
+                Map.of("items", List.of(Map.of("code", "photo-collection", "version", 1, "decision", "AGREED")))));
+        return token;
+    }
 
     private MvcTestResult post(String uri, String token, Object body) {
         return mvc.post().uri(uri).header(TOKEN_HEADER, token)

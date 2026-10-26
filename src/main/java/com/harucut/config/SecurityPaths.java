@@ -28,6 +28,8 @@ public final class SecurityPaths {
             "/api/harucut/login",
             "/api/harucut/reissue",
             "/api/harucut/logout",
+            // 앱 로그인 코드 교환 — 코드·PKCE 검증값이 자격이다
+            "/api/harucut/oauth2/exchange",
             "/api/harucut/reset/password/code",
             "/api/harucut/reset/password",
             "/api/harucut/reset/password/verification",

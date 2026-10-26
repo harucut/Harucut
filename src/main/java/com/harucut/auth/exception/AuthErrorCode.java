@@ -23,6 +23,8 @@ public enum AuthErrorCode implements ErrorCode {
     USER_NOT_FOUND("AUTH-020", HttpStatus.NOT_FOUND, "User not found."),
     EMAIL_ALREADY_IN_USE("AUTH-030", HttpStatus.CONFLICT, "This email is already in use."),
     TOO_MANY_REQUESTS("AUTH-040", HttpStatus.TOO_MANY_REQUESTS, "Too many verification requests."),
+    // 앱 로그인 일회용 코드 — 없음·만료·이미 씀·PKCE 검증값 불일치를 하나로 묶는다(어느 쪽인지 흘리지 않는다)
+    APP_LOGIN_CODE_INVALID("AUTH-041", HttpStatus.BAD_REQUEST, "The app login code is invalid or expired."),
     EMAIL_SEND_FAILED("AUTH-090", HttpStatus.INTERNAL_SERVER_ERROR, "Failed to send verification email."),
     OAUTH2_UNLINK_FAILED("AUTH-091", HttpStatus.INTERNAL_SERVER_ERROR, "Failed to unlink OAuth2 provider account.");
 

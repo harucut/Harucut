@@ -117,6 +117,11 @@ mail:
 frontend:
   url: ${FRONTEND_URL:http://localhost:5173}
 
+app:
+  oauth2:
+    # 앱 로그인(시스템 브라우저)이 끝나면 돌아갈 앱 스킴 — 셸의 app.json scheme. 이 한 곳으로만 돌려보낸다(열린 redirect 없음)
+    callback-url: ${APP_OAUTH2_CALLBACK_URL:harucut://oauth2/callback}
+
 cloud:
   aws:
     region: ${AWS_REGION:ap-northeast-2}

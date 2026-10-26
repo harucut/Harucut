@@ -52,6 +52,7 @@ import org.springframework.transaction.annotation.Transactional;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
@@ -76,7 +77,9 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 
 /*
  * P2B-3 — 묶음 다운로드: 접수 → 워커가 결과를 ZIP 으로 흘려 multipart 로 올림 → 수령(권한·기한·삭제 재검사)을 실제 JPA 로 본다.
@@ -172,10 +175,13 @@ class ExportIntegrationTest {
     }
 
     @Test
-    @DisplayName("고른 것이 비면 EXPORT-003, 아무것도 안 고르면 완성 사진 전부")
+    @DisplayName("고른 것이 비면(빈 목록 포함) EXPORT-003, 아무것도 안 보내면 완성 사진 전부")
     void selection() {
         assertCode(() -> exportService.create(owner.getPublicId(), event.getPublicId(),
                 new ExportDtos.ExportRequest(List.of(failed.getId()), null)), ExportErrorCode.INVALID_SELECTION);
+        // 명시적 빈 목록은 빈 선택이다 — 필터·전체로 떨어지지 않는다
+        assertCode(() -> exportService.create(owner.getPublicId(), event.getPublicId(),
+                new ExportDtos.ExportRequest(List.of(), null)), ExportErrorCode.INVALID_SELECTION);
         assertThat(exportService.create(owner.getPublicId(), event.getPublicId(),
                 new ExportDtos.ExportRequest(null, null)).photoCount()).isEqualTo(2);
     }
@@ -208,7 +214,30 @@ class ExportIntegrationTest {
         assertThat(exportService.get(owner.getPublicId(), event.getPublicId(), export.exportId()).status())
                 .isEqualTo(ExportStatus.FAILED);
         then(s3Client).should().abortMultipartUpload(any(AbortMultipartUploadRequest.class));
+        then(s3Client).should(never()).completeMultipartUpload(any(CompleteMultipartUploadRequest.class));
         assertCode(() -> download(export), ExportErrorCode.GONE);
+    }
+
+    @Test
+    @DisplayName("두 번째 사진에서 읽기가 실패해도(이미 파트가 올라간 뒤) multipart 를 완료하지 않고 취소한다")
+    void midwayFailureNeverCompletes() {
+        given(fileStorageService.openStream(anyString())).willAnswer(invocation -> {
+            String key = invocation.getArgument(0);
+            if (key.endsWith("2.jpg")) {
+                throw new IllegalStateException("s3 read failed");
+            }
+            return new ByteArrayInputStream(new byte[4096]);   // 파트(1KB)보다 커서 실패 전에 파트가 올라간다
+        });
+        ExportDtos.Export export = exportService.create(owner.getPublicId(), event.getPublicId(),
+                new ExportDtos.ExportRequest(List.of(first.getId(), second.getId()), null));
+
+        exportWorker.run(id(export));
+
+        then(s3Client).should(atLeastOnce()).uploadPart(any(UploadPartRequest.class), any(RequestBody.class));
+        then(s3Client).should(never()).completeMultipartUpload(any(CompleteMultipartUploadRequest.class));
+        then(s3Client).should().abortMultipartUpload(any(AbortMultipartUploadRequest.class));
+        assertThat(exportService.get(owner.getPublicId(), event.getPublicId(), export.exportId()).status())
+                .isEqualTo(ExportStatus.FAILED);
     }
 
     @Test

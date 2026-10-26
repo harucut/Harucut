@@ -22,6 +22,8 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 
@@ -77,15 +79,18 @@ class PaymentWebhookControllerTest extends SecurityBeansMockSupport {
     @DisplayName("본문이 파싱 없이 그대로 검증기와 핸들러에 전달된다")
     void rawBodyIsPassedVerbatim() {
         given(webhookVerifier.verify(any(), any())).willReturn(true);
+        given(webhookVerifier.provider()).willReturn("portone");
 
         post(RAW_BODY, "sig-1");
 
-        then(webhookVerifier).should().verify(RAW_BODY, "sig-1");
-        then(webhookService).should().handle(RAW_BODY);
+        // 헤더는 소문자 이름으로 검증기에 간다 — Standard Webhooks 의 webhook-id 가 수신 기록 키다
+        then(webhookVerifier).should().verify(eq(RAW_BODY), argThat(headers -> "v1,sig-1".equals(headers.get("webhook-signature"))
+                && "msg_1".equals(headers.get("webhook-id"))));
+        then(webhookService).should().handle("portone", "msg_1", RAW_BODY);
     }
 
     @Test
-    @DisplayName("X-Signature 헤더가 없어도 요청이 거부되지 않고 null 서명으로 검증기에 간다")
+    @DisplayName("서명 헤더가 없어도 요청이 거부되지 않고 검증기가 판정한다")
     void missingSignatureHeaderStillReachesVerifier() {
         given(webhookVerifier.verify(any(), any())).willReturn(true);
 
@@ -94,12 +99,13 @@ class PaymentWebhookControllerTest extends SecurityBeansMockSupport {
                 .content(RAW_BODY))
                 .hasStatusOk();
 
-        then(webhookVerifier).should().verify(RAW_BODY, null);
+        then(webhookVerifier).should().verify(eq(RAW_BODY), argThat(headers -> !headers.containsKey("webhook-signature")));
     }
 
     private MvcTestResult post(String body, String signature) {
         return mockMvc.post().uri(WEBHOOK_URI)
-                .header("X-Signature", signature)
+                .header("webhook-id", "msg_1")
+                .header("Webhook-Signature", "v1," + signature)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body)
                 .exchange();

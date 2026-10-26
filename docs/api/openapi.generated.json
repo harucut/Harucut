@@ -743,6 +743,32 @@
         },
         "type" : "object"
       },
+      "ContentDisposition" : {
+        "properties" : {
+          "attachment" : {
+            "type" : "boolean"
+          },
+          "charset" : {
+            "type" : "string"
+          },
+          "filename" : {
+            "type" : "string"
+          },
+          "formData" : {
+            "type" : "boolean"
+          },
+          "inline" : {
+            "type" : "boolean"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "type" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "Contract" : {
         "properties" : {
           "amount" : {
@@ -777,6 +803,11 @@
           },
           "paymentEvidence" : {
             "$ref" : "#/components/schemas/PaymentEvidence"
+          },
+          "paymentVerifiedAt" : {
+            "description" : "결제 증빙(PORTONE)을 제공자 API 로 대조해 확인한 시각. 없으면 키 없음",
+            "format" : "date-time",
+            "type" : "string"
           },
           "scope" : {
             "enum" : [ "WORKSPACE", "EVENT" ],
@@ -1964,6 +1995,262 @@
         },
         "type" : "object"
       },
+      "HttpHeaders" : {
+        "properties" : {
+          "accept" : {
+            "items" : {
+              "$ref" : "#/components/schemas/MediaType"
+            },
+            "type" : "array"
+          },
+          "acceptCharset" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "acceptLanguage" : {
+            "items" : {
+              "properties" : {
+                "range" : {
+                  "type" : "string"
+                },
+                "weight" : {
+                  "format" : "double",
+                  "type" : "number"
+                }
+              },
+              "type" : "object"
+            },
+            "type" : "array"
+          },
+          "acceptLanguageAsLocales" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "acceptPatch" : {
+            "items" : {
+              "$ref" : "#/components/schemas/MediaType"
+            },
+            "type" : "array"
+          },
+          "accessControlAllowCredentials" : {
+            "type" : "boolean"
+          },
+          "accessControlAllowHeaders" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "accessControlAllowMethods" : {
+            "items" : {
+              "$ref" : "#/components/schemas/HttpMethod"
+            },
+            "type" : "array"
+          },
+          "accessControlAllowOrigin" : {
+            "type" : "string"
+          },
+          "accessControlExposeHeaders" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "accessControlMaxAge" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "accessControlRequestHeaders" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "accessControlRequestMethod" : {
+            "$ref" : "#/components/schemas/HttpMethod"
+          },
+          "all" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object",
+            "writeOnly" : true
+          },
+          "allow" : {
+            "items" : {
+              "$ref" : "#/components/schemas/HttpMethod"
+            },
+            "type" : "array",
+            "uniqueItems" : true
+          },
+          "basicAuth" : {
+            "type" : "string",
+            "writeOnly" : true
+          },
+          "bearerAuth" : {
+            "type" : "string",
+            "writeOnly" : true
+          },
+          "cacheControl" : {
+            "type" : "string"
+          },
+          "connection" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "contentDisposition" : {
+            "$ref" : "#/components/schemas/ContentDisposition"
+          },
+          "contentLanguage" : {
+            "type" : "string"
+          },
+          "contentLength" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "contentType" : {
+            "$ref" : "#/components/schemas/MediaType"
+          },
+          "date" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "empty" : {
+            "type" : "boolean"
+          },
+          "etag" : {
+            "type" : "string"
+          },
+          "expires" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "host" : {
+            "properties" : {
+              "address" : {
+                "properties" : {
+                  "address" : {
+                    "format" : "byte",
+                    "type" : "string"
+                  },
+                  "anyLocalAddress" : {
+                    "type" : "boolean"
+                  },
+                  "canonicalHostName" : {
+                    "type" : "string"
+                  },
+                  "hostAddress" : {
+                    "type" : "string"
+                  },
+                  "hostName" : {
+                    "type" : "string"
+                  },
+                  "linkLocalAddress" : {
+                    "type" : "boolean"
+                  },
+                  "loopbackAddress" : {
+                    "type" : "boolean"
+                  },
+                  "mcglobal" : {
+                    "type" : "boolean"
+                  },
+                  "mclinkLocal" : {
+                    "type" : "boolean"
+                  },
+                  "mcnodeLocal" : {
+                    "type" : "boolean"
+                  },
+                  "mcorgLocal" : {
+                    "type" : "boolean"
+                  },
+                  "mcsiteLocal" : {
+                    "type" : "boolean"
+                  },
+                  "multicastAddress" : {
+                    "type" : "boolean"
+                  },
+                  "siteLocalAddress" : {
+                    "type" : "boolean"
+                  }
+                },
+                "type" : "object"
+              },
+              "hostName" : {
+                "type" : "string"
+              },
+              "hostString" : {
+                "type" : "string"
+              },
+              "port" : {
+                "format" : "int32",
+                "type" : "integer"
+              },
+              "unresolved" : {
+                "type" : "boolean"
+              }
+            },
+            "type" : "object"
+          },
+          "ifMatch" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "ifModifiedSince" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "ifNoneMatch" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "ifUnmodifiedSince" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "lastModified" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "location" : {
+            "format" : "uri",
+            "type" : "string"
+          },
+          "origin" : {
+            "type" : "string"
+          },
+          "pragma" : {
+            "type" : "string"
+          },
+          "range" : {
+            "items" : {
+              "$ref" : "#/components/schemas/HttpRange"
+            },
+            "type" : "array"
+          },
+          "upgrade" : {
+            "type" : "string"
+          },
+          "vary" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
+      "HttpMethod" : { },
+      "HttpRange" : { },
       "Image" : {
         "allOf" : [ {
           "$ref" : "#/components/schemas/BackgroundAttributes"
@@ -2460,6 +2747,42 @@
           }
         },
         "required" : [ "grantorNote", "terms", "validFrom", "validTo", "workspaceId" ],
+        "type" : "object"
+      },
+      "MediaType" : {
+        "properties" : {
+          "charset" : {
+            "type" : "string"
+          },
+          "concrete" : {
+            "type" : "boolean"
+          },
+          "parameters" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "qualityValue" : {
+            "format" : "double",
+            "type" : "number"
+          },
+          "subtype" : {
+            "type" : "string"
+          },
+          "subtypeSuffix" : {
+            "type" : "string"
+          },
+          "type" : {
+            "type" : "string"
+          },
+          "wildcardSubtype" : {
+            "type" : "boolean"
+          },
+          "wildcardType" : {
+            "type" : "boolean"
+          }
+        },
         "type" : "object"
       },
       "Member" : {
@@ -22969,15 +23292,14 @@
     },
     "/api/payments/webhook" : {
       "post" : {
-        "description" : "**PG 사가 호출한다. 프론트가 부를 API 가 아니다.**\n\n본문을 **파싱하지 않고 원문 문자열 그대로** 받는다. 서명은 원문 바이트를 대상으로\n검증해야 하는데, 객체로 바꿨다가 다시 문자열로 만들면 필드 순서나 공백이 달라져\n서명이 깨지기 때문이다.\n\n현재는 Mock 게이트웨이가 붙어 있어 서명 검증이 항상 통과하고,\n본문 처리는 골격만 있다. 실제 PG 연동 시 채운다.\n",
+        "description" : "**PG 사가 호출한다. 프론트가 부를 API 가 아니다.**\n\n본문을 **파싱하지 않고 원문 문자열 그대로** 받는다. 서명은 원문 바이트를 대상으로\n검증해야 하는데, 객체로 바꿨다가 다시 문자열로 만들면 필드 순서나 공백이 달라져\n서명이 깨지기 때문이다.\n\nPortOne V2(`payment.webhook.provider=portone`)면 Standard Webhooks 헤더(`webhook-id`·`webhook-timestamp`·\n`webhook-signature`)로 검증하고, 같은 webhook-id 는 한 번만 처리한다. 결제 이벤트는 PortOne API 로 다시 조회해\n계약 증빙과 대조한다(실연동 미확인). 기본(mock)은 검증이 항상 통과한다.\n",
         "operationId" : "webhook",
         "parameters" : [ {
-          "description" : "PG 가 만든 서명. 없으면 검증에 실패한다",
           "in" : "header",
-          "name" : "X-Signature",
-          "required" : false,
+          "name" : "headers",
+          "required" : true,
           "schema" : {
-            "type" : "string"
+            "$ref" : "#/components/schemas/HttpHeaders"
           }
         } ],
         "requestBody" : {

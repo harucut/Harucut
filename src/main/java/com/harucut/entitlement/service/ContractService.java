@@ -198,7 +198,7 @@ public class ContractService {
                 c.getScope(), c.eventIdList().stream().map(eventIds::get).filter(Objects::nonNull).toList(), c.getAmount(),
                 c.getCurrency(), offset(c.getStartsAt()), offset(c.getEndsAt()),
                 c.getEvidenceKind() == null ? null : new EntitlementDtos.Evidence(c.getEvidenceKind(), c.getEvidenceReference()),
-                terms(c.terms()), c.getStatus(), offset(c.getCreatedAt()));
+                offset(c.getPaymentVerifiedAt()), terms(c.terms()), c.getStatus(), offset(c.getCreatedAt()));
     }
 
     private EntitlementDtos.Entitlement view(Entitlement e) {

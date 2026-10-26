@@ -69,7 +69,9 @@ class MockGatewayGuardTest {
         return new PaymentProperties(
                 new PaymentProperties.Gateway("mock"),
                 new PaymentProperties.Mock(false, allowedOutsideLocal),
-                3
+                3,
+                new PaymentProperties.Webhook("mock", 300),
+                new PaymentProperties.PortOne(null, null, null, "https://api.portone.io")
         );
     }
 }

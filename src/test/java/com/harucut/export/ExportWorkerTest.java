@@ -59,13 +59,45 @@ class ExportWorkerTest {
         given(fileStorageService.openMultipartUpload(anyString(), anyString()))
                 .willAnswer(i -> new S3MultipartOutputStream(s3Client, "bucket", i.getArgument(0), "application/zip", 1024));
 
+        S3Deleter s3Deleter = mock(S3Deleter.class);
         ExportWorker worker = new ExportWorker(exportJobRepository, itemRepository, composeJobRepository, fileStorageService,
-                mock(S3Deleter.class), mock(PlatformTransactionManager.class), Clock.systemUTC(), Duration.ofHours(24));
+                s3Deleter, mock(PlatformTransactionManager.class), Clock.systemUTC(), Duration.ofHours(24));
         worker.run(7L);
 
         then(s3Client).should().completeMultipartUpload(any(CompleteMultipartUploadRequest.class));
-        then(fileStorageService).should().delete(export.getS3Key());
+        then(fileStorageService).should().delete(export.getS3Key());   // DB 없이 먼저 한 번
+        then(s3Deleter).should().deleteAfterCommit(List.of(export.getS3Key()));   // 실패 기록과 함께 예약 — S3 가 실패해도 다시 지운다
         then(s3Client).should(never()).abortMultipartUpload(any(AbortMultipartUploadRequest.class));
         then(exportJobRepository).should().fail(eq(7L), eq("IllegalStateException"), any());
+    }
+    @Test
+    @DisplayName("압축하는 동안 무효가 돼 완료 기록이 0행이면 올린 객체의 삭제를 예약한다(직접 지우지 않는다 — 실패해도 다시 지우게)")
+    void schedulesDeletionWhenInvalidatedDuringUpload() {
+        ExportJobRepository exportJobRepository = mock(ExportJobRepository.class);
+        ExportJobItemRepository itemRepository = mock(ExportJobItemRepository.class);
+        ComposeJobRepository composeJobRepository = mock(ComposeJobRepository.class);
+        FileStorageService fileStorageService = mock(FileStorageService.class);
+        S3Client s3Client = mock(S3Client.class);
+        S3Deleter s3Deleter = mock(S3Deleter.class);
+        ExportJob export = ExportJob.pending(1L, "Ev1", 2L, 1);
+
+        given(exportJobRepository.claim(eq(7L), any())).willReturn(1);
+        given(exportJobRepository.findById(7L)).willReturn(Optional.of(export));
+        given(exportJobRepository.complete(anyLong(), anyLong(), any(), any())).willReturn(0);
+        given(itemRepository.findAllByExportJobIdOrderBySortOrderAsc(7L)).willReturn(List.of());
+        given(composeJobRepository.findAllById(any())).willReturn(List.of());
+        given(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class)))
+                .willReturn(CreateMultipartUploadResponse.builder().uploadId("up").build());
+        given(s3Client.uploadPart(any(UploadPartRequest.class), any(RequestBody.class)))
+                .willReturn(UploadPartResponse.builder().eTag("e").build());
+        given(fileStorageService.openMultipartUpload(anyString(), anyString()))
+                .willAnswer(i -> new S3MultipartOutputStream(s3Client, "bucket", i.getArgument(0), "application/zip", 1024));
+
+        new ExportWorker(exportJobRepository, itemRepository, composeJobRepository, fileStorageService,
+                s3Deleter, mock(PlatformTransactionManager.class), Clock.systemUTC(), Duration.ofHours(24)).run(7L);
+
+        then(s3Deleter).should().deleteAfterCommit(List.of(export.getS3Key()));
+        then(fileStorageService).should(never()).delete(anyString());
+        then(exportJobRepository).should(never()).fail(anyLong(), anyString(), any());
     }
 }

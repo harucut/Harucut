@@ -29,7 +29,6 @@ import java.io.OutputStream;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -124,13 +123,14 @@ public class ExportWorker {
             Boolean completed = transaction.execute(status ->
                     exportJobRepository.complete(exportJobId, size, LocalDateTime.now(clock).plus(ttl), LocalDateTime.now(clock)) == 1);
             if (!Boolean.TRUE.equals(completed)) {
-                // 압축하는 동안 무효가 됐다(사진 삭제 등) — 방금 올린 객체를 지운다
-                fileStorageService.delete(export.getS3Key());
+                // 압축하는 동안 무효가 됐다(사진 삭제 등) — 방금 올린 객체를 지운다(삭제 예약 — 실패해도 다시 지운다)
+                transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(export.getS3Key())));
             }
         } catch (Exception e) {
             log.warn("[묶음] {} 실패", export.getPublicId(), e);
             if (uploaded) {
-                // 객체는 완료됐는데 DONE 기록이 실패했다 — FAILED 로 남을 묶음의 객체를 지운다(만료 정리·무효화는 DONE 만 본다)
+                // 객체는 완료됐는데 DONE 기록이 실패했다 — FAILED 로 남을 묶음의 객체를 지운다(만료 정리·무효화는 DONE 만 본다).
+                // DB 장애일 수 있어 DB 없이 먼저 한 번 지우고, 아래 실패 기록과 함께 삭제도 예약한다(S3 가 실패했을 때 다시 지우게)
                 deleteQuietly(export.getS3Key());
             } else if (upload != null) {
                 try {
@@ -140,7 +140,13 @@ public class ExportWorker {
                 }
             }
             String reason = e.getClass().getSimpleName();
-            transaction.executeWithoutResult(status -> exportJobRepository.fail(exportJobId, reason, LocalDateTime.now(clock)));
+            boolean leftObject = uploaded;
+            transaction.executeWithoutResult(status -> {
+                exportJobRepository.fail(exportJobId, reason, LocalDateTime.now(clock));
+                if (leftObject) {
+                    s3Deleter.deleteAfterCommit(List.of(export.getS3Key()));
+                }
+            });
         }
     }
 
@@ -169,20 +175,6 @@ public class ExportWorker {
                         s3Deleter.deleteAfterCommit(List.of(export.getS3Key()));
                     }
                 }));
-    }
-
-    /**
-     * 커밋 뒤 삭제(S3Deleter)는 서버 중단·S3 오류가 나면 다시 시도하지 않는다 — 실패·만료한 지 이틀 안 된 묶음의 객체 삭제를
-     * 매일 다시 예약한다. 없는 key 의 삭제는 아무 일도 하지 않으므로 몇 번 겹쳐도 같다
-     */
-    @Scheduled(cron = "${event.export.reconcile-cron:0 30 4 * * *}")
-    public void reconcileDeletes() {
-        transaction.executeWithoutResult(status -> {
-            List<String> keys = exportJobRepository.findAllByStatusInAndUpdatedAtAfter(
-                            EnumSet.of(ExportStatus.FAILED, ExportStatus.EXPIRED), LocalDateTime.now(clock).minusDays(2))
-                    .stream().map(ExportJob::getS3Key).toList();
-            s3Deleter.deleteAfterCommit(keys);
-        });
     }
 
     private void deleteQuietly(String key) {

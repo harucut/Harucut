@@ -44,7 +44,7 @@ public class AssetController {
                     첫 응답을 못 받고 다시 올려 412 를 받았다면 complete 로 확인하면 된다.
                     """)
     @ApiErrors({
-            "ASSET-005: 이 경로에서 받지 않는 purpose(CAPTURE_INPUT·PAGE_THEME_ASSET)",
+            "ASSET-005: 이 경로에서 받지 않는 purpose(CAPTURE_INPUT — 참가자 경로 전용)",
             "GEN-051: 용도에 맞지 않는 형식이거나 파일명 확장자가 형식과 다름",
             "GEN-031: workspaceId 가 없거나 업로드 권한 없음"
     })

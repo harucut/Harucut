@@ -43,9 +43,9 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class AssetService {
 
-    // 이 경로에서 받는 용도. CAPTURE_INPUT 은 참가자 경로(P2A), PAGE_THEME_ASSET 은 행사 테마(P2B)
+    // 이 경로에서 받는 용도. CAPTURE_INPUT 은 참가자 경로(P2A) 전용이다
     private static final Set<AssetPurpose> CREATOR_PURPOSES =
-            Set.of(AssetPurpose.FRAME_ASSET, AssetPurpose.TEXT_RENDER, AssetPurpose.PROFILE);
+            Set.of(AssetPurpose.FRAME_ASSET, AssetPurpose.TEXT_RENDER, AssetPurpose.PROFILE, AssetPurpose.PAGE_THEME_ASSET);
     private static final Set<WorkspaceRole> UPLOAD_ROLES =
             Set.of(WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.DESIGNER);
 

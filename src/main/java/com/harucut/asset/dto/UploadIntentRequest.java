@@ -14,14 +14,15 @@ public record UploadIntentRequest(
 
         @NotNull
         @Schema(description = """
-                자산 용도. 이 경로는 `FRAME_ASSET`(배경·PHOTO·STICKER·로고) · `TEXT_RENDER`(구운 글자 PNG) · `PROFILE` 만 받는다.
-                그 밖의 값은 400 `ASSET-005`.""",
+                자산 용도. 이 경로는 `FRAME_ASSET`(배경·PHOTO·STICKER·로고) · `TEXT_RENDER`(구운 글자 PNG) · `PROFILE` ·
+                `PAGE_THEME_ASSET`(행사 테마 로고·배경 — workspaceId 에 조직 공간) 을 받는다.
+                `CAPTURE_INPUT` 은 참가자 경로 전용이라 400 `ASSET-005`.""",
                 example = "FRAME_ASSET", requiredMode = Schema.RequiredMode.REQUIRED)
         AssetPurpose purpose,
 
         @NotNull
         @Schema(description = """
-                파일 형식(enum 이름). `FRAME_ASSET` 은 PNG·JPEG, `TEXT_RENDER` 는 PNG, `PROFILE` 은 PNG·JPEG·GIF.
+                파일 형식(enum 이름). `FRAME_ASSET`·`PAGE_THEME_ASSET` 은 PNG·JPEG, `TEXT_RENDER` 는 PNG, `PROFILE` 은 PNG·JPEG·GIF.
                 용도에 맞지 않으면 415 `GEN-051`.""",
                 example = "PNG", requiredMode = Schema.RequiredMode.REQUIRED)
         ContentType contentType,

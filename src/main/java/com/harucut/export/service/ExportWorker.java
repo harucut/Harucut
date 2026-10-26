@@ -114,6 +114,9 @@ public class ExportWorker {
                     zip.closeEntry();
                 }
             }
+            // ZIP 을 닫아도 업로드는 끝나지 않는다(CountingOutputStream 이 close 를 막는다) — 다 쓴 뒤에만 여기서 완료한다.
+            // 위에서 예외가 나면 이 줄에 닿지 않고 아래 catch 가 취소한다
+            upload.close();
             long size = counted.count;
             Boolean completed = transaction.execute(status ->
                     exportJobRepository.complete(exportJobId, size, LocalDateTime.now(clock).plus(ttl)) == 1);
@@ -166,7 +169,9 @@ public class ExportWorker {
         return dot < 0 ? ".jpg" : key.substring(dot);
     }
 
-    // ZIP 크기를 세려고 — 업로드 스트림은 길이를 알려 주지 않는다
+    // ZIP 크기를 세려고 — 업로드 스트림은 길이를 알려 주지 않는다.
+    // close 를 밑으로 넘기지 않는다: ZipOutputStream 을 닫으면(try-with-resources, 실패 경로 포함) 밑의 multipart 가
+    // 「완료」돼 버리고, 그 뒤의 abort 는 이미 완료된 객체를 지우지 못한다. 완료는 성공 경로에서 명시적으로만 한다
     private static final class CountingOutputStream extends FilterOutputStream {
         private long count;
 
@@ -184,6 +189,11 @@ public class ExportWorker {
         public void write(byte[] b, int off, int len) throws IOException {
             out.write(b, off, len);
             count += len;
+        }
+
+        @Override
+        public void close() throws IOException {
+            flush();
         }
     }
 }

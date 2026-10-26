@@ -2,7 +2,6 @@ package com.harucut.event.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.harucut.frame.enums.FrameType;
-import tools.jackson.databind.JsonNode;
 
 import java.util.List;
 
@@ -15,7 +14,7 @@ public record EventExperienceDocument(
         List<FrameType> allowedLayouts,
         List<EventSettings.FrameRef> frames,
         List<EventSettings.ConsentItem> consentItems,
-        JsonNode theme,
+        PageTheme theme,
         String editPolicy
 ) {
     public static EventExperienceDocument empty() {

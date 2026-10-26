@@ -151,19 +151,27 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
   maxLiveEvents, features: [WHITE_LABEL, CUSTOM_THEME, BULK_DOWNLOAD], validFrom, validTo, source: CONTRACT|MANUAL, contractId? }`
 - ManualGrant: `POST /api/admin/entitlements` 를 `source: MANUAL` + `{ grantorNote(사유) }` 로. 부여자·사유·기간·한도를 남긴다.
   회수·만료 전에 `GET /api/admin/entitlements/{id}/impact` 로 영향(사용 중 행사·남은 예약)을 보여 준다.
+  사용 중 행사 = 지금 그 행사에 **적용되는** 이용권이 이것인 LIVE 행사(행사 범위 이용권에 덮였거나 이미 끝난 이용권이면 제외).
 
 ### 6-2. 적용
 - 행사에 적용되는 이용권 = 유효기간 안의 **행사 범위 > 공간 범위** 중 하나(가장 구체적인 것, 같으면 validTo 가 늦은 것).
 - **게시**: 적용 이용권이 없으면 403 `ENT-001`. 공간의 LIVE 행사 수가 maxLiveEvents 이상이면 게시 위반.
 - **합성 접수**: 새 job 일 때만(멱등 재생은 제외) 예약 1건. `usage_reservation(job_id unique, entitlement_id, status RESERVED|COMMITTED|RELEASED)` 를
   job 저장과 같은 트랜잭션에 넣고, 이용권 카운터는 조건부 UPDATE
-  `reserved = reserved + 1 WHERE used + reserved + 1 <= compose_quota` — 0행이면 409 `ENT-002`(참가 화면: 「촬영 한도에 도달」).
+  `reserved = reserved + 1 WHERE status = ACTIVE AND valid_from <= now < valid_to AND used + reserved + 1 <= compose_quota`
+  — 0행이면 409 `ENT-002`(참가 화면: 「촬영 한도에 도달」). 후보를 읽은 뒤 계약이 끝나도(validTo 단축) 끝난 이용권에 예약하지 않는다.
+  이미 잡힌 예약의 확정·반환은 유효기간과 무관하다.
 - **확정·반환**: `completeJob` 의 PENDING→DONE 전이를 이긴 트랜잭션 안에서 `RESERVED→COMMITTED`(used+1, reserved−1),
   `failJob` 전이 안에서 `RESERVED→RELEASED`(reserved−1). 예약 행의 조건부 UPDATE 가 **COMMIT·RELEASE 중 하나만** 허용한다.
   늦게 온 성공·실패는 이미 종결된 예약을 되살리지 않는다. `usage_ledger` 에 RESERVE·COMMIT·RELEASE 이력을 남긴다(감사용).
 - 다운로드·결과 링크 재방문·부스 회차 닫기는 차감하지 않는다. 개인 합성은 이 원장과 무관하다(개인 요금제 그대로).
 - **부스 기기 수**: 적용 이용권의 maxBoothDevices 가 설정값(20)을 대신한다.
-- **보관 기간**: 이용권 retentionDays 가 있으면 행사 resultRetentionDays 의 상한이 된다.
+- **보관 기간**: 이용권 retentionDays 가 있으면 행사 resultRetentionDays 의 상한이 된다. PATCH 에서 넘으면 400 `GEN-002`
+  (게시 뒤에도 넘기지 못하게), 게시 검사에서도 한 번 더 본다.
+- **동시 운영 상한**: 게시 검사의 maxLiveEvents 는 공간 행을 잠근 뒤 **잠금 읽기(FOR UPDATE)로** 센다 — 동시에 두 행사를 게시해도 상한을 넘지 않는다.
+  MySQL REPEATABLE READ 에서는 잠금 전 일반 읽기로 스냅샷이 잡히므로, 잠금 뒤에 일반 읽기로 세면 방금 커밋된 LIVE 를 놓친다. 부스 기기 수도 같은 방식.
+- **기존 LIVE 행사(이 변경 전에 게시된 것)**: 적용 이용권이 없으면 회차 시작·합성 접수가 409 `ENT-002` 가 된다(게시 관문을 거치지 않았으므로).
+  배포 전에 운영 DB 에서 이용권 없는 LIVE·CAPTURE_CLOSED 행사를 세어 보고, 있으면 ManualGrant 를 먼저 부여한다 — 사용자 확인 후 진행.
 - 회차 시작에서도 잔량이 0 이면 409 `ENT-002` — 찍고 나서 막히지 않게(접수에서 다시 검사한다).
 
 ### 6-3. 조회
@@ -176,7 +184,13 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
 
 - 행사 결과의 보관 기한 = job 생성 시각 + resultRetentionDays(ADR-0007 그대로). 매일 04:00 배치가 기한 지난 결과·썸네일 객체를 지우고
   job 에 `purged_at` 을 기록한다(사진함·ZIP·결과 링크에서 EXPIRED). 행사의 모든 결과가 정리되고 촬영이 끝났으면 ARCHIVED.
+  영구 삭제라 기준 시각은 **배치(트랜잭션)마다** 행사 행을 잠금 읽기(FOR UPDATE)로 다시 읽어 계산한다 — 실행 도중 운영자가 보관 일수를 늘리면
+  그 뒤 배치는 새 기준을 쓰고, 배치가 커밋할 때까지 설정 저장이 기다린다. 보관 종료(ARCHIVED)는 트랜잭션 안에서 읽은 행사의 @Version 으로 지킨다.
+- 보관 종료와 참가자 합성 접수는 **같은 행사 행 잠금**으로 줄을 선다: 접수는 행사를 공유 잠금으로 다시 읽은 값으로 촬영 열림을 확인하고,
+  보관 종료는 행사를 쓰기 잠금으로 잡은 뒤 남은 작업을 잠금 읽기로 다시 센다. 검사를 통과하고 커밋 전인 접수가 있으면 보관 종료가 기다려 그 작업을 보고,
+  커밋된 보관 종료는 접수에서 보여 409 `EVENT-001` 이 된다(작업 접수는 행사 @Version 을 올리지 않으므로 낙관적 잠금으로는 못 막는다).
 - 결과가 확정(DONE·FAILED)된 job 의 촬영 입력 asset 행을 지운다 — S3 객체는 이미 지웠다(지금은 행이 남는다).
+  같은 합성 요청의 재생(멱등)이 보낸 입력 id 를 이 행으로 대조하므로, 재생 기간(`event.retention.capture-input-replay`, 기본 30일)이 지난 job 의 행만 지운다.
 - 부스 기기·참가자 세션·결과 토큰 행은 행사 ARCHIVED 뒤 30일에 정리한다.
 
 ## 8. PortOne V2 웹훅 (P2B-7) — 실연동 미확인
@@ -184,9 +198,16 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
 - `POST /api/payments/webhook` 의 검증기를 Standard Webhooks 로 바꾼다: `webhook-id`·`webhook-timestamp`·`webhook-signature` 헤더,
   서명 = base64(HMAC-SHA256(secret, `${id}.${timestamp}.${rawBody}`)), 비밀은 `whsec_` 접두어 base64. 허용 시각차 5분.
   **원문 body 바이트**로 검증한다(JSON 재직렬화 금지). 같은 webhook-id 는 한 번만 처리(`webhook_receipt` 유니크).
-- 서명이 맞으면 PortOne API 로 결제를 조회해 금액·통화·상점·상태를 서버 주문과 대조한 뒤에만 상태를 바꾼다. 중복·역순 이벤트는 외부 결제 id 와 현재 상태로 거른다.
+- 서명이 맞으면 PortOne API 로 결제를 조회해(`GET /payments/{paymentId}?storeId=` — storeId 를 빼면 API 비밀의 상점으로 조회되므로 늘 보낸다,
+  상점 id 가 없으면 기동하지 않는다) 금액·통화·상점·상태를 서버 주문과 대조한 뒤에만 상태를 바꾼다. 중복·역순 이벤트는 외부 결제 id 와 현재 상태로 거른다.
 - 계약 결제는 `contract.paymentEvidence(kind PORTONE, reference = paymentId)` 로 연결한다. 개인 구독 결제 흐름은 그대로 둔다.
 - 키(웹훅 비밀·API 비밀·상점 id)는 설정으로만 받는다. 키가 없으면 기존 Mock 검증기를 쓴다(운영 프로필에서는 기동 실패 — 지금 MockGatewayGuard 와 같은 방식).
+  MockGatewayGuard 가 `payment.webhook.provider=mock` 도 함께 본다 — local·test 밖에서는 `PAYMENT_MOCK_ALLOWED` 없이 기동하지 않는다.
+- 수신 기록은 `INSERT IGNORE` 로 남긴다. 같은 webhook-id 가 동시에 오면 늦은 쪽은 앞쪽 커밋을 기다렸다가 0행을 받고 200 으로 끝난다
+  (유니크 위반을 예외로 받으면 트랜잭션이 롤백 전용이 되어 500 이 났다).
+- 결제 확인 시각은 조건부 UPDATE(`paymentVerifiedAt IS NULL` 일 때만)로 쓴다 — 동시에 바뀐 계약 상태를 덮지 않고, 감사 로그도 한 번만.
+- 웹훅이 증빙 등록보다 먼저 와서 확인되지 않은 계약은 ADMIN 이 `POST /api/admin/contracts/{contractId}/payment-verification` 으로 다시 확인한다
+  (같은 대조, 맞으면 계약을 돌려준다. 증빙 없음·연동 꺼짐·불일치는 400 `GEN-002`).
 
 ## 9. 오류 코드
 
@@ -203,12 +224,13 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
 | ENT-001 | 403 | 적용할 이용권이 없다(게시 불가) |
 | ENT-002 | 409 | 이용권의 합성 한도에 도달했다 |
 | ENT-003 | 409 | 계약·이용권 상태 전이가 맞지 않다(CMS) |
+| ENT-004 | 403 | 이용권에 그 기능이 없다(예: BULK_DOWNLOAD 없이 묶음 요청) |
 | GEN-061 | 429 | 문의 접수 빈도 초과(기존 코드) |
 
 ## 10. 설정값
 
 초대 7일, 사진함 limit 30/100, 썸네일·다운로드 GET 5분, ZIP 최대 2,000장·DONE 후 24시간·동시 1개,
-문의 IP 분당 5회, 보관 종료 배치 04:00, ARCHIVED 후 30일 부가 행 정리.
+문의 IP 분당 5회, 보관 종료 배치 04:00, ARCHIVED 후 30일 부가 행 정리, 촬영 입력 행은 확정 후 30일(재생 기간) 뒤 삭제.
 
 ## 11. 하지 않는 것
 

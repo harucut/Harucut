@@ -38,6 +38,7 @@ public class PublicEventService {
     private final FileStorageService fileStorageService;
     private final StorageProperties storageProperties;
     private final ObjectMapper objectMapper;
+    private final ThemeResolver themeResolver;
     private final Clock clock;
 
     public PublicEventResponse getBySlug(String slug) {
@@ -59,7 +60,7 @@ public class PublicEventService {
                 .toList();
         return new PublicEventResponse(event.getPublicId(), event.getName(), event.getStatus(),
                 event.captureOpen(LocalDateTime.now(clock)), event.isByodEnabled(), event.isBoothEnabled(),
-                version.getVersionNo(), document.allowedLayouts(), frames, document.consentItems(), document.theme());
+                version.getVersionNo(), document.allowedLayouts(), frames, document.consentItems(), themeResolver.resolve(document.theme()));
     }
 
     // 발행본의 원본 프레임 미리보기 — 프레임이 나중에 바뀌어도 발행본 자체는 그대로다(미리보기는 참고용)

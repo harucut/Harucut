@@ -151,6 +151,22 @@
   "status" : 413,
   "message" : "The draft document is too large."
 }, {
+  "code" : "ENT-001",
+  "status" : 403,
+  "message" : "No entitlement applies to this event."
+}, {
+  "code" : "ENT-002",
+  "status" : 409,
+  "message" : "The event has reached its compose quota."
+}, {
+  "code" : "ENT-003",
+  "status" : 409,
+  "message" : "The contract or entitlement cannot change to this state."
+}, {
+  "code" : "ENT-004",
+  "status" : 403,
+  "message" : "The entitlement does not include this feature."
+}, {
   "code" : "EVENT-001",
   "status" : 409,
   "message" : "The event is not open for capture."
@@ -170,6 +186,18 @@
   "code" : "EVENT-005",
   "status" : 409,
   "message" : "The event settings were modified by another save."
+}, {
+  "code" : "EXPORT-001",
+  "status" : 409,
+  "message" : "The export is not ready yet."
+}, {
+  "code" : "EXPORT-002",
+  "status" : 410,
+  "message" : "The export has expired, failed or been invalidated."
+}, {
+  "code" : "EXPORT-003",
+  "status" : 400,
+  "message" : "The export selection is empty or too large."
 }, {
   "code" : "FRAME-001",
   "status" : 404,
@@ -322,6 +350,10 @@
   "code" : "PAY-008",
   "status" : 400,
   "message" : "Invalid webhook signature."
+}, {
+  "code" : "PHOTO-001",
+  "status" : 403,
+  "message" : "You do not have this photo permission for the event."
 }, {
   "code" : "RESULT-001",
   "status" : 401,

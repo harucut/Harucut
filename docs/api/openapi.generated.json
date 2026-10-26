@@ -1,6 +1,62 @@
 {
   "components" : {
     "schemas" : {
+      "AdminEventItem" : {
+        "description" : "행사 검색 결과 — EVENT 범위 계약에 행사·공간 id 가 둘 다 필요하다",
+        "properties" : {
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "eventId" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "slug" : {
+            "type" : "string"
+          },
+          "status" : {
+            "enum" : [ "DRAFT", "LIVE", "CAPTURE_CLOSED", "ARCHIVED" ],
+            "type" : "string"
+          },
+          "workspaceId" : {
+            "type" : "string"
+          },
+          "workspaceName" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "AdminWorkspaceItem" : {
+        "description" : "조직 공간 검색 결과",
+        "properties" : {
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "ownerEmails" : {
+            "description" : "활성 OWNER 의 이메일",
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "type" : {
+            "enum" : [ "PERSONAL", "ORGANIZATION" ],
+            "type" : "string"
+          },
+          "workspaceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "AgreementItem" : {
         "description" : "동의/철회 항목 하나",
         "properties" : {
@@ -743,6 +799,152 @@
         },
         "type" : "object"
       },
+      "ContentDisposition" : {
+        "properties" : {
+          "attachment" : {
+            "type" : "boolean"
+          },
+          "charset" : {
+            "type" : "string"
+          },
+          "filename" : {
+            "type" : "string"
+          },
+          "formData" : {
+            "type" : "boolean"
+          },
+          "inline" : {
+            "type" : "boolean"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "type" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "Contract" : {
+        "properties" : {
+          "amount" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "contractId" : {
+            "type" : "string"
+          },
+          "contractorName" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "endsAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "entitlement" : {
+            "$ref" : "#/components/schemas/EntitlementTerms"
+          },
+          "eventIds" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "paymentEvidence" : {
+            "$ref" : "#/components/schemas/PaymentEvidence"
+          },
+          "paymentVerifiedAt" : {
+            "description" : "결제 증빙(PORTONE)을 제공자 API 로 대조해 확인한 시각. 없으면 키 없음",
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "scope" : {
+            "enum" : [ "WORKSPACE", "EVENT" ],
+            "type" : "string"
+          },
+          "startsAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "status" : {
+            "enum" : [ "DRAFT", "ACTIVE", "ENDED", "CANCELLED" ],
+            "type" : "string"
+          },
+          "workspaceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ContractRequest" : {
+        "description" : "계약 — DRAFT 로 만들고 ACTIVE 로 바꾸면 이용권이 생긴다",
+        "properties" : {
+          "amount" : {
+            "format" : "int64",
+            "minimum" : 0,
+            "type" : "integer"
+          },
+          "contractorName" : {
+            "maxLength" : 100,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "currency" : {
+            "default" : "KRW",
+            "maxLength" : 3,
+            "minLength" : 3,
+            "type" : "string"
+          },
+          "endsAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "entitlement" : {
+            "$ref" : "#/components/schemas/EntitlementTerms"
+          },
+          "eventIds" : {
+            "description" : "EVENT 범위일 때 행사 public id 들",
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "paymentEvidence" : {
+            "$ref" : "#/components/schemas/PaymentEvidence"
+          },
+          "scope" : {
+            "enum" : [ "WORKSPACE", "EVENT" ],
+            "type" : "string"
+          },
+          "startsAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "workspaceId" : {
+            "minLength" : 1,
+            "type" : "string"
+          }
+        },
+        "required" : [ "contractorName", "endsAt", "entitlement", "scope", "startsAt", "workspaceId" ],
+        "type" : "object"
+      },
+      "ContractStatusRequest" : {
+        "properties" : {
+          "status" : {
+            "enum" : [ "DRAFT", "ACTIVE", "ENDED", "CANCELLED" ],
+            "type" : "string"
+          }
+        },
+        "required" : [ "status" ],
+        "type" : "object"
+      },
       "CouponAdminResponse" : {
         "description" : "쿠폰 (관리자용)",
         "properties" : {
@@ -1033,6 +1235,126 @@
         },
         "type" : "object"
       },
+      "Entitlement" : {
+        "properties" : {
+          "contractId" : {
+            "type" : "string"
+          },
+          "entitlementId" : {
+            "type" : "string"
+          },
+          "eventId" : {
+            "type" : "string"
+          },
+          "grantorNote" : {
+            "type" : "string"
+          },
+          "reserved" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "revokeReason" : {
+            "type" : "string"
+          },
+          "scope" : {
+            "enum" : [ "WORKSPACE", "EVENT" ],
+            "type" : "string"
+          },
+          "source" : {
+            "enum" : [ "CONTRACT", "MANUAL" ],
+            "type" : "string"
+          },
+          "status" : {
+            "enum" : [ "ACTIVE", "REVOKED" ],
+            "type" : "string"
+          },
+          "terms" : {
+            "$ref" : "#/components/schemas/EntitlementTerms"
+          },
+          "used" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "validFrom" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "validTo" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "workspaceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "EntitlementImpact" : {
+        "description" : "회수·만료 영향 미리보기",
+        "properties" : {
+          "liveEvents" : {
+            "description" : "이 이용권을 쓰는 운영 중(LIVE) 행사 public id",
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "openReservations" : {
+            "description" : "아직 종결되지 않은 예약 수",
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "EntitlementRevokeRequest" : {
+        "properties" : {
+          "reason" : {
+            "maxLength" : 500,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "reason" ],
+        "type" : "object"
+      },
+      "EntitlementTerms" : {
+        "description" : "이용권 조건 — 계약과 수동 부여가 같은 모양",
+        "properties" : {
+          "composeQuota" : {
+            "description" : "성공 합성 한도(네컷 1장 = 1건)",
+            "format" : "int32",
+            "minimum" : 0,
+            "type" : "integer"
+          },
+          "features" : {
+            "items" : {
+              "enum" : [ "WHITE_LABEL", "CUSTOM_THEME", "BULK_DOWNLOAD" ],
+              "type" : "string"
+            },
+            "type" : "array",
+            "uniqueItems" : true
+          },
+          "maxBoothDevices" : {
+            "format" : "int32",
+            "minimum" : 0,
+            "type" : "integer"
+          },
+          "maxLiveEvents" : {
+            "format" : "int32",
+            "minimum" : 0,
+            "type" : "integer"
+          },
+          "retentionDays" : {
+            "description" : "결과 보관 일수 상한",
+            "format" : "int32",
+            "minimum" : 1,
+            "type" : "integer"
+          }
+        },
+        "required" : [ "composeQuota" ],
+        "type" : "object"
+      },
       "ErrorResponse" : {
         "description" : "에러 응답 봉투",
         "properties" : {
@@ -1053,6 +1375,23 @@
             "type" : "integer"
           }
         }
+      },
+      "EventCloneRequest" : {
+        "description" : "행사 복제 — 설정·테마·제공 프레임만 새 초안으로",
+        "properties" : {
+          "name" : {
+            "maxLength" : 100,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "slug" : {
+            "example" : "wedding-1103",
+            "minLength" : 1,
+            "type" : "string"
+          }
+        },
+        "required" : [ "name", "slug" ],
+        "type" : "object"
       },
       "EventComposeRequest" : {
         "description" : "행사 합성 접수",
@@ -1284,13 +1623,142 @@
             "type" : "string"
           },
           "theme" : {
-            "$ref" : "#/components/schemas/JsonNode",
-            "description" : "페이지 테마(P2A 는 자리표시자 — 서버는 해석하지 않는다)"
+            "$ref" : "#/components/schemas/PageTheme",
+            "description" : "페이지 테마 — 게시 때 형식·자산·이용권 기능을 검사한다"
           },
           "timezone" : {
             "description" : "표시용 시간대",
             "example" : "Asia/Seoul",
             "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "EventUsage" : {
+        "description" : "행사 사용량 — 적용 이용권이 없으면 entitlement 키가 없고 수치는 0",
+        "properties" : {
+          "composeQuota" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "entitlement" : {
+            "$ref" : "#/components/schemas/EventUsageEntitlement"
+          },
+          "maxBoothDevices" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "remaining" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "reserved" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "retentionDays" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "used" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "EventUsageEntitlement" : {
+        "properties" : {
+          "features" : {
+            "items" : {
+              "enum" : [ "WHITE_LABEL", "CUSTOM_THEME", "BULK_DOWNLOAD" ],
+              "type" : "string"
+            },
+            "type" : "array",
+            "uniqueItems" : true
+          },
+          "scope" : {
+            "enum" : [ "WORKSPACE", "EVENT" ],
+            "type" : "string"
+          },
+          "validFrom" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "validTo" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "Export" : {
+        "description" : "묶음 다운로드 작업",
+        "properties" : {
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "expiresAt" : {
+            "description" : "DONE 일 때 — 이 시각 뒤에는 받을 수 없다",
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "exportId" : {
+            "type" : "string"
+          },
+          "photoCount" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "sizeBytes" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "status" : {
+            "description" : "PENDING · RUNNING · DONE · FAILED · EXPIRED",
+            "enum" : [ "PENDING", "RUNNING", "DONE", "FAILED", "EXPIRED" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ExportFilter" : {
+        "properties" : {
+          "channel" : {
+            "enum" : [ "BYOD", "BOOTH" ],
+            "type" : "string"
+          },
+          "frameVersionId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "from" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "to" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ExportRequest" : {
+        "description" : "photoIds 또는 filter 중 하나. 둘 다 없으면 행사의 완성 사진 전부. photoIds 를 빈 목록으로 보내면 400 EXPORT-003",
+        "properties" : {
+          "filter" : {
+            "$ref" : "#/components/schemas/ExportFilter"
+          },
+          "photoIds" : {
+            "description" : "고른 사진 id — 이 순서로 담는다",
+            "items" : {
+              "format" : "int64",
+              "type" : "integer"
+            },
+            "maxItems" : 2000,
+            "minItems" : 0,
+            "type" : "array"
           }
         },
         "type" : "object"
@@ -1583,6 +2051,262 @@
         },
         "type" : "object"
       },
+      "HttpHeaders" : {
+        "properties" : {
+          "accept" : {
+            "items" : {
+              "$ref" : "#/components/schemas/MediaType"
+            },
+            "type" : "array"
+          },
+          "acceptCharset" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "acceptLanguage" : {
+            "items" : {
+              "properties" : {
+                "range" : {
+                  "type" : "string"
+                },
+                "weight" : {
+                  "format" : "double",
+                  "type" : "number"
+                }
+              },
+              "type" : "object"
+            },
+            "type" : "array"
+          },
+          "acceptLanguageAsLocales" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "acceptPatch" : {
+            "items" : {
+              "$ref" : "#/components/schemas/MediaType"
+            },
+            "type" : "array"
+          },
+          "accessControlAllowCredentials" : {
+            "type" : "boolean"
+          },
+          "accessControlAllowHeaders" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "accessControlAllowMethods" : {
+            "items" : {
+              "$ref" : "#/components/schemas/HttpMethod"
+            },
+            "type" : "array"
+          },
+          "accessControlAllowOrigin" : {
+            "type" : "string"
+          },
+          "accessControlExposeHeaders" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "accessControlMaxAge" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "accessControlRequestHeaders" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "accessControlRequestMethod" : {
+            "$ref" : "#/components/schemas/HttpMethod"
+          },
+          "all" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object",
+            "writeOnly" : true
+          },
+          "allow" : {
+            "items" : {
+              "$ref" : "#/components/schemas/HttpMethod"
+            },
+            "type" : "array",
+            "uniqueItems" : true
+          },
+          "basicAuth" : {
+            "type" : "string",
+            "writeOnly" : true
+          },
+          "bearerAuth" : {
+            "type" : "string",
+            "writeOnly" : true
+          },
+          "cacheControl" : {
+            "type" : "string"
+          },
+          "connection" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "contentDisposition" : {
+            "$ref" : "#/components/schemas/ContentDisposition"
+          },
+          "contentLanguage" : {
+            "type" : "string"
+          },
+          "contentLength" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "contentType" : {
+            "$ref" : "#/components/schemas/MediaType"
+          },
+          "date" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "empty" : {
+            "type" : "boolean"
+          },
+          "etag" : {
+            "type" : "string"
+          },
+          "expires" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "host" : {
+            "properties" : {
+              "address" : {
+                "properties" : {
+                  "address" : {
+                    "format" : "byte",
+                    "type" : "string"
+                  },
+                  "anyLocalAddress" : {
+                    "type" : "boolean"
+                  },
+                  "canonicalHostName" : {
+                    "type" : "string"
+                  },
+                  "hostAddress" : {
+                    "type" : "string"
+                  },
+                  "hostName" : {
+                    "type" : "string"
+                  },
+                  "linkLocalAddress" : {
+                    "type" : "boolean"
+                  },
+                  "loopbackAddress" : {
+                    "type" : "boolean"
+                  },
+                  "mcglobal" : {
+                    "type" : "boolean"
+                  },
+                  "mclinkLocal" : {
+                    "type" : "boolean"
+                  },
+                  "mcnodeLocal" : {
+                    "type" : "boolean"
+                  },
+                  "mcorgLocal" : {
+                    "type" : "boolean"
+                  },
+                  "mcsiteLocal" : {
+                    "type" : "boolean"
+                  },
+                  "multicastAddress" : {
+                    "type" : "boolean"
+                  },
+                  "siteLocalAddress" : {
+                    "type" : "boolean"
+                  }
+                },
+                "type" : "object"
+              },
+              "hostName" : {
+                "type" : "string"
+              },
+              "hostString" : {
+                "type" : "string"
+              },
+              "port" : {
+                "format" : "int32",
+                "type" : "integer"
+              },
+              "unresolved" : {
+                "type" : "boolean"
+              }
+            },
+            "type" : "object"
+          },
+          "ifMatch" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "ifModifiedSince" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "ifNoneMatch" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "ifUnmodifiedSince" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "lastModified" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "location" : {
+            "format" : "uri",
+            "type" : "string"
+          },
+          "origin" : {
+            "type" : "string"
+          },
+          "pragma" : {
+            "type" : "string"
+          },
+          "range" : {
+            "items" : {
+              "$ref" : "#/components/schemas/HttpRange"
+            },
+            "type" : "array"
+          },
+          "upgrade" : {
+            "type" : "string"
+          },
+          "vary" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
+      "HttpMethod" : { },
+      "HttpRange" : { },
       "Image" : {
         "allOf" : [ {
           "$ref" : "#/components/schemas/BackgroundAttributes"
@@ -1620,6 +2344,125 @@
           },
           "type" : "object"
         } ]
+      },
+      "Inquiry" : {
+        "description" : "문의(관리자)",
+        "properties" : {
+          "assigneeNote" : {
+            "type" : "string"
+          },
+          "channels" : {
+            "type" : "string"
+          },
+          "contactName" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "email" : {
+            "type" : "string"
+          },
+          "expectedCount" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "expectedDate" : {
+            "format" : "date",
+            "type" : "string"
+          },
+          "inquiryId" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "organizerType" : {
+            "enum" : [ "PERSONAL", "BUSINESS" ],
+            "type" : "string"
+          },
+          "phone" : {
+            "type" : "string"
+          },
+          "status" : {
+            "enum" : [ "NEW", "CONTACTED", "QUOTED", "WON", "LOST" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "InquiryCreated" : {
+        "properties" : {
+          "inquiryId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "InquiryRequest" : {
+        "description" : "행사·기업 문의",
+        "properties" : {
+          "channels" : {
+            "items" : {
+              "enum" : [ "BYOD", "BOOTH" ],
+              "type" : "string"
+            },
+            "minItems" : 1,
+            "type" : "array",
+            "uniqueItems" : true
+          },
+          "contactName" : {
+            "maxLength" : 50,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "email" : {
+            "format" : "email",
+            "maxLength" : 120,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "expectedCount" : {
+            "format" : "int32",
+            "minimum" : 0,
+            "type" : "integer"
+          },
+          "expectedDate" : {
+            "format" : "date",
+            "type" : "string"
+          },
+          "message" : {
+            "maxLength" : 2000,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "organizerType" : {
+            "enum" : [ "PERSONAL", "BUSINESS" ],
+            "type" : "string"
+          },
+          "phone" : {
+            "maxLength" : 30,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "channels", "contactName", "email", "message", "organizerType" ],
+        "type" : "object"
+      },
+      "InquiryUpdateRequest" : {
+        "properties" : {
+          "assigneeNote" : {
+            "maxLength" : 1000,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "status" : {
+            "enum" : [ "NEW", "CONTACTED", "QUOTED", "WON", "LOST" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
       },
       "Invitation" : {
         "description" : "열린 초대 — 토큰은 없다",
@@ -1926,6 +2769,74 @@
             "enum" : [ "ACTIVE", "DELETED", "DELETED_REQUESTED", "BLOCKED" ],
             "example" : "ACTIVE",
             "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ManualGrantRequest" : {
+        "description" : "수동 이용권(체험·보상·파트너) — 사유 필수. 결제를 꾸미지 않는다",
+        "properties" : {
+          "eventId" : {
+            "description" : "있으면 행사 범위",
+            "type" : "string"
+          },
+          "grantorNote" : {
+            "description" : "부여 사유",
+            "maxLength" : 500,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "terms" : {
+            "$ref" : "#/components/schemas/EntitlementTerms"
+          },
+          "validFrom" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "validTo" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "workspaceId" : {
+            "minLength" : 1,
+            "type" : "string"
+          }
+        },
+        "required" : [ "grantorNote", "terms", "validFrom", "validTo", "workspaceId" ],
+        "type" : "object"
+      },
+      "MediaType" : {
+        "properties" : {
+          "charset" : {
+            "type" : "string"
+          },
+          "concrete" : {
+            "type" : "boolean"
+          },
+          "parameters" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "qualityValue" : {
+            "format" : "double",
+            "type" : "number"
+          },
+          "subtype" : {
+            "type" : "string"
+          },
+          "subtypeSuffix" : {
+            "type" : "string"
+          },
+          "type" : {
+            "type" : "string"
+          },
+          "wildcardSubtype" : {
+            "type" : "boolean"
+          },
+          "wildcardType" : {
+            "type" : "boolean"
           }
         },
         "type" : "object"
@@ -2379,6 +3290,120 @@
         },
         "type" : "object"
       },
+      "PageTheme" : {
+        "description" : "행사 페이지 테마(설정에 쓰는 모양). 공개 응답에는 ResolvedPageTheme 이 실린다",
+        "properties" : {
+          "backgroundAssetId" : {
+            "description" : "배경 이미지 — 이 공간의 VERIFIED PAGE_THEME_ASSET id",
+            "type" : "string"
+          },
+          "branding" : {
+            "$ref" : "#/components/schemas/PageThemeBranding"
+          },
+          "colors" : {
+            "$ref" : "#/components/schemas/PageThemeColors"
+          },
+          "copy" : {
+            "$ref" : "#/components/schemas/PageThemeCopy"
+          },
+          "font" : {
+            "description" : "글꼴. SYSTEM = 바꾸지 않음(FE 기본 서체 그대로 — 지금은 Pretendard). 테마가 없으면 SYSTEM 으로 채워 내려준다",
+            "enum" : [ "SYSTEM", "PRETENDARD", "NANUM_MYEONGJO", "GOWUN_DODUM", "BLACK_HAN_SANS" ],
+            "example" : "PRETENDARD",
+            "type" : "string"
+          },
+          "logoAssetId" : {
+            "description" : "로고 — 이 공간의 VERIFIED PAGE_THEME_ASSET id",
+            "type" : "string"
+          },
+          "schemaVersion" : {
+            "description" : "스키마 버전",
+            "enum" : [ "1" ],
+            "example" : 1,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "PageThemeBranding" : {
+        "properties" : {
+          "hideHarucutBranding" : {
+            "description" : "하루컷 UI 표시 숨김 — 이용권 기능 WHITE_LABEL 이 있어야 게시된다",
+            "type" : "boolean"
+          },
+          "outputLogo" : {
+            "description" : "완성 이미지 로고 정책. P2B 는 저장·발행만(합성 반영은 P5)",
+            "enum" : [ "NONE", "ORGANIZER_LOGO" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "PageThemeColors" : {
+        "description" : "#RRGGBB — FE 토큰 --ev-* 와 1:1. 빠진 색은 기본값",
+        "properties" : {
+          "accent" : {
+            "example" : "#C8553D",
+            "type" : "string"
+          },
+          "accentContrast" : {
+            "example" : "#FFFFFF",
+            "type" : "string"
+          },
+          "bg" : {
+            "example" : "#FFF8F3",
+            "type" : "string"
+          },
+          "border" : {
+            "example" : "#E8DED6",
+            "type" : "string"
+          },
+          "card" : {
+            "example" : "#FFFFFF",
+            "type" : "string"
+          },
+          "muted" : {
+            "example" : "#6B6B6B",
+            "type" : "string"
+          },
+          "text" : {
+            "example" : "#2B2B2B",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "PageThemeCopy" : {
+        "description" : "화면별 문구, 각 200자 이내 일반 텍스트(HTML 아님). 빠지면 FE 기본 문구. 부스 대기 화면은 welcome",
+        "properties" : {
+          "captureGuide" : {
+            "type" : "string"
+          },
+          "closed" : {
+            "type" : "string"
+          },
+          "composing" : {
+            "type" : "string"
+          },
+          "consentIntro" : {
+            "type" : "string"
+          },
+          "done" : {
+            "type" : "string"
+          },
+          "error" : {
+            "type" : "string"
+          },
+          "expired" : {
+            "type" : "string"
+          },
+          "welcome" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ParticipantConsentItem" : {
         "description" : "참가자의 항목별 동의 결정",
         "properties" : {
@@ -2402,6 +3427,22 @@
           }
         },
         "required" : [ "code", "decision", "version" ],
+        "type" : "object"
+      },
+      "PaymentEvidence" : {
+        "description" : "결제·입금 근거 — 참조만 남긴다",
+        "properties" : {
+          "kind" : {
+            "enum" : [ "PORTONE", "BANK_TRANSFER", "OTHER" ],
+            "type" : "string"
+          },
+          "reference" : {
+            "maxLength" : 200,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "kind", "reference" ],
         "type" : "object"
       },
       "PaymentHistoryResponse" : {
@@ -2453,6 +3494,71 @@
           "version" : {
             "format" : "int32",
             "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "Photo" : {
+        "description" : "사진함의 사진 한 장(합성 작업 하나)",
+        "properties" : {
+          "channel" : {
+            "enum" : [ "BYOD", "BOOTH" ],
+            "type" : "string"
+          },
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "failure" : {
+            "$ref" : "#/components/schemas/PhotoFailure",
+            "description" : "FAILED 일 때만"
+          },
+          "frameVersionId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "photoId" : {
+            "description" : "사진 id = 합성 작업 id",
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "status" : {
+            "enum" : [ "PENDING", "DONE", "FAILED" ],
+            "type" : "string"
+          },
+          "thumbnailUrl" : {
+            "description" : "DONE 일 때만 — presigned GET 5분. 깨지면 목록을 다시 받는다",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "PhotoFailure" : {
+        "description" : "실패 사유 — 내부 예외가 아니라 코드",
+        "properties" : {
+          "code" : {
+            "description" : "COMPOSE_FAILED · INPUT_MISSING · TIMEOUT",
+            "type" : "string"
+          },
+          "retryable" : {
+            "description" : "참가자가 새로 찍어 다시 시도하면 될 수 있는가",
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "PhotoPage" : {
+        "description" : "사진함 한 쪽 — 최신순",
+        "properties" : {
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/Photo"
+            },
+            "type" : "array"
+          },
+          "nextCursor" : {
+            "description" : "다음 쪽 커서. 없으면 마지막 쪽",
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -2622,8 +3728,8 @@
             "type" : "string"
           },
           "theme" : {
-            "$ref" : "#/components/schemas/JsonNode",
-            "description" : "페이지 테마(P2A 자리표시자)"
+            "$ref" : "#/components/schemas/ResolvedPageTheme",
+            "description" : "페이지 테마 — 기본값이 채워지고 자산은 URL"
           }
         },
         "type" : "object"
@@ -2725,6 +3831,48 @@
           "resetToken" : {
             "description" : "비밀번호 재설정에 쓸 1회용 토큰. **10분 안에 써야 한다**",
             "example" : "550e8400-e29b-41d4-a716-446655440000",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ResolvedPageTheme" : {
+        "description" : "참가·부스·결과 화면용 테마. 색·글꼴·브랜딩은 항상 채워져 있다",
+        "properties" : {
+          "backgroundUrl" : {
+            "description" : "배경 이미지 presigned GET(24시간). 없으면 키 없음",
+            "type" : "string"
+          },
+          "branding" : {
+            "$ref" : "#/components/schemas/ResolvedPageThemeBranding"
+          },
+          "colors" : {
+            "$ref" : "#/components/schemas/PageThemeColors"
+          },
+          "copy" : {
+            "$ref" : "#/components/schemas/PageThemeCopy",
+            "description" : "주최자가 쓴 문구만 — 빠진 화면은 FE 기본 문구"
+          },
+          "font" : {
+            "type" : "string"
+          },
+          "logoUrl" : {
+            "description" : "로고 presigned GET(24시간). 없으면 키 없음",
+            "type" : "string"
+          },
+          "schemaVersion" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResolvedPageThemeBranding" : {
+        "properties" : {
+          "hideHarucutBranding" : {
+            "type" : "boolean"
+          },
+          "outputLogo" : {
             "type" : "string"
           }
         },
@@ -2980,6 +4128,31 @@
         },
         "type" : "object"
       },
+      "ResponseContract" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/Contract",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseDownloadUrlResponse" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -3015,6 +4188,56 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/DraftResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseEntitlement" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/Entitlement",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseEntitlementImpact" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/EntitlementImpact",
             "description" : "응답 본문. 없으면 키 자체가 없다"
           },
           "message" : {
@@ -3080,6 +4303,56 @@
         },
         "type" : "object"
       },
+      "ResponseEventUsage" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/EventUsage",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseExport" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/Export",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseFrameResponse" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -3115,6 +4388,56 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/FrameVersionResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseInquiry" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/Inquiry",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseInquiryCreated" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/InquiryCreated",
             "description" : "응답 본문. 없으면 키 자체가 없다"
           },
           "message" : {
@@ -3205,6 +4528,62 @@
         },
         "type" : "object"
       },
+      "ResponseListAdminEventItem" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "description" : "응답 본문. 없으면 키 자체가 없다",
+            "items" : {
+              "$ref" : "#/components/schemas/AdminEventItem"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseListAdminWorkspaceItem" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "description" : "응답 본문. 없으면 키 자체가 없다",
+            "items" : {
+              "$ref" : "#/components/schemas/AdminWorkspaceItem"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseListBoothDeviceResponse" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -3217,6 +4596,34 @@
             "description" : "응답 본문. 없으면 키 자체가 없다",
             "items" : {
               "$ref" : "#/components/schemas/BoothDeviceResponse"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseListContract" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "description" : "응답 본문. 없으면 키 자체가 없다",
+            "items" : {
+              "$ref" : "#/components/schemas/Contract"
             },
             "type" : "array"
           },
@@ -3289,6 +4696,34 @@
         },
         "type" : "object"
       },
+      "ResponseListEntitlement" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "description" : "응답 본문. 없으면 키 자체가 없다",
+            "items" : {
+              "$ref" : "#/components/schemas/Entitlement"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseListEventGrant" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -3345,6 +4780,34 @@
         },
         "type" : "object"
       },
+      "ResponseListExport" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "description" : "응답 본문. 없으면 키 자체가 없다",
+            "items" : {
+              "$ref" : "#/components/schemas/Export"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseListFrameResponse" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -3385,6 +4848,34 @@
             "description" : "응답 본문. 없으면 키 자체가 없다",
             "items" : {
               "$ref" : "#/components/schemas/FrameVersionResponse"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseListInquiry" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "description" : "응답 본문. 없으면 키 자체가 없다",
+            "items" : {
+              "$ref" : "#/components/schemas/Inquiry"
             },
             "type" : "array"
           },
@@ -3881,6 +5372,31 @@
         },
         "type" : "object"
       },
+      "ResponsePhotoPage" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PhotoPage",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponsePresignedUploadResponse" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -4349,8 +5865,8 @@
             "type" : "string"
           },
           "theme" : {
-            "$ref" : "#/components/schemas/JsonNode",
-            "description" : "이 결과가 만들어진 경험 버전의 페이지 테마(P2A 는 자리표시자)"
+            "$ref" : "#/components/schemas/ResolvedPageTheme",
+            "description" : "이 결과가 만들어진 경험 버전의 페이지 테마 — 기본값이 채워지고 자산은 URL"
           },
           "thumbnailUrl" : {
             "description" : "DONE 일 때만 — 짧은 썸네일 URL",
@@ -4906,7 +6422,7 @@
         "description" : "자산 업로드 의도",
         "properties" : {
           "contentType" : {
-            "description" : "파일 형식(enum 이름). `FRAME_ASSET` 은 PNG·JPEG, `TEXT_RENDER` 는 PNG, `PROFILE` 은 PNG·JPEG·GIF.\n용도에 맞지 않으면 415 `GEN-051`.",
+            "description" : "파일 형식(enum 이름). `FRAME_ASSET`·`PAGE_THEME_ASSET` 은 PNG·JPEG, `TEXT_RENDER` 는 PNG, `PROFILE` 은 PNG·JPEG·GIF.\n용도에 맞지 않으면 415 `GEN-051`.",
             "enum" : [ "JPEG", "PNG", "WEBP", "GIF" ],
             "example" : "PNG",
             "type" : "string"
@@ -4926,7 +6442,7 @@
             "type" : "string"
           },
           "purpose" : {
-            "description" : "자산 용도. 이 경로는 `FRAME_ASSET`(배경·PHOTO·STICKER·로고) · `TEXT_RENDER`(구운 글자 PNG) · `PROFILE` 만 받는다.\n그 밖의 값은 400 `ASSET-005`.",
+            "description" : "자산 용도. 이 경로는 `FRAME_ASSET`(배경·PHOTO·STICKER·로고) · `TEXT_RENDER`(구운 글자 PNG) · `PROFILE` ·\n`PAGE_THEME_ASSET`(행사 테마 로고·배경 — workspaceId 에 조직 공간) 을 받는다.\n`CAPTURE_INPUT` 은 참가자 경로 전용이라 400 `ASSET-005`.",
             "enum" : [ "FRAME_ASSET", "TEXT_RENDER", "PAGE_THEME_ASSET", "PROFILE", "CAPTURE_INPUT" ],
             "example" : "FRAME_ASSET",
             "type" : "string"
@@ -5305,6 +6821,522 @@
         "tags" : [ "감사 로그 관리" ]
       }
     },
+    "/api/admin/contracts" : {
+      "get" : {
+        "description" : "최신 200개.",
+        "operationId" : "contracts",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseListContract"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "계약 목록",
+        "tags" : [ "계약·이용권 관리" ]
+      },
+      "post" : {
+        "description" : "DRAFT 로 만든다. ACTIVE 로 바꿀 때 조건대로 이용권이 생긴다(행사 범위면 행사마다).",
+        "operationId" : "createContract",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ContractRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseContract"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — 개인 공간·다른 공간의 행사·기간 역전",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — 개인 공간·다른 공간의 행사·기간 역전 _(Invalid input value.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 공간",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 공간 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "계약 만들기",
+        "tags" : [ "계약·이용권 관리" ]
+      }
+    },
+    "/api/admin/contracts/{contractId}" : {
+      "patch" : {
+        "description" : "DRAFT→ACTIVE(이용권 생성)·CANCELLED, ACTIVE→ENDED·CANCELLED(이용권을 지금 끝냄 — 진행 중 예약은 그대로 확정·반환). 나머지는 ENT-003.",
+        "operationId" : "changeContract",
+        "parameters" : [ {
+          "description" : "계약 public id",
+          "in" : "path",
+          "name" : "contractId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ContractStatusRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseContract"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 계약",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 계약 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "ENT-003" : {
+                    "summary" : "ENT-003 — 허용되지 않는 전이",
+                    "value" : {
+                      "code" : "ENT-003",
+                      "message" : "The contract or entitlement cannot change to this state.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `ENT-003` — 허용되지 않는 전이 _(The contract or entitlement cannot change to this state.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "계약 상태 전이",
+        "tags" : [ "계약·이용권 관리" ]
+      }
+    },
+    "/api/admin/contracts/{contractId}/payment-verification" : {
+      "post" : {
+        "description" : "PORTONE 증빙을 PortOne API 로 다시 조회해 대조한다. 웹훅이 증빙 등록보다 먼저 와서 확인되지 않은 계약에 쓴다. 맞으면 paymentVerifiedAt 이 채워진 계약을 돌려준다(이미 확인된 계약도 그대로 200). 실연동 미확인.",
+        "operationId" : "verifyPayment",
+        "parameters" : [ {
+          "description" : "계약 public id",
+          "in" : "path",
+          "name" : "contractId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseContract"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — PORTONE 증빙이 없음·PortOne 연동 꺼짐·결제가 계약과 맞지 않음",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — PORTONE 증빙이 없음·PortOne 연동 꺼짐·결제가 계약과 맞지 않음 _(Invalid input value.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 계약",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 계약 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "계약 결제 다시 확인",
+        "tags" : [ "계약·이용권 관리" ]
+      }
+    },
     "/api/admin/coupons" : {
       "get" : {
         "description" : "비활성 쿠폰까지 전량, 최근 발행순이다.\n\n`redeemedCount` 에는 **아직 시작 안 한 예약분도 포함된다** —\n\"실제로 혜택이 나간 수\"보다 크거나 같다.\n`maxRedemptions`·`validUntil` 은 무제한·무기한이면 **키 자체가 없다.**\n",
@@ -5387,7 +7419,7 @@
       },
       "post" : {
         "description" : "만들자마자 활성 상태다.\n\n⚠️ **만든 뒤에는 아무것도 고칠 수 없다.** 이름·상한·마감일 수정 API 가 없고,\n삭제도 없다. 잘못 만들었으면 비활성화하고 새로 발행하는 수밖에 없다.\n\n`code` 는 대문자로 정규화해 저장한다. 소문자로 만들어도 대문자가 되고,\n사용자는 대소문자 아무렇게나 입력해도 찾힌다.\n\n부여 기간은 **1개월 고정**이라 요청에 넣는 자리가 없다.\n",
-        "operationId" : "create_3",
+        "operationId" : "create_5",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -5636,6 +7668,612 @@
         } ],
         "summary" : "쿠폰 비활성화",
         "tags" : [ "쿠폰 관리" ]
+      }
+    },
+    "/api/admin/entitlements" : {
+      "get" : {
+        "description" : "최신 200개. 계약에서 생긴 것과 수동 부여 모두.",
+        "operationId" : "entitlements",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseListEntitlement"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "이용권 목록",
+        "tags" : [ "계약·이용권 관리" ]
+      },
+      "post" : {
+        "description" : "체험·보상·파트너. 부여자·사유·기간·한도를 남긴다. 결제를 꾸미지 않는다.",
+        "operationId" : "grant",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ManualGrantRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseEntitlement"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — 개인 공간·다른 공간의 행사·기간 역전",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — 개인 공간·다른 공간의 행사·기간 역전 _(Invalid input value.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 공간",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 공간 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "수동 이용권 부여(ManualGrant)",
+        "tags" : [ "계약·이용권 관리" ]
+      }
+    },
+    "/api/admin/entitlements/{entitlementId}/impact" : {
+      "get" : {
+        "description" : "이 이용권을 쓰는 운영 중 행사와 아직 종결되지 않은 예약 수.",
+        "operationId" : "impact",
+        "parameters" : [ {
+          "description" : "이용권 public id",
+          "in" : "path",
+          "name" : "entitlementId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseEntitlementImpact"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 이용권",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 이용권 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "회수 영향 미리보기",
+        "tags" : [ "계약·이용권 관리" ]
+      }
+    },
+    "/api/admin/entitlements/{entitlementId}/revoke" : {
+      "post" : {
+        "description" : "사유 필수. 이후 그 이용권으로 새 촬영·게시를 할 수 없다. 진행 중 예약은 그대로 확정·반환된다.",
+        "operationId" : "revoke_1",
+        "parameters" : [ {
+          "description" : "이용권 public id",
+          "in" : "path",
+          "name" : "entitlementId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/EntitlementRevokeRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseEntitlement"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 이용권",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 이용권 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "ENT-003" : {
+                    "summary" : "ENT-003 — 이미 회수됨",
+                    "value" : {
+                      "code" : "ENT-003",
+                      "message" : "The contract or entitlement cannot change to this state.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `ENT-003` — 이미 회수됨 _(The contract or entitlement cannot change to this state.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "이용권 회수",
+        "tags" : [ "계약·이용권 관리" ]
+      }
+    },
+    "/api/admin/events" : {
+      "get" : {
+        "description" : "slug 또는 이름 부분 일치. 최신순 최대 20건. 공간 id·이름이 함께 나온다.",
+        "operationId" : "events",
+        "parameters" : [ {
+          "description" : "검색어(두 글자 이상)",
+          "in" : "query",
+          "name" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseListAdminEventItem"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — 검색어가 두 글자 미만",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — 검색어가 두 글자 미만 _(Invalid input value.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "행사 찾기",
+        "tags" : [ "계약·이용권 관리" ]
       }
     },
     "/api/admin/frames" : {
@@ -6258,6 +8896,230 @@
         } ],
         "summary" : "시스템 프레임 발행",
         "tags" : [ "시스템 프레임 관리" ]
+      }
+    },
+    "/api/admin/inquiries" : {
+      "get" : {
+        "description" : "최신 200개.",
+        "operationId" : "inquiries",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseListInquiry"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "문의 목록",
+        "tags" : [ "계약·이용권 관리" ]
+      }
+    },
+    "/api/admin/inquiries/{inquiryId}" : {
+      "patch" : {
+        "operationId" : "updateInquiry",
+        "parameters" : [ {
+          "description" : "문의 public id",
+          "in" : "path",
+          "name" : "inquiryId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/InquiryUpdateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseInquiry"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 문의",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 문의 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "문의 상태·메모",
+        "tags" : [ "계약·이용권 관리" ]
       }
     },
     "/api/admin/notices" : {
@@ -7695,6 +10557,116 @@
         "tags" : [ "약관 관리" ]
       }
     },
+    "/api/admin/workspaces" : {
+      "get" : {
+        "description" : "이름 또는 활성 OWNER 이메일 부분 일치. 개인 공간은 나오지 않는다. 최신순 최대 20건.",
+        "operationId" : "workspaces",
+        "parameters" : [ {
+          "description" : "검색어(두 글자 이상)",
+          "in" : "query",
+          "name" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseListAdminWorkspaceItem"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — 검색어가 두 글자 미만",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — 검색어가 두 글자 미만 _(Invalid input value.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "조직 공간 찾기",
+        "tags" : [ "계약·이용권 관리" ]
+      }
+    },
     "/api/auth/assets/upload-intents" : {
       "post" : {
         "description" : "**흐름**\n1. 이 API → `assetId` · `uploadUrl` · `headers`\n2. `uploadUrl` 로 **PUT** — 본문은 파일 바이트, 헤더는 `headers` 를 **그대로**\n3. `POST /api/auth/assets/{assetId}/complete` 로 검증 → `VERIFIED` 여야 프레임에 쓸 수 있다\n\nURL 은 기본 10분 동안 유효하다. key 는 서버가 정한다.\n`If-None-Match: *` 가 있으면 같은 key 에 두 번 올릴 수 없다 — 두 번째 PUT 은 S3 가 412 를 준다.\n첫 응답을 못 받고 다시 올려 412 를 받았다면 complete 로 확인하면 된다.\n",
@@ -7725,7 +10697,7 @@
               "application/json" : {
                 "examples" : {
                   "ASSET-005" : {
-                    "summary" : "ASSET-005 — 이 경로에서 받지 않는 purpose(CAPTURE_INPUT·PAGE_THEME_ASSET)",
+                    "summary" : "ASSET-005 — 이 경로에서 받지 않는 purpose(CAPTURE_INPUT — 참가자 경로 전용)",
                     "value" : {
                       "code" : "ASSET-005",
                       "message" : "This purpose cannot be uploaded through this endpoint.",
@@ -7750,7 +10722,7 @@
                 }
               }
             },
-            "description" : "- `ASSET-005` — 이 경로에서 받지 않는 purpose(CAPTURE_INPUT·PAGE_THEME_ASSET) _(This purpose cannot be uploaded through this endpoint.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+            "description" : "- `ASSET-005` — 이 경로에서 받지 않는 purpose(CAPTURE_INPUT — 참가자 경로 전용) _(This purpose cannot be uploaded through this endpoint.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
           },
           "401" : {
             "content" : {
@@ -7861,7 +10833,7 @@
     "/api/auth/assets/{assetId}" : {
       "get" : {
         "description" : "VERIFIED 면 짧은 GET URL(기본 5분)이 실린다.",
-        "operationId" : "get_5",
+        "operationId" : "get_6",
         "parameters" : [ {
           "description" : "자산 public id",
           "example" : "As8kLm2Pq9Xz",
@@ -9078,7 +12050,7 @@
       },
       "post" : {
         "description" : "기기를 만들고 연결 코드(`XXXX-XXXX`, 10분)를 준다. 행사장 기기 화면에서 코드를 입력하면 연결된다.\n행사당 회수되지 않은 기기는 20대까지.\n",
-        "operationId" : "create_2",
+        "operationId" : "create_4",
         "parameters" : [ {
           "description" : "행사 public id",
           "in" : "path",
@@ -9227,6 +12199,178 @@
         "tags" : [ "행사 운영" ]
       }
     },
+    "/api/auth/events/{eventId}/clone" : {
+      "post" : {
+        "description" : "설정 초안(허용 레이아웃·제공 프레임·동의 항목·테마)과 참가 방식·보관 일수만 새 DRAFT 행사로. 일정은 복제하지 않는다.\n사진·참가자·결과 토큰·고객 초대·사진 권한·동의 기록·부스는 복제하지 않는다. 복제한 사람에게 사진 권한 네 가지를 준다.\n",
+        "operationId" : "cloneEvent",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/EventCloneRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseEventResponse"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — slug 형식",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — slug 형식 _(Invalid input value.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 행사이거나 권한이 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 행사이거나 권한이 없다 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "EVENT-004" : {
+                    "summary" : "EVENT-004 — slug 중복",
+                    "value" : {
+                      "code" : "EVENT-004",
+                      "message" : "The event slug is already in use.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `EVENT-004` — slug 중복 _(The event slug is already in use.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "행사 복제",
+        "tags" : [ "행사 운영" ]
+      }
+    },
     "/api/auth/events/{eventId}/close-capture" : {
       "post" : {
         "description" : "상태가 CAPTURE_CLOSED 가 된다. 결과 수령은 보관 기간 동안 계속된다.",
@@ -9355,6 +12499,573 @@
         } ],
         "summary" : "촬영 종료",
         "tags" : [ "행사 운영" ]
+      }
+    },
+    "/api/auth/events/{eventId}/exports" : {
+      "get" : {
+        "description" : "최근 20개. 다른 사람의 묶음은 보이지 않는다.",
+        "operationId" : "mine",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseListExport"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  },
+                  "PHOTO-001" : {
+                    "summary" : "PHOTO-001 — 묶음 권한 없음",
+                    "value" : {
+                      "code" : "PHOTO-001",
+                      "message" : "You do not have this photo permission for the event.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `PHOTO-001` — 묶음 권한 없음 _(You do not have this photo permission for the event.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 행사이거나 볼 수 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 행사이거나 볼 수 없다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "내가 만든 최근 묶음",
+        "tags" : [ "행사 사진함" ]
+      },
+      "post" : {
+        "description" : "BULK_DOWNLOAD. 202 — 압축은 따로 돈다. photoIds(이 순서로) 또는 filter, 둘 다 없으면 완성 사진 전부.\n이 행사의 완성(DONE)·미삭제 사진만 담고 나머지 id 는 뺀다. 1~2,000장.\n",
+        "operationId" : "create_3",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ExportRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "202" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseExport"
+                }
+              }
+            },
+            "description" : "Accepted"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "EXPORT-003" : {
+                    "summary" : "EXPORT-003 — 비었거나 2,000장 초과",
+                    "value" : {
+                      "code" : "EXPORT-003",
+                      "message" : "The export selection is empty or too large.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `EXPORT-003` — 비었거나 2,000장 초과 _(The export selection is empty or too large.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  },
+                  "PHOTO-001" : {
+                    "summary" : "PHOTO-001 — 묶음 권한 없음",
+                    "value" : {
+                      "code" : "PHOTO-001",
+                      "message" : "You do not have this photo permission for the event.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `PHOTO-001` — 묶음 권한 없음 _(You do not have this photo permission for the event.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 행사이거나 볼 수 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 행사이거나 볼 수 없다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "묶음 다운로드 접수",
+        "tags" : [ "행사 사진함" ]
+      }
+    },
+    "/api/auth/events/{eventId}/exports/{exportId}" : {
+      "get" : {
+        "operationId" : "get_5",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "묶음 public id",
+          "in" : "path",
+          "name" : "exportId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseExport"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  },
+                  "PHOTO-001" : {
+                    "summary" : "PHOTO-001 — 묶음 권한 없음",
+                    "value" : {
+                      "code" : "PHOTO-001",
+                      "message" : "You do not have this photo permission for the event.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `PHOTO-001` — 묶음 권한 없음 _(You do not have this photo permission for the event.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 묶음이거나 내 것이 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 묶음이거나 내 것이 아니다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "묶음 상태",
+        "tags" : [ "행사 사진함" ]
+      }
+    },
+    "/api/auth/events/{eventId}/exports/{exportId}/download" : {
+      "post" : {
+        "description" : "5분 URL, 파일 이름 「{행사명}-{YYYYMMDD}.zip」(접수 날짜). 받을 때마다 권한·기한·담긴 사진을 다시 본다 —\n기한이 지났거나 담긴 사진이 삭제됐으면 그 자리에서 무효로 하고 410 EXPORT-002.\n",
+        "operationId" : "download_3",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "묶음 public id",
+          "in" : "path",
+          "name" : "exportId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseDownloadUrlResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  },
+                  "PHOTO-001" : {
+                    "summary" : "PHOTO-001 — 묶음 권한 없음",
+                    "value" : {
+                      "code" : "PHOTO-001",
+                      "message" : "You do not have this photo permission for the event.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `PHOTO-001` — 묶음 권한 없음 _(You do not have this photo permission for the event.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 묶음이거나 내 것이 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 묶음이거나 내 것이 아니다 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "EXPORT-001" : {
+                    "summary" : "EXPORT-001 — 아직 준비 안 됨",
+                    "value" : {
+                      "code" : "EXPORT-001",
+                      "message" : "The export is not ready yet.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `EXPORT-001` — 아직 준비 안 됨 _(The export is not ready yet.)_"
+          },
+          "410" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "EXPORT-002" : {
+                    "summary" : "EXPORT-002 — 만료·실패·무효",
+                    "value" : {
+                      "code" : "EXPORT-002",
+                      "message" : "The export has expired, failed or been invalidated.",
+                      "status" : 410
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `EXPORT-002` — 만료·실패·무효 _(The export has expired, failed or been invalidated.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "묶음 받기",
+        "tags" : [ "행사 사진함" ]
       }
     },
     "/api/auth/events/{eventId}/grants" : {
@@ -10011,6 +13722,476 @@
         "tags" : [ "행사 운영" ]
       }
     },
+    "/api/auth/events/{eventId}/photos" : {
+      "get" : {
+        "description" : "그 행사의 VIEW_PHOTOS 권한. 최신순 커서(limit 기본 30, 최대 100). 삭제 요청된 사진은 없다.\nthumbnailUrl 은 5분 — 이미지가 깨지면 목록을 다시 받는다. 행사를 볼 수 없으면 404, 볼 수는 있지만 권한이 없으면 403 PHOTO-001.\n",
+        "operationId" : "page",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "이전 응답의 nextCursor",
+          "in" : "query",
+          "name" : "cursor",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        }, {
+          "description" : "이 시각 이후(포함)",
+          "in" : "query",
+          "name" : "from",
+          "required" : false,
+          "schema" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        }, {
+          "description" : "이 시각 이전(미포함)",
+          "in" : "query",
+          "name" : "to",
+          "required" : false,
+          "schema" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "channel",
+          "required" : false,
+          "schema" : {
+            "enum" : [ "BYOD", "BOOTH" ],
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "frameVersionId",
+          "required" : false,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "query",
+          "name" : "status",
+          "required" : false,
+          "schema" : {
+            "enum" : [ "PENDING", "DONE", "FAILED" ],
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponsePhotoPage"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — 잘못된 커서",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — 잘못된 커서 _(Invalid input value.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  },
+                  "PHOTO-001" : {
+                    "summary" : "PHOTO-001 — 사진 열람 권한 없음",
+                    "value" : {
+                      "code" : "PHOTO-001",
+                      "message" : "You do not have this photo permission for the event.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `PHOTO-001` — 사진 열람 권한 없음 _(You do not have this photo permission for the event.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 행사이거나 볼 수 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 행사이거나 볼 수 없다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "사진함",
+        "tags" : [ "행사 사진함" ]
+      }
+    },
+    "/api/auth/events/{eventId}/photos/{photoId}" : {
+      "delete" : {
+        "description" : "DELETE_PHOTOS. 목록·묶음·참가자 결과 링크에서 즉시 빠진다(참가자에게는 만료로 보인다). 결과 파일은 커밋 후 지운다.",
+        "operationId" : "delete_2",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "사진 id",
+          "in" : "path",
+          "name" : "photoId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  },
+                  "PHOTO-001" : {
+                    "summary" : "PHOTO-001 — 삭제 권한 없음",
+                    "value" : {
+                      "code" : "PHOTO-001",
+                      "message" : "You do not have this photo permission for the event.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `PHOTO-001` — 삭제 권한 없음 _(You do not have this photo permission for the event.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 행사·사진이거나 볼 수 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 행사·사진이거나 볼 수 없다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "사진 삭제 요청",
+        "tags" : [ "행사 사진함" ]
+      }
+    },
+    "/api/auth/events/{eventId}/photos/{photoId}/download" : {
+      "post" : {
+        "description" : "DOWNLOAD_PHOTOS. 5분 URL, 파일 이름 「{행사명}-{photoId}.jpg」.",
+        "operationId" : "download_2",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "사진 id",
+          "in" : "path",
+          "name" : "photoId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseDownloadUrlResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  },
+                  "PHOTO-001" : {
+                    "summary" : "PHOTO-001 — 다운로드 권한 없음",
+                    "value" : {
+                      "code" : "PHOTO-001",
+                      "message" : "You do not have this photo permission for the event.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `PHOTO-001` — 다운로드 권한 없음 _(You do not have this photo permission for the event.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 행사·사진이거나 볼 수 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 행사·사진이거나 볼 수 없다 _(Resource not found.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "RESULT-003" : {
+                    "summary" : "RESULT-003 — 아직 준비 안 됨",
+                    "value" : {
+                      "code" : "RESULT-003",
+                      "message" : "The result is not ready yet.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `RESULT-003` — 아직 준비 안 됨 _(The result is not ready yet.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "사진 한 장 다운로드",
+        "tags" : [ "행사 사진함" ]
+      }
+    },
     "/api/auth/events/{eventId}/publish" : {
       "post" : {
         "description" : "설정 초안을 검증해 새 경험 발행본을 만들고 현재 포인터를 옮긴다. 처음이면 상태가 LIVE 가 된다.\n검증 실패는 400 `EVENT-003` 이고 `data.violations` 에 `[{field, reason}]` 이 모두 실린다.\n**빈 프레임 목록을 기본 카탈로그로 대체하지 않는다.** 이미 시작한 촬영 회차는 받았던 버전으로 끝난다.\n",
@@ -10267,6 +14448,116 @@
           "bearerAuth" : [ ]
         } ],
         "summary" : "재개",
+        "tags" : [ "행사 운영" ]
+      }
+    },
+    "/api/auth/events/{eventId}/usage" : {
+      "get" : {
+        "description" : "운영자(OWNER·ADMIN) 또는 그 행사 사진 권한이 있는 사람. 적용 이용권의 합성 한도·사용·예약·남은 수와 기간·기능.\n적용 이용권이 없으면 entitlement 키가 없고 수치는 0. 계약 금액은 싣지 않는다.\n",
+        "operationId" : "usage",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseEventUsage"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 행사이거나 볼 수 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 행사이거나 볼 수 없다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "행사 사용량",
         "tags" : [ "행사 운영" ]
       }
     },
@@ -12472,7 +16763,7 @@
       },
       "post" : {
         "description" : "revision 1 로 시작한다. 이후 저장은 PUT 에 마지막 revision 을 보낸다.",
-        "operationId" : "create_1",
+        "operationId" : "create_2",
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -15299,7 +19590,7 @@
       },
       "post" : {
         "description" : "조직 공간의 OWNER·ADMIN 만. `name`·`slug` 가 필수이고 나머지는 기본값(BYOD 허용·부스 꺼짐·보관 30일)이다.",
-        "operationId" : "create",
+        "operationId" : "create_1",
         "parameters" : [ {
           "description" : "조직 공간 public id",
           "in" : "path",
@@ -19463,15 +23754,14 @@
     },
     "/api/payments/webhook" : {
       "post" : {
-        "description" : "**PG 사가 호출한다. 프론트가 부를 API 가 아니다.**\n\n본문을 **파싱하지 않고 원문 문자열 그대로** 받는다. 서명은 원문 바이트를 대상으로\n검증해야 하는데, 객체로 바꿨다가 다시 문자열로 만들면 필드 순서나 공백이 달라져\n서명이 깨지기 때문이다.\n\n현재는 Mock 게이트웨이가 붙어 있어 서명 검증이 항상 통과하고,\n본문 처리는 골격만 있다. 실제 PG 연동 시 채운다.\n",
+        "description" : "**PG 사가 호출한다. 프론트가 부를 API 가 아니다.**\n\n본문을 **파싱하지 않고 원문 문자열 그대로** 받는다. 서명은 원문 바이트를 대상으로\n검증해야 하는데, 객체로 바꿨다가 다시 문자열로 만들면 필드 순서나 공백이 달라져\n서명이 깨지기 때문이다.\n\nPortOne V2(`payment.webhook.provider=portone`)면 Standard Webhooks 헤더(`webhook-id`·`webhook-timestamp`·\n`webhook-signature`)로 검증하고, 같은 webhook-id 는 한 번만 처리한다. 결제 이벤트는 PortOne API 로 다시 조회해\n계약 증빙과 대조한다(실연동 미확인). 기본(mock)은 검증이 항상 통과한다.\n",
         "operationId" : "webhook",
         "parameters" : [ {
-          "description" : "PG 가 만든 서명. 없으면 검증에 실패한다",
           "in" : "header",
-          "name" : "X-Signature",
-          "required" : false,
+          "name" : "headers",
+          "required" : true,
           "schema" : {
-            "type" : "string"
+            "$ref" : "#/components/schemas/HttpHeaders"
           }
         } ],
         "requestBody" : {
@@ -19814,6 +24104,80 @@
         },
         "summary" : "개인 휴대폰 참가 세션 발급",
         "tags" : [ "행사 참가" ]
+      }
+    },
+    "/api/public/inquiries" : {
+      "post" : {
+        "description" : "로그인 없이. 같은 IP 분당 5회.",
+        "operationId" : "create",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/InquiryRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseInquiryCreated"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "429" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-061" : {
+                    "summary" : "GEN-061 — 요청이 너무 잦다",
+                    "value" : {
+                      "code" : "GEN-061",
+                      "message" : "Too many requests.",
+                      "status" : 429
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-061` — 요청이 너무 잦다 _(Too many requests.)_"
+          }
+        },
+        "summary" : "행사·기업 문의 접수",
+        "tags" : [ "문의" ]
       }
     },
     "/api/public/results" : {
@@ -20903,11 +25267,17 @@
     "description" : "프레임·자산·초안·행사가 속하는 공간. 개인 공간과 조직 공간",
     "name" : "공간"
   }, {
+    "description" : "행사·기업 도입 문의(로그인 없이)",
+    "name" : "문의"
+  }, {
     "description" : "조직 공간의 멤버 초대·역할·회수, 초대 미리보기·수락, 감사 로그",
     "name" : "공간 멤버"
   }, {
     "description" : "행사 고객 초대와 행사 사진 권한(EventGrant). 공간 역할만으로는 사진을 보지 않는다",
     "name" : "행사 고객·권한"
+  }, {
+    "description" : "행사 결과 사진 — 목록·다운로드·삭제. 그 행사의 사진 권한(EventGrant)이 있어야 한다",
+    "name" : "행사 사진함"
   }, {
     "description" : "운영자(조직 공간 OWNER·ADMIN) — 행사 만들기·설정·게시·일시중지·촬영 종료",
     "name" : "행사 운영"
@@ -20947,6 +25317,9 @@
   }, {
     "description" : "쿠폰 사용과 내 쿠폰 목록",
     "name" : "쿠폰"
+  }, {
+    "description" : "관리자 — 문의·계약·이용권·수동 부여(ManualGrant)",
+    "name" : "계약·이용권 관리"
   }, {
     "description" : "관리자 — 공지 작성·수정·게시·삭제",
     "name" : "공지 관리"

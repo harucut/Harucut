@@ -117,14 +117,12 @@ class AssetServiceTest {
         }
 
         @Test
-        @DisplayName("CAPTURE_INPUT·PAGE_THEME_ASSET 은 400 ASSET-005")
+        @DisplayName("CAPTURE_INPUT 은 400 ASSET-005 — 참가자 경로 전용이다(PAGE_THEME_ASSET 은 P2B 부터 받는다)")
         void purposeNotAllowed() {
-            for (AssetPurpose purpose : new AssetPurpose[]{AssetPurpose.CAPTURE_INPUT, AssetPurpose.PAGE_THEME_ASSET}) {
-                assertThatThrownBy(() -> service.createIntent(user.getPublicId(),
-                        new UploadIntentRequest(purpose, ContentType.PNG, 10L, "a.png", null)))
-                        .isInstanceOf(BusinessException.class)
-                        .extracting("errorCode").isEqualTo(AssetErrorCode.PURPOSE_NOT_ALLOWED);
-            }
+            assertThatThrownBy(() -> service.createIntent(user.getPublicId(),
+                    new UploadIntentRequest(AssetPurpose.CAPTURE_INPUT, ContentType.PNG, 10L, "a.png", null)))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode").isEqualTo(AssetErrorCode.PURPOSE_NOT_ALLOWED);
             then(assetRepository).should(never()).save(any());
         }
 

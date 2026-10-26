@@ -9,6 +9,7 @@ import com.harucut.common.utils.OpaqueTokens;
 import com.harucut.config.RateLimiter;
 import com.harucut.event.dto.EventExperienceDocument;
 import com.harucut.event.dto.EventSettings;
+import com.harucut.entitlement.service.EntitlementService;
 import com.harucut.event.entity.Event;
 import com.harucut.event.entity.EventExperienceVersion;
 import com.harucut.event.exception.EventErrorCode;
@@ -39,6 +40,8 @@ import com.harucut.participant.security.ParticipantPrincipal;
 import com.harucut.result.dto.DownloadUrlResponse;
 import com.harucut.result.dto.ResultTokenResponse;
 import com.harucut.result.service.ResultService;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -76,9 +79,11 @@ public class ParticipantService {
     private final FrameVersionService frameVersionService;
     private final ResultService resultService;
     private final RateLimiter rateLimiter;
+    private final EntitlementService entitlementService;
     private final ParticipationProperties properties;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final EntityManager entityManager;
 
     // ── 세션 ──────────────────────
 
@@ -157,12 +162,12 @@ public class ParticipantService {
 
         Map<String, ParticipantConsent> latest = latestDecisions(principal.participantId());
         boolean satisfied = requiredItems(experience).stream().allMatch(item -> agreed(latest.get(item.code()), item.version()));
-        if (satisfied) {
-            session.activate();
-        } else {
-            session.restrict();
+        SessionStatus next = satisfied ? SessionStatus.ACTIVE : SessionStatus.RESTRICTED;
+        // 조건부 UPDATE — 동의하는 사이 부스 회차 닫기·기기 회수로 회수됐으면 되살리지 않는다
+        if (sessionRepository.changeStatusUnlessRevoked(session.getId(), next) != 1) {
+            throw new BusinessException(ParticipantErrorCode.SESSION_INVALID);
         }
-        return new ParticipantDtos.ConsentResponse(session.getStatus());
+        return new ParticipantDtos.ConsentResponse(next);
     }
 
     // ── 회차 ──────────────────────
@@ -171,6 +176,7 @@ public class ParticipantService {
         Event event = requireOwnEvent(principal, eventPublicId);
         requireActive(principal);
         requireCaptureOpen(event);
+        entitlementService.requireRemaining(event);   // 찍고 나서 막히지 않게 — 접수에서 예약으로 다시 확인한다
         if (principal.isBooth()) {
             releaseExpiredBoothRun(principal.boothDeviceId());
         }
@@ -241,6 +247,7 @@ public class ParticipantService {
         requireByod(principal);
         return composeJobRepository.findAllByParticipantIdAndEventIdOrderByIdDesc(principal.participantId(), event.getId())
                 .stream()
+                .filter(job -> !job.isDeleted())   // 사진함에서 삭제된 결과는 재방문 목록에도 없다
                 .map(job -> new ParticipantDtos.MyResult(job.getId(), job.getStatus(), offset(job.getCreatedAt())))
                 .toList();
     }
@@ -278,6 +285,15 @@ public class ParticipantService {
         if (!event.captureOpen(now())) {
             throw new BusinessException(EventErrorCode.CAPTURE_NOT_OPEN);
         }
+    }
+
+    /**
+     * 합성 접수용 — 행사 행을 공유 잠금으로 다시 읽어(refresh) 그 값으로 촬영 열림을 본다. 보관 종료가 같은 행을 쓰기 잠금으로
+     * 잡으므로, 이 접수가 커밋될 때까지 보관 종료가 기다리고(작업을 보고 판정), 이미 커밋된 보관 종료는 여기서 보인다
+     */
+    void requireCaptureOpenLocked(Event event) {
+        entityManager.refresh(event, LockModeType.PESSIMISTIC_READ);
+        requireCaptureOpen(event);
     }
 
     CaptureRun activeRun(ParticipantPrincipal principal, String captureRunId) {

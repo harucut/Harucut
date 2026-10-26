@@ -4,6 +4,7 @@ import com.harucut.frame.entity.FrameVersion;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
@@ -15,8 +16,9 @@ public interface FrameVersionRepository extends JpaRepository<FrameVersion, Long
 
     Optional<FrameVersion> findByFrameIdAndVersionNo(Long frameId, int versionNo);
 
+    // 일반 읽기(잠금 없음) — 번호는 프레임 카운터로 매기고, 이것은 카운터 이전에 매긴 번호의 하한으로만 쓴다
     @Query("select coalesce(max(v.versionNo), 0) from FrameVersion v where v.frameId = :frameId")
-    int findMaxVersionNo(Long frameId);
+    int findMaxVersionNo(@Param("frameId") Long frameId);
 
     // 프레임마다 최신 발행본 하나
     @Query("""

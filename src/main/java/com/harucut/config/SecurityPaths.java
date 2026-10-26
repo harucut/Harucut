@@ -38,6 +38,7 @@ public final class SecurityPaths {
             "/api/oauth2/unlink/naver",
             "/api/terms",
             "/api/payments/webhook",
+            "/api/public/inquiries",
             "/swagger-ui/**",
             "/swagger-ui.html",
             "/v3/api-docs/**",

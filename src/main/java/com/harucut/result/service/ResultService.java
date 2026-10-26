@@ -4,6 +4,9 @@ import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.common.utils.OpaqueTokens;
 import com.harucut.event.dto.EventExperienceDocument;
+import com.harucut.event.dto.PageTheme;
+import com.harucut.event.dto.ResolvedPageTheme;
+import com.harucut.event.service.ThemeResolver;
 import com.harucut.event.entity.Event;
 import com.harucut.event.repository.EventExperienceVersionRepository;
 import com.harucut.event.repository.EventRepository;
@@ -22,7 +25,6 @@ import com.harucut.storage.service.FileStorageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Clock;
@@ -45,6 +47,7 @@ public class ResultService {
     private final FileStorageService fileStorageService;
     private final StorageProperties storageProperties;
     private final ObjectMapper objectMapper;
+    private final ThemeResolver themeResolver;
     private final Clock clock;
 
     /** 행사 작업의 결과 토큰 발급. 만료는 작업 접수 시각 + 행사 보관 일수다 */
@@ -60,7 +63,8 @@ public class ResultService {
         ResultAccess access = access(principal);
         ComposeJob job = job(access.getComposeJobId());
         Event event = event(job);
-        boolean expired = access.expiredAt(LocalDateTime.now(clock));
+        // 사진함에서 삭제된 결과도 참가자에게는 「만료」로 보인다 — 삭제 사실을 따로 알리지 않는다(ADR-0008 §3)
+        boolean expired = access.expiredAt(LocalDateTime.now(clock)) || job.isDeleted();
         String status = expired ? "EXPIRED" : job.getStatus().name();
         String thumbnailUrl = !expired && job.getStatus() == ComposeStatus.DONE
                 ? fileStorageService.generatePresignedGetUrl(ComposeService.thumbnailKeyFor(job), storageProperties.download().getTtl())
@@ -71,16 +75,17 @@ public class ResultService {
     @Transactional(readOnly = true)
     public DownloadUrlResponse download(ResultPrincipal principal) {
         ResultAccess access = access(principal);
-        if (access.expiredAt(LocalDateTime.now(clock))) {
+        ComposeJob job = job(access.getComposeJobId());
+        if (access.expiredAt(LocalDateTime.now(clock)) || job.isDeleted()) {
             throw new BusinessException(ResultErrorCode.EXPIRED);
         }
-        return downloadUrl(job(access.getComposeJobId()));
+        return downloadUrl(job);
     }
 
     /** 참가자 재방문 다운로드(BYOD) — 결과 토큰 없이 세션으로. 같은 보관·준비 검사 */
     @Transactional(readOnly = true)
     public DownloadUrlResponse downloadForParticipant(ComposeJob job) {
-        if (!LocalDateTime.now(clock).isBefore(retentionEnd(job, event(job)))) {
+        if (job.isDeleted() || !LocalDateTime.now(clock).isBefore(retentionEnd(job, event(job)))) {
             throw new BusinessException(ResultErrorCode.EXPIRED);
         }
         return downloadUrl(job);
@@ -99,13 +104,13 @@ public class ResultService {
         return base.plusDays(event.getResultRetentionDays());
     }
 
-    private JsonNode theme(ComposeJob job) {
-        if (job.getExperienceVersionId() == null) {
-            return null;
-        }
-        return experienceVersionRepository.findById(job.getExperienceVersionId())
+    // 그 job 에 고정된 경험 버전의 테마 — 결과 화면은 찍을 때의 디자인으로 그린다
+    private ResolvedPageTheme theme(ComposeJob job) {
+        PageTheme theme = job.getExperienceVersionId() == null ? null
+                : experienceVersionRepository.findById(job.getExperienceVersionId())
                 .map(version -> objectMapper.readValue(version.getSettingsJson(), EventExperienceDocument.class).theme())
                 .orElse(null);
+        return themeResolver.resolve(theme);
     }
 
     private ResultAccess access(ResultPrincipal principal) {

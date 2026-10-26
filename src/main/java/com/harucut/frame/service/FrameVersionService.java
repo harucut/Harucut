@@ -205,7 +205,7 @@ public class FrameVersionService {
                 layers,
                 FrameSpecV2.EditPolicy.FIXED);
 
-        int versionNo = frameVersionRepository.findMaxVersionNo(frame.getId()) + 1;
+        int versionNo = nextVersionNo(frame.getId());
         FrameVersion version = frameVersionRepository.save(FrameVersion.publish(
                 frame.getId(), versionNo, frame.getFrameType(), objectMapper.writeValueAsString(spec), publisher.userId()));
         referenced.keySet().forEach(assetId ->
@@ -287,6 +287,18 @@ public class FrameVersionService {
             return Math.min(1.0, Math.max(0.0, number.doubleValue()));
         }
         return 1.0;
+    }
+
+    // 프레임 행의 카운터를 +1 한 값. 카운터가 생기기 전(배포 전후)에 매긴 번호가 더 크면 그 다음 번호로 카운터를 올린다
+    private int nextVersionNo(Long frameId) {
+        frameRepository.bumpVersionNo(frameId);
+        int counter = frameRepository.lockedVersionNo(frameId);
+        int floor = frameVersionRepository.findMaxVersionNo(frameId) + 1;
+        if (floor > counter) {
+            frameRepository.raiseVersionNo(frameId, floor);
+            return floor;
+        }
+        return counter;
     }
 
     private Frame lock(Long frameId) {

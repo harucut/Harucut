@@ -4,6 +4,7 @@ import com.harucut.booth.enums.BoothDeviceStatus;
 import com.harucut.common.entity.BaseEntity;
 import com.harucut.common.utils.PublicIds;
 import jakarta.persistence.*;
+import org.hibernate.annotations.DynamicUpdate;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -11,6 +12,9 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 // 행사장에 둔 공용 촬영 기기. 회원이 아니다 — 연결 코드로 받은 기기 토큰이 자격이다 (ADR-0007 §7)
+// @DynamicUpdate: 기기 상태 확인(me)이 last_seen_at 만 고쳐 저장할 때 전체 열을 쓰면, 그사이 커밋된 회수(REVOKED·토큰 삭제)나
+// 재연결(새 토큰)을 읽었던 낡은 값으로 되돌린다 — 바뀐 열만 쓴다
+@DynamicUpdate
 @Entity
 @Table(name = "booth_device", indexes = @Index(name = "idx_booth_device_event_id", columnList = "event_id"))
 @Getter

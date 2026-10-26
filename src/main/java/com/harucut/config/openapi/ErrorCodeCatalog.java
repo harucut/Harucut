@@ -7,7 +7,10 @@ import com.harucut.common.exception.ErrorCode;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.coupon.exception.CouponErrorCode;
 import com.harucut.draft.exception.DraftErrorCode;
+import com.harucut.entitlement.exception.EntitlementErrorCode;
 import com.harucut.event.exception.EventErrorCode;
+import com.harucut.event.exception.PhotoErrorCode;
+import com.harucut.export.exception.ExportErrorCode;
 import com.harucut.frame.exception.FrameErrorCode;
 import com.harucut.media.exception.MediaErrorCode;
 import com.harucut.notice.exception.NoticeErrorCode;
@@ -55,7 +58,10 @@ public final class ErrorCodeCatalog {
                     EventErrorCode.values(),
                     ParticipantErrorCode.values(),
                     ResultErrorCode.values(),
-                    MemberErrorCode.values())
+                    MemberErrorCode.values(),
+                    PhotoErrorCode.values(),
+                    ExportErrorCode.values(),
+                    EntitlementErrorCode.values())
             .flatMap(Arrays::stream)
             .collect(Collectors.toMap(
                     ErrorCode::getCode,

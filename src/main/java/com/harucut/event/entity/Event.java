@@ -70,6 +70,9 @@ public class Event extends BaseEntity {
     @Column(name = "current_experience_version_id")
     private Long currentExperienceVersionId;
 
+    @Column(name = "archived_at")
+    private LocalDateTime archivedAt;
+
     @Column(name = "created_by_user_id", nullable = false)
     private Long createdByUserId;
 
@@ -138,6 +141,12 @@ public class Event extends BaseEntity {
     public void closeCapture() {
         requireLive("촬영 종료");
         this.status = EventStatus.CAPTURE_CLOSED;
+    }
+
+    // 보관 종료 — 촬영이 끝났고 보여 줄 결과가 남지 않았다(ADR-0008 §7). 공개 행사 응답은 404 가 된다
+    public void archive(LocalDateTime now) {
+        this.status = EventStatus.ARCHIVED;
+        this.archivedAt = now;
     }
 
     // 새 참가·회차·합성을 받을 수 있는가. 이미 접수한 작업과 결과 수령은 이것과 무관하다

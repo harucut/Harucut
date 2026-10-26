@@ -185,8 +185,7 @@ public class MembershipService {
     }
 
     private void requireAnotherOwner(Workspace workspace) {
-        if (membershipRepository.countByWorkspaceIdAndRoleAndStatus(workspace.getId(), WorkspaceRole.OWNER,
-                MembershipStatus.ACTIVE) <= 1) {
+        if (membershipRepository.lockActiveOwnerIds(workspace.getId()).size() <= 1) {
             throw new BusinessException(MemberErrorCode.LAST_OWNER);
         }
     }

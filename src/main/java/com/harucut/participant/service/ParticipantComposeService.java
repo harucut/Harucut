@@ -4,6 +4,7 @@ import com.harucut.asset.entity.Asset;
 import com.harucut.asset.enums.AssetPurpose;
 import com.harucut.asset.repository.AssetRepository;
 import com.harucut.common.exception.BusinessException;
+import com.harucut.entitlement.service.EntitlementService;
 import com.harucut.event.entity.Event;
 import com.harucut.frame.entity.FrameVersion;
 import com.harucut.frame.repository.FrameVersionRepository;
@@ -48,6 +49,7 @@ public class ParticipantComposeService {
     private final FrameSpecComposer frameSpecComposer;
     private final ComposeService composeService;
     private final ResultService resultService;
+    private final EntitlementService entitlementService;
 
     public ParticipantDtos.ComposeAccepted submit(ParticipantPrincipal principal, String eventPublicId,
                                                   ParticipantDtos.ComposeRequest request) {
@@ -61,7 +63,8 @@ public class ParticipantComposeService {
 
         participantService.requireActive(principal);
         CaptureRun run = participantService.activeRun(principal, request.captureRunId());
-        participantService.requireCaptureOpen(event);
+        // 보관 종료와 같은 행사 행 잠금으로 줄을 선다 — 검사를 통과한 접수가 커밋 전에 보관 종료되지 않게
+        participantService.requireCaptureOpenLocked(event);
         if (!participantService.offers(run.getExperienceVersionId(), request.frameVersionId())) {
             throw new BusinessException(ParticipantErrorCode.FRAME_NOT_OFFERED);
         }
@@ -78,6 +81,8 @@ public class ParticipantComposeService {
         if (assetRepository.bindToJob(inputs.stream().map(Asset::getId).toList(), job.getId()) != inputs.size()) {
             throw new BusinessException(ParticipantErrorCode.INPUT_NOT_USABLE, "다른 작업에 이미 묶인 입력이 있다");
         }
+        // 사용량 예약 — 작업 저장과 같은 트랜잭션. 한도가 없으면 ENT-002 로 작업·입력 귀속까지 함께 롤백된다
+        entitlementService.reserve(job.getId(), event);
         return accepted(job, resultService.issue(job, event));
     }
 

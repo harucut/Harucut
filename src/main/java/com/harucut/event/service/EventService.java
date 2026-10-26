@@ -4,10 +4,13 @@ import com.harucut.audit.service.AuditLogService;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.event.dto.EventExperienceDocument;
+import com.harucut.entitlement.enums.Feature;
+import com.harucut.entitlement.service.EntitlementService;
 import com.harucut.event.dto.EventPatchRequest;
 import com.harucut.event.dto.EventResponse;
 import com.harucut.event.dto.EventSettings;
 import com.harucut.event.entity.Event;
+import com.harucut.event.enums.EventStatus;
 import com.harucut.event.entity.EventExperienceVersion;
 import com.harucut.event.entity.EventFrame;
 import com.harucut.event.exception.EventErrorCode;
@@ -23,6 +26,7 @@ import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.entity.Workspace;
 import com.harucut.workspace.enums.WorkspaceRole;
+import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.workspace.service.WorkspaceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -62,7 +66,11 @@ public class EventService {
     private final FrameVersionRepository frameVersionRepository;
     private final FrameRepository frameRepository;
     private final WorkspaceService workspaceService;
+    private final WorkspaceRepository workspaceRepository;
     private final EventGrantService eventGrantService;
+    private final ThemeResolver themeResolver;
+    private final EventFeatures eventFeatures;
+    private final EntitlementService entitlementService;
     private final AuditLogService auditLogService;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
@@ -92,6 +100,27 @@ public class EventService {
         eventGrantService.grantCreator(saved.getId(), user.getId());
         auditLogService.record(user.getId(), workspace.getId(), saved.getId(), "EVENT_CREATED", "EVENT", saved.getPublicId(), null);
         return response(saved, workspace);
+    }
+
+    /**
+     * 행사 복제 (ADR-0008 §3, R5 7절) — 설정 초안(레이아웃·제공 프레임·동의 항목·테마)과 참가 방식·보관 일수만 새 DRAFT 로.
+     * 일정은 복제하지 않는다(다시 정하고 게시). 사진·참가자·세션·결과 토큰·고객 초대·권한·동의 기록·부스는 복제하지 않는다.
+     */
+    public EventResponse cloneEvent(String publicId, String eventId, String name, String slug) {
+        Operated operated = operate(publicId, eventId);
+        Event source = operated.event();
+        String newSlug = requireSlug(slug);
+        if (eventRepository.existsBySlug(newSlug)) {
+            throw new BusinessException(EventErrorCode.SLUG_TAKEN);
+        }
+        Event copy = Event.draft(source.getWorkspaceId(), newSlug, requireText(name, "name"), operated.user().getId(),
+                source.getSettingsDraft());
+        copy.configure(source.getTimezone(), source.isByodEnabled(), source.isBoothEnabled(), source.getResultRetentionDays());
+        Event saved = eventRepository.save(copy);
+        eventGrantService.grantCreator(saved.getId(), operated.user().getId());
+        auditLogService.record(operated.user().getId(), saved.getWorkspaceId(), saved.getId(), "EVENT_CLONED", "EVENT",
+                saved.getPublicId(), Map.of("from", source.getPublicId()));
+        return response(saved, operated.workspace());
     }
 
     @Transactional(readOnly = true)
@@ -125,6 +154,7 @@ public class EventService {
     public EventResponse publish(String publicId, String eventId) {
         Operated operated = operate(publicId, eventId);
         Event event = operated.event();
+        entitlementService.requireApplicable(event);   // 적용 이용권이 없으면 403 ENT-001
         EventExperienceDocument draft = read(event.getSettingsDraft());
 
         List<Map<String, String>> violations = new ArrayList<>();
@@ -194,6 +224,15 @@ public class EventService {
         boolean booth = settings.has("boothEnabled") ? Boolean.TRUE.equals(typed.boothEnabled()) : event.isBoothEnabled();
         int retention = settings.has("resultRetentionDays") ? requireRetention(typed.resultRetentionDays())
                 : event.getResultRetentionDays();
+        if (settings.has("resultRetentionDays")) {
+            // 이용권의 보관 일수 상한 — 게시 뒤 PATCH 로도 넘지 못하게(보관·정리는 이 값을 바로 읽는다)
+            entitlementService.applicable(event).map(e -> e.getRetentionDays()).filter(Objects::nonNull)
+                    .filter(cap -> retention > cap)
+                    .ifPresent(cap -> {
+                        throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE,
+                                "이용권의 보관 일수 상한(" + cap + "일)을 넘습니다.");
+                    });
+        }
         event.configure(timezone, byod, booth, retention);
 
         EventExperienceDocument draft = read(event.getSettingsDraft());
@@ -288,7 +327,28 @@ public class EventService {
         if (!consents.isEmpty() && !anyRequired) {
             violations.add(violation("consentItems", "필수 동의 항목이 하나 이상 있어야 한다"));
         }
+        violations.addAll(themeResolver.violations(draft.theme(), event.getWorkspaceId(),
+                eventFeatures.allows(event, Feature.CUSTOM_THEME), eventFeatures.allows(event, Feature.WHITE_LABEL)));
+        violations.addAll(entitlementViolations(event));
         return versions;
+    }
+
+    // 적용 이용권의 조건 — 운영 중 행사 수와 보관 일수 상한. 이용권 자체가 없으면 게시 전에 ENT-001 로 끊는다
+    private List<Map<String, String>> entitlementViolations(Event event) {
+        List<Map<String, String>> violations = new ArrayList<>();
+        entitlementService.applicable(event).ifPresent(entitlement -> {
+            // 처음 게시(DRAFT → LIVE)만 운영 중 행사 수를 늘린다(촬영 종료 뒤 재게시는 LIVE 로 돌아가지 않는다).
+            // 같은 공간에서 동시에 게시하면 둘 다 0 을 읽을 수 있어, 공간 행을 잠근 뒤 잠금 읽기로 센다(스냅샷 읽기는 놓친다)
+            if (entitlement.getMaxLiveEvents() != null && event.getStatus() == EventStatus.DRAFT
+                    && workspaceRepository.lockById(event.getWorkspaceId()).isPresent()
+                    && eventRepository.lockLiveEventIds(event.getWorkspaceId()).size() >= entitlement.getMaxLiveEvents()) {
+                violations.add(violation("status", "이용권의 동시 운영 행사 수(" + entitlement.getMaxLiveEvents() + ")를 넘는다"));
+            }
+            if (entitlement.getRetentionDays() != null && event.getResultRetentionDays() > entitlement.getRetentionDays()) {
+                violations.add(violation("resultRetentionDays", "이용권의 보관 일수 상한(" + entitlement.getRetentionDays() + "일)을 넘는다"));
+            }
+        });
+        return violations;
     }
 
     // ── 공통 ──────────────────────

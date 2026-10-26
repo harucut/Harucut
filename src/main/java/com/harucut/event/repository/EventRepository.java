@@ -37,4 +37,8 @@ public interface EventRepository extends JpaRepository<Event, Long> {
     // 공간 행 잠금을 기다린 뒤 일반 읽기로 세면, 잠금 전에 잡힌 스냅샷 때문에 방금 커밋된 LIVE 를 놓친다
     @Query(value = "select event_id from event where workspace_id = :workspaceId and status = 'LIVE' for update", nativeQuery = true)
     List<Long> lockLiveEventIds(@Param("workspaceId") Long workspaceId);
+
+    // 지금 보관 일수 — 잠금 읽기라 최신 커밋을 보고, 이 트랜잭션이 끝날 때까지 설정 저장(행사 행 UPDATE)이 기다린다
+    @Query(value = "select result_retention_days from event where event_id = :eventId for update", nativeQuery = true)
+    List<Integer> lockRetentionDays(@Param("eventId") Long eventId);
 }

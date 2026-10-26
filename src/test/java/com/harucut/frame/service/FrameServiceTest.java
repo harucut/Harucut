@@ -108,6 +108,8 @@ class FrameServiceTest {
             Workspace personal = Workspace.personal(1L);
             ReflectionTestUtils.setField(personal, "id", 77L);
             given(workspaceService.personalWorkspaceOf(1L)).willReturn(personal);
+            // 개인 공간도 id 로 바꿔 공간 → 사용자 순서로 잠근 뒤 권한을 본다
+            given(workspaceService.requireRole(eq(personal.getPublicId()), eq(1L), any())).willReturn(personal);
             given(frameComponentAssembler.assembleOwned(user, request, 77L)).willReturn(frame);
             given(frameRepository.save(frame)).willReturn(frame);
             given(frameComponentAssembler.toFrameResponse(frame)).willReturn(expected);
@@ -146,7 +148,9 @@ class FrameServiceTest {
             given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
             given(frameRepository.countPersonalByUser(user)).willReturn(3L);
-            given(workspaceService.personalWorkspaceOf(1L)).willReturn(Workspace.personal(1L));
+            Workspace personal = Workspace.personal(1L);
+            given(workspaceService.personalWorkspaceOf(1L)).willReturn(personal);
+            given(workspaceService.requireRole(eq(personal.getPublicId()), eq(1L), any())).willReturn(personal);
             willThrow(new BusinessException(SubscriptionErrorCode.PLAN_FRAME_RETENTION_EXCEEDED))
                     .given(frameSubscriptionPolicy).assertFrameRetentionLimit(1L, 3);
 

@@ -22,6 +22,7 @@ import com.harucut.support.TestEntitlements;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.dto.WorkspaceResponse;
+import com.harucut.workspace.entity.Workspace;
 import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.workspace.service.WorkspaceService;
 import org.junit.jupiter.api.DisplayName;
@@ -140,6 +141,28 @@ class PublishAndFrameLimitMysqlTest {
 
         assertThat(frameRepository.findById(frameId)).isPresent();
         assertThat(workspaceRepository.findByPersonalOwnerUserId(user.getId())).isPresent();
+    }
+
+    @Test
+    @DisplayName("같은 사용자가 workspaceId 생략·개인 공간 id 명시로 동시에 만들어도 교착 없이 둘 다 만들어진다")
+    void concurrentPersonalFrameWithAndWithoutWorkspaceId() throws Exception {
+        User user = userRepository.save(User.localUser("both@personal.test", "e", "둘다"));
+        Workspace personal = workspaceService.personalWorkspaceOf(user.getId());
+
+        // 개인 공간 행을 잡아 둔다 — 예전에는 생략한 쪽이 사용자만 잠근 채 frame insert 의 FK 검사로 이 행을 기다리고,
+        // 명시한 쪽은 이 행 → 사용자 순서로 잠그려다 서로를 기다려 교착됐다
+        List<Throwable> failures = raceBehind(() -> workspaceRepository.lockById(personal.getId()),
+                () -> personalFrame(user, null),
+                () -> personalFrame(user, personal.getPublicId()));
+
+        assertThat(failures).isEmpty();   // 교착(Deadlock found)도 다른 실패도 없다
+        assertThat(frameRepository.countByWorkspaceId(personal.getId())).isEqualTo(2);
+    }
+
+    private void personalFrame(User user, String workspaceId) {
+        frameService.createFrame(user.getPublicId(), new FrameCreateRequest("프레임", null,
+                S3Keys.userRoot(user.getPublicId()) + "frames/p.png", FrameType.CLASSIC, null, null,
+                new BackgroundAttributes.Color("#FFFFFF"), null, List.of(), null, workspaceId));
     }
 
     private Long frame(User owner, WorkspaceResponse org) {

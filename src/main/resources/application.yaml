@@ -168,6 +168,20 @@ management:
         # '*' 로 열지 않는다. heapdump 에는 메모리에 있던 JWT 가 그대로 들어있다
         include: health,prometheus,metrics
 
+  # 무중단 배포·로드밸런서용 프로브 (ADR-0009 §7-3). 배포 스크립트가 보는 /actuator/health 는 그대로(DB·Redis 전부).
+  # - liveness(/actuator/health/liveness): 앱 자체 상태만 — 외부 의존이 잠깐 끊겼다고 재시작시키지 않는다
+  # - readiness(/actuator/health/readiness): DB 까지. Redis 는 넣지 않는다 — 리프레시 토큰·이메일 인증·빈도 제한(fail-open)에만 쓰고
+  #   행사 참가·부스·합성·사진함은 Redis 없이 돈다. 모든 인스턴스가 같은 Redis 를 보므로 넣으면 잠깐 끊길 때 전 인스턴스가 함께 빠진다
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+
   metrics:
     tags:
       application: harucut

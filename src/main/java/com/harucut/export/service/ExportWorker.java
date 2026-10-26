@@ -34,8 +34,14 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.zip.Deflater;
@@ -47,7 +53,11 @@ import java.util.zip.ZipOutputStream;
  * 메모리에는 파트 하나(8MB)와 읽는 중인 사진 버퍼만 둔다. JPEG 는 이미 압축돼 있어 다시 압축하지 않는다(레벨 0).
  *
  * <p>상태 전이는 전부 조건부 UPDATE: 선점(PENDING→RUNNING), 완료(RUNNING→DONE — 그사이 무효가 됐으면 0 이고 올린 객체를 지운다),
- * 실패(→FAILED). 서버가 재시작되면 RUNNING 은 FAILED 로 정리하고(재개하지 않는다) PENDING 은 다시 넣는다.
+ * 실패(→FAILED).
+ *
+ * <p>인스턴스가 여럿이어도(무중단 배포 중 겹침 포함) 안전하게: 압축 중에는 전송과 따로 도는 진행 신호(updatedAt)를 주기적으로 남기고, 정리는 신호가
+ * staleAfter 넘게 끊긴 RUNNING 만 FAILED 로 바꾼다(재개하지 않는다). 종료할 때는 하던 것을 PENDING 으로 내려놓고, PENDING 은
+ * 어느 인스턴스든 주기적으로 다시 넣는다 — 선점이 조건부라 두 곳이 넣어도 한 곳만 만든다.
  */
 @Slf4j
 @Component
@@ -71,12 +81,23 @@ public class ExportWorker {
     private final Duration ttl;
     // 업로드 책임의 유효 시간 — 이보다 오래 걸리는 묶음은 없다(최대 2,000장). 지나면 재시도 배치가 그 key 를 지운다
     private final Duration uploadHold;
+    // 진행 신호가 이만큼 끊기면 그 작업자는 죽은 것으로 본다. 신호는 이 간격의 1/5 마다 보낸다
+    private final Duration staleAfter;
+    // 이 인스턴스의 실행기에 이미 넣은 것 — 주기적으로 다시 넣을 때 같은 작업을 큐에 쌓지 않는다
+    private final Set<Long> queued = ConcurrentHashMap.newKeySet();
+    private volatile boolean stopping;
+    private final ScheduledExecutorService heartbeat = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "export-heartbeat");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public ExportWorker(ExportJobRepository exportJobRepository, ExportJobItemRepository itemRepository,
                         ComposeJobRepository composeJobRepository, EventRepository eventRepository,
                         FileStorageService fileStorageService, S3Deleter s3Deleter, PlatformTransactionManager transactionManager, Clock clock,
                         @Value("${event.export.ttl:24h}") Duration ttl,
-                        @Value("${event.export.upload-hold:6h}") Duration uploadHold) {
+                        @Value("${event.export.upload-hold:6h}") Duration uploadHold,
+                        @Value("${event.export.stale-after:5m}") Duration staleAfter) {
         this.exportJobRepository = exportJobRepository;
         this.itemRepository = itemRepository;
         this.composeJobRepository = composeJobRepository;
@@ -87,11 +108,29 @@ public class ExportWorker {
         this.clock = clock;
         this.ttl = ttl;
         this.uploadHold = uploadHold;
+        this.staleAfter = staleAfter;
     }
 
     @TransactionalEventListener
     public void onRequested(ExportRequestedEvent event) {
-        executor.execute(() -> run(event.exportJobId()));
+        enqueue(event.exportJobId());
+    }
+
+    private void enqueue(Long exportJobId) {
+        if (stopping || !queued.add(exportJobId)) {
+            return;
+        }
+        try {
+            executor.execute(() -> {
+                try {
+                    run(exportJobId);
+                } finally {
+                    queued.remove(exportJobId);
+                }
+            });
+        } catch (RejectedExecutionException shuttingDown) {
+            queued.remove(exportJobId);   // 종료 중 — PENDING 으로 남아 다른 인스턴스가 가져간다
+        }
     }
 
     /** 묶음 하나를 만든다. 이미 누가 선점했거나 무효가 됐으면 아무것도 하지 않는다 */
@@ -100,6 +139,26 @@ public class ExportWorker {
         if (!Boolean.TRUE.equals(claimed)) {
             return;
         }
+        // 진행 신호는 전송과 따로 돈다 — 사진 하나의 읽기·쓰기가 아무리 오래 걸려도 살아 있는 동안은 신호가 끊기지 않는다
+        long interval = staleAfter.dividedBy(5).toMillis();
+        ScheduledFuture<?> beating = heartbeat.scheduleAtFixedRate(() -> beat(exportJobId), interval, interval, TimeUnit.MILLISECONDS);
+        try {
+            build(exportJobId);
+        } finally {
+            beating.cancel(false);
+        }
+    }
+
+    // 조건부(RUNNING 일 때만) — 이미 FAILED·EXPIRED 로 바뀐 행은 되살리지 않는다. 실패해도 다음 박자에 다시(예외를 밖으로 내면 반복이 멈춘다)
+    private void beat(Long exportJobId) {
+        try {
+            transaction.executeWithoutResult(status -> exportJobRepository.touch(exportJobId, LocalDateTime.now(clock)));
+        } catch (RuntimeException e) {
+            log.warn("[묶음] {} 진행 신호 실패", exportJobId, e);
+        }
+    }
+
+    private void build(Long exportJobId) {
         ExportJob export = exportJobRepository.findById(exportJobId).orElseThrow();
         S3MultipartOutputStream upload = null;
         boolean uploaded = false;
@@ -120,6 +179,9 @@ public class ExportWorker {
                         .collect(Collectors.toMap(Event::getId, Event::getSlug));
                 Map<String, Integer> indexes = new java.util.HashMap<>();
                 for (ExportJobItem item : items) {
+                    if (stopping) {
+                        throw new ShutdownInProgress();
+                    }
                     ComposeJob job = jobs.get(item.getComposeJobId());
                     if (job == null || job.isDeleted() || job.getStatus() != ComposeStatus.DONE || job.getResultKey() == null) {
                         continue;   // 접수 뒤 지워진 사진 — 이 묶음은 수령 때 무효로 판정된다
@@ -150,6 +212,10 @@ public class ExportWorker {
                 return done;
             });
         } catch (Exception e) {
+            if (stopping && !uploaded) {
+                handBack(exportJobId, export, upload);
+                return;
+            }
             log.warn("[묶음] {} 실패", export.getPublicId(), e);
             if (uploaded) {
                 // 객체는 완료됐는데 DONE 기록이 실패했다 — FAILED 로 남을 묶음의 객체를 지운다(만료 정리·무효화는 DONE 만 본다).
@@ -171,20 +237,43 @@ public class ExportWorker {
         }
     }
 
-    // 서버 재시작 — 진행 중이던 것은 재개하지 않고 실패로, 아직 시작 못 한 것은 다시 넣는다.
-    // RUNNING 은 업로드가 이미 완료된 뒤 DONE 기록 전에 멈춘 것일 수 있다 — FAILED 로 바꾸면서 그 key 의 삭제를 커밋 후 예약한다.
-    // 없는 key 의 삭제는 아무 일도 하지 않는다. 미완 multipart 는 uploadId 를 남기지 않아 여기서 취소할 수 없다(버킷 수명 규칙 몫)
+    // 종료 중 — 업로드를 취소하고 PENDING 으로 내려놓는다. 다시 만들 때는 새 key 로 올린다: 같은 key 를 다시 쓰면 앞 시도의
+    // 업로드 책임(삭제 예약)이 lease 끝에 집혀 새 ZIP 을 DONE 전에 지우거나 그 행을 지워 크래시 보호를 없앨 수 있다(재시도 배치는
+    // 행을 잠그지 않는다). 버려진 옛 key 는 더 올릴 것이 없으니 같은 트랜잭션에서 지울 차례로 당긴다
+    private void handBack(Long exportJobId, ExportJob export, S3MultipartOutputStream upload) {
+        Thread.interrupted();   // 종료 인터럽트 — 남아 있으면 커넥션을 빌리지 못한다
+        if (upload != null) {
+            try {
+                upload.abort();
+            } catch (RuntimeException abortFailure) {
+                log.warn("[묶음] {} multipart 취소 실패 — 버킷 수명 규칙이 정리한다", export.getPublicId(), abortFailure);
+            }
+        }
+        transaction.executeWithoutResult(status -> {
+            if (exportJobRepository.requeue(exportJobId, ExportJob.retryKey(export.getS3Key()), LocalDateTime.now(clock)) == 1) {
+                s3Deleter.deleteHeldAfterCommit(export.getS3Key());
+            }
+        });
+        log.info("[묶음] {} 종료 중 — PENDING 으로 내려놓음", export.getPublicId());
+    }
+
+    // 기동할 때와 주기적으로 — 진행 신호가 끊긴 RUNNING 은 실패로(재개하지 않는다), PENDING 은 다시 넣는다.
+    // 끊긴 RUNNING 은 업로드가 이미 완료된 뒤 DONE 기록 전에 멈춘 것일 수 있다 — FAILED 로 바꾸면서 그 key 의 삭제를 커밋 후 예약한다.
+    // 없는 key 의 삭제는 아무 일도 하지 않는다. 미완 multipart 는 uploadId 를 남기지 않아 여기서 취소할 수 없다(버킷 수명 규칙 몫).
+    // 다른 인스턴스가 압축 중인 것은 신호가 살아 있어 건드리지 않는다
     @EventListener(ApplicationReadyEvent.class)
+    @Scheduled(fixedDelayString = "${event.export.recover-interval:1m}", initialDelayString = "${event.export.recover-interval:1m}")
     public void recover() {
-        transaction.executeWithoutResult(status -> exportJobRepository.findAllByStatus(ExportStatus.RUNNING)
+        LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime before = now.minus(staleAfter);
+        transaction.executeWithoutResult(status -> exportJobRepository.findAllByStatusAndUpdatedAtBefore(ExportStatus.RUNNING, before)
                 .forEach(export -> {
-                    if (exportJobRepository.fail(export.getId(), "SERVER_RESTARTED", LocalDateTime.now(clock)) == 1) {
+                    if (exportJobRepository.failStale(export.getId(), before, "WORKER_LOST", now) == 1) {
                         // 멈추기 전 남긴 업로드 책임이 있으면 지금으로 당긴다 — 더 올리는 중인 것이 없다
                         s3Deleter.deleteHeldAfterCommit(export.getS3Key());
                     }
                 }));
-        List<ExportJob> pending = exportJobRepository.findAllByStatus(ExportStatus.PENDING);
-        pending.forEach(export -> executor.execute(() -> run(export.getId())));
+        exportJobRepository.findAllByStatus(ExportStatus.PENDING).forEach(export -> enqueue(export.getId()));
     }
 
     // 기한이 지난 묶음의 객체를 지우고 EXPIRED 로
@@ -207,9 +296,20 @@ public class ExportWorker {
         }
     }
 
+    // 종료 훅 — 새로 넣지 않고, 하던 것은 다음 사진 경계(또는 인터럽트)에서 PENDING 으로 내려놓게 한다.
+    // DB 가 닫히기 전에 끝나도록 잠깐 기다린다(이 빈은 저장소에 의존해 그보다 먼저 정리된다)
     @PreDestroy
-    void shutdown() {
+    public void shutdown() throws InterruptedException {
+        stopping = true;
         executor.shutdownNow();
+        if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
+            log.warn("[묶음] 종료 대기 초과 — 진행 중이던 묶음은 신호가 끊긴 뒤 다른 인스턴스가 실패로 정리한다");
+        }
+        heartbeat.shutdownNow();
+    }
+
+    // 종료 중이라 압축을 멈춘다는 신호 — 실패가 아니다
+    private static final class ShutdownInProgress extends RuntimeException {
     }
 
     private static String extensionOf(String key) {

@@ -21,6 +21,9 @@ public interface ExportJobRepository extends JpaRepository<ExportJob, Long> {
 
     List<ExportJob> findAllByStatus(ExportStatus status);
 
+    // 진행 신호가 끊긴 RUNNING — 그 인스턴스가 죽었다(살아 있는 작업자는 heartbeat 로 updatedAt 을 밀어 둔다)
+    List<ExportJob> findAllByStatusAndUpdatedAtBefore(ExportStatus status, LocalDateTime before);
+
     // 여러 행사 묶음의 내 목록 — 그 범위(공간·프로젝트)에서 내가 만든 것, 최신순
     List<ExportJob> findByWorkspaceIdAndScopeAndProjectIdAndRequestedByUserIdOrderByIdDesc(
             Long workspaceId, ExportScope scope, Long projectId, Long requestedByUserId, Pageable pageable);
@@ -42,10 +45,28 @@ public interface ExportJobRepository extends JpaRepository<ExportJob, Long> {
     int complete(@Param("id") Long id, @Param("size") long size, @Param("expiresAt") LocalDateTime expiresAt,
                  @Param("now") LocalDateTime now);
 
+    // 진행 신호 — 압축 중인 작업자가 주기적으로. 다른 인스턴스의 정리가 살아 있는 작업을 실패로 만들지 않게
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update ExportJob e set e.updatedAt = :now where e.id = :id and e.status = com.harucut.export.enums.ExportStatus.RUNNING")
+    int touch(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    // 종료하는 작업자가 하던 것을 내려놓는다 — 다른 인스턴스(또는 다음 기동)가 처음부터, 새 key 로 다시 만든다
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update ExportJob e set e.status = com.harucut.export.enums.ExportStatus.PENDING, e.s3Key = :s3Key, e.updatedAt = :now "
+            + "where e.id = :id and e.status = com.harucut.export.enums.ExportStatus.RUNNING")
+    int requeue(@Param("id") Long id, @Param("s3Key") String s3Key, @Param("now") LocalDateTime now);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update ExportJob e set e.status = com.harucut.export.enums.ExportStatus.FAILED, e.failureReason = :reason, e.updatedAt = :now "
             + "where e.id = :id and e.status in (com.harucut.export.enums.ExportStatus.PENDING, com.harucut.export.enums.ExportStatus.RUNNING)")
     int fail(@Param("id") Long id, @Param("reason") String reason, @Param("now") LocalDateTime now);
+
+    // 진행 신호가 끊긴 RUNNING 만 실패로 — 읽은 뒤 그 작업자가 신호를 보냈으면 0(조건을 UPDATE 에 함께 건다)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update ExportJob e set e.status = com.harucut.export.enums.ExportStatus.FAILED, e.failureReason = :reason, e.updatedAt = :now "
+            + "where e.id = :id and e.status = com.harucut.export.enums.ExportStatus.RUNNING and e.updatedAt < :before")
+    int failStale(@Param("id") Long id, @Param("before") LocalDateTime before, @Param("reason") String reason,
+                  @Param("now") LocalDateTime now);
 
     // 무효화 — 아직 살아 있는 것(PENDING·RUNNING·DONE)만 EXPIRED 로. 이긴 쪽이 객체를 지운다
     @Modifying(clearAutomatically = true, flushAutomatically = true)

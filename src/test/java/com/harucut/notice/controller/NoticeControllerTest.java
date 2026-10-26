@@ -1,5 +1,6 @@
 package com.harucut.notice.controller;
 
+import com.harucut.terms.service.TermsConsentGuard;
 import com.harucut.common.response.PageResponse;
 import com.harucut.notice.dto.NoticeResponse;
 import com.harucut.notice.service.NoticeService;
@@ -25,6 +26,10 @@ import static org.mockito.BDDMockito.then;
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("test")
 class NoticeControllerTest {
+
+    // WebMvcConfig 의 약관 동의 인터셉터가 요구한다 — 기본값 false 라 동의 강제는 걸리지 않는다
+    @MockitoBean
+    private TermsConsentGuard termsConsentGuard;
 
     @Autowired
     private MockMvcTester mockMvc;

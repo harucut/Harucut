@@ -15,4 +15,9 @@ public interface ExportJobItemRepository extends JpaRepository<ExportJobItem, Lo
     @Query("select count(i) > 0 from ExportJobItem i, ComposeJob j where i.exportJobId = :exportJobId "
             + "and j.id = i.composeJobId and (j.deletedAt is not null or j.purgedAt is not null)")
     boolean containsDeleted(@Param("exportJobId") Long exportJobId);
+
+    // 담긴 사진의 행사별 장수 — [eventId, count]
+    @Query("select j.eventId, count(i) from ExportJobItem i, ComposeJob j where i.exportJobId = :exportJobId "
+            + "and j.id = i.composeJobId group by j.eventId")
+    List<Object[]> countByEvent(@Param("exportJobId") Long exportJobId);
 }

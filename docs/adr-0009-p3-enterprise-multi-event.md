@@ -239,6 +239,17 @@
 - ZIP 안은 `{행사 slug}/0001-{photoId}.jpg`. 최대 장수(2,000)·수명·동시 1개·재검사·오류 코드(EXPORT-001~003)는 P2B-3 과 같다.
 - 누가: 프로젝트는 OWNER·ADMIN·프로젝트 멤버, 공간은 OWNER·ADMIN.
 
+### 6-1. 구현에서 정한 것 (P3-5)
+
+- 같은 `export_job` 테이블에 `scope`(EVENT·PROJECT·WORKSPACE)·`workspace_id`(전부, 기존 행은 행사의 공간으로 채움)·`project_id`(PROJECT 만)를
+  더하고 `event_id` 는 비울 수 있게 했다(V23). 압축 작업자·만료·사진 삭제 무효화·수령 재검사는 행사 묶음과 그대로 같다(담긴 사진 행 기준이라).
+- 범위 관문: 프로젝트 — 공간 OWNER·ADMIN 이거나 OPERATOR 이면서 그 프로젝트 멤버(아니면 404). 공간 — OWNER·ADMIN(OPERATOR 403 GEN-021).
+  요청 행사가 그 범위 밖이거나 없으면 400 GEN-002. 행사 묶음 API 로는 여러 행사 묶음이 보이지 않고, 그 반대도 같다(범위·공간·프로젝트·요청자가 모두 맞아야 내 것).
+- 응답: 행사 Export 스키마 + `scope`·`events: [{ eventId, name, photoCount }]`(여러 행사 묶음에만). 내 목록은 최신 20개, **최신순**.
+- ZIP: `{slug}/0001-{photoId}.jpg` — 번호는 폴더(행사)마다 새로 세고, 행사 안 순서는 행사 묶음과 같다(최신 먼저). 받는 파일명은 `{프로젝트명|공간명}-{yyyyMMdd}.zip`.
+- 수령 재검사는 담긴 행사마다 BULK_DOWNLOAD 사진 권한·이용권 기능을 다시 본다 — 하나라도 빠지면 만들 때와 같은 403(data.eventIds).
+- `data.eventIds` 는 여러 행사 묶음의 PHOTO-001·ENT-004 에만 붙는다(행사 하나 API 는 그대로). 새 오류 코드 없음.
+
 ## 7. 오류 코드 (추가 예정)
 
 FE 계약 검사가 「서버가 내는데 FE 문구 없음」으로 실패하므로, **코드를 develop 에 넣는 PR 을 열 때 코드·문구 초안을 함께 보낸다.** FE 가 문구를

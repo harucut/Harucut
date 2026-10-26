@@ -45,7 +45,7 @@ class ExportWorkerTest {
         ComposeJobRepository composeJobRepository = mock(ComposeJobRepository.class);
         FileStorageService fileStorageService = mock(FileStorageService.class);
         S3Client s3Client = mock(S3Client.class);
-        ExportJob export = ExportJob.pending(1L, "Ev1", 2L, 1);
+        ExportJob export = ExportJob.pending(9L, 1L, "Ev1", 2L, 1);
 
         given(exportJobRepository.claim(eq(7L), any())).willReturn(1);
         given(exportJobRepository.findById(7L)).willReturn(Optional.of(export));
@@ -60,7 +60,7 @@ class ExportWorkerTest {
                 .willAnswer(i -> new S3MultipartOutputStream(s3Client, "bucket", i.getArgument(0), "application/zip", 1024));
 
         S3Deleter s3Deleter = mock(S3Deleter.class);
-        ExportWorker worker = new ExportWorker(exportJobRepository, itemRepository, composeJobRepository, fileStorageService,
+        ExportWorker worker = new ExportWorker(exportJobRepository, itemRepository, composeJobRepository, mock(com.harucut.event.repository.EventRepository.class), fileStorageService,
                 s3Deleter, mock(PlatformTransactionManager.class), Clock.systemUTC(), Duration.ofHours(24), Duration.ofHours(6));
         worker.run(7L);
 
@@ -81,7 +81,7 @@ class ExportWorkerTest {
         FileStorageService fileStorageService = mock(FileStorageService.class);
         S3Client s3Client = mock(S3Client.class);
         S3Deleter s3Deleter = mock(S3Deleter.class);
-        ExportJob export = ExportJob.pending(1L, "Ev1", 2L, 1);
+        ExportJob export = ExportJob.pending(9L, 1L, "Ev1", 2L, 1);
 
         given(exportJobRepository.claim(eq(7L), any())).willReturn(1);
         given(exportJobRepository.findById(7L)).willReturn(Optional.of(export));
@@ -95,7 +95,7 @@ class ExportWorkerTest {
         given(fileStorageService.openMultipartUpload(anyString(), anyString()))
                 .willAnswer(i -> new S3MultipartOutputStream(s3Client, "bucket", i.getArgument(0), "application/zip", 1024));
 
-        new ExportWorker(exportJobRepository, itemRepository, composeJobRepository, fileStorageService,
+        new ExportWorker(exportJobRepository, itemRepository, composeJobRepository, mock(com.harucut.event.repository.EventRepository.class), fileStorageService,
                 s3Deleter, mock(PlatformTransactionManager.class), Clock.systemUTC(), Duration.ofHours(24), Duration.ofHours(6)).run(7L);
 
         then(s3Deleter).should().holdForUpload(export.getS3Key(), Duration.ofHours(6));

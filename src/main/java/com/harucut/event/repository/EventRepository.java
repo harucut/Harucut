@@ -21,6 +21,8 @@ public interface EventRepository extends JpaRepository<Event, Long> {
 
     Optional<Event> findByPublicId(String publicId);
 
+    List<Event> findAllByPublicIdIn(Collection<String> publicIds);
+
     Optional<Event> findBySlug(String slug);
 
     boolean existsBySlug(String slug);

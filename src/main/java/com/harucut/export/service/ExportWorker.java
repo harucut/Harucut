@@ -1,7 +1,10 @@
 package com.harucut.export.service;
 
+import com.harucut.event.entity.Event;
+import com.harucut.event.repository.EventRepository;
 import com.harucut.export.entity.ExportJob;
 import com.harucut.export.entity.ExportJobItem;
+import com.harucut.export.enums.ExportScope;
 import com.harucut.export.enums.ExportStatus;
 import com.harucut.export.repository.ExportJobItemRepository;
 import com.harucut.export.repository.ExportJobRepository;
@@ -53,6 +56,7 @@ public class ExportWorker {
     private final ExportJobRepository exportJobRepository;
     private final ExportJobItemRepository itemRepository;
     private final ComposeJobRepository composeJobRepository;
+    private final EventRepository eventRepository;
     private final FileStorageService fileStorageService;
     private final S3Deleter s3Deleter;
     // 묶음 압축은 한 번에 하나 — 908MB 서버에서 큰 업로드 버퍼를 여러 개 띄우지 않는다.
@@ -69,13 +73,14 @@ public class ExportWorker {
     private final Duration uploadHold;
 
     public ExportWorker(ExportJobRepository exportJobRepository, ExportJobItemRepository itemRepository,
-                        ComposeJobRepository composeJobRepository, FileStorageService fileStorageService,
-                        S3Deleter s3Deleter, PlatformTransactionManager transactionManager, Clock clock,
+                        ComposeJobRepository composeJobRepository, EventRepository eventRepository,
+                        FileStorageService fileStorageService, S3Deleter s3Deleter, PlatformTransactionManager transactionManager, Clock clock,
                         @Value("${event.export.ttl:24h}") Duration ttl,
                         @Value("${event.export.upload-hold:6h}") Duration uploadHold) {
         this.exportJobRepository = exportJobRepository;
         this.itemRepository = itemRepository;
         this.composeJobRepository = composeJobRepository;
+        this.eventRepository = eventRepository;
         this.fileStorageService = fileStorageService;
         this.s3Deleter = s3Deleter;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -108,13 +113,20 @@ public class ExportWorker {
             CountingOutputStream counted = new CountingOutputStream(upload);
             try (ZipOutputStream zip = new ZipOutputStream(counted)) {
                 zip.setLevel(Deflater.NO_COMPRESSION);
-                int index = 1;
+                // 여러 행사 묶음은 행사마다 폴더({slug}/), 번호도 행사 안에서 매긴다(ADR-0009 §6)
+                boolean multi = export.getScope() != ExportScope.EVENT;
+                Map<Long, String> slugs = !multi ? Map.of() : eventRepository.findAllById(jobs.values().stream()
+                                .map(ComposeJob::getEventId).filter(java.util.Objects::nonNull).distinct().toList()).stream()
+                        .collect(Collectors.toMap(Event::getId, Event::getSlug));
+                Map<String, Integer> indexes = new java.util.HashMap<>();
                 for (ExportJobItem item : items) {
                     ComposeJob job = jobs.get(item.getComposeJobId());
                     if (job == null || job.isDeleted() || job.getStatus() != ComposeStatus.DONE || job.getResultKey() == null) {
                         continue;   // 접수 뒤 지워진 사진 — 이 묶음은 수령 때 무효로 판정된다
                     }
-                    zip.putNextEntry(new ZipEntry(String.format("%04d-%d%s", index++, job.getId(), extensionOf(job.getResultKey()))));
+                    String folder = multi ? slugs.getOrDefault(job.getEventId(), "event") + "/" : "";
+                    int index = indexes.merge(folder, 1, Integer::sum);
+                    zip.putNextEntry(new ZipEntry(folder + String.format("%04d-%d%s", index, job.getId(), extensionOf(job.getResultKey()))));
                     try (InputStream in = fileStorageService.openStream(job.getResultKey())) {
                         in.transferTo(zip);
                     }

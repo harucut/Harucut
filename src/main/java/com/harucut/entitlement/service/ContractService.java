@@ -116,8 +116,9 @@ public class ContractService {
                 contract.eventIdList().forEach(eventId -> entitlementRepository.save(Entitlement.fromContract(contract, eventId)));
             }
         } else if (from == ContractStatus.ACTIVE) {
-            LocalDateTime now = LocalDateTime.now(clock);
-            entitlementRepository.findAllByContractId(contract.getId()).forEach(e -> e.endAt(now));
+            // 계약 행은 위 전이 UPDATE 로 잡혀 있다 — 배분 만들기도 계약 행을 먼저 잡으므로 둘이 줄을 선다.
+            // 이용권을 미리 골라 두지 않고 UPDATE(현재 읽기)로 끝낸다 — 그사이 커밋된 배분까지 끝나게
+            entitlementRepository.endByContract(contract.getId(), LocalDateTime.now(clock));
         }
         auditLogService.record(admin.getId(), contract.getWorkspaceId(), null, "CONTRACT_" + to.name(), "CONTRACT",
                 contract.getPublicId(), Map.of("from", from.name()));
@@ -186,7 +187,7 @@ public class ContractService {
             }
             // 기업 총량을 회수하면 그 배분도 함께 끝난다 — 부모 행을 쥔 채 활성 자식을 잠금 읽기로 고른다(방금 커밋된 배분도 빠지지 않게)
             String derived = truncate("부모 이용권 회수: " + why, 500);
-            entitlementRepository.lockActiveChildIds(entitlement.getId(), null)
+            entitlementRepository.lockActiveChildIds(entitlement.getId())
                     .forEach(childId -> entitlementRepository.revokeIfActive(childId, now, derived));
         }
         Entitlement revoked = entitlement(entitlementPublicId);
@@ -207,9 +208,20 @@ public class ContractService {
         Event event = eventRepository.findByPublicId(request.eventId())
                 .filter(e -> e.getWorkspaceId().equals(parent.getWorkspaceId()))
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "이 공간의 행사가 아닙니다."));
-        // 부모를 먼저 잠근다 — 같은 부모의 배분·변경·회수가 줄을 서고, 아래 중복 검사가 잠금 읽기로 최신 커밋을 본다
-        entitlementRepository.lockById(parent.getId());
-        if (!entitlementRepository.lockActiveChildIds(parent.getId(), event.getId()).isEmpty()) {
+        // 잠금 순서: 계약 → 부모 → 자식. 계약 종료가 같은 계약 행을 먼저 잡으므로, 그사이 끝난 계약의 배분이 원래 기간으로 남지 않는다.
+        // 수동 부여 부모(계약 없음)는 부모 행만 — 부모 회수도 그 행을 잡는다
+        LocalDateTime now = LocalDateTime.now(clock);
+        if (parent.getContractId() != null
+                && !contractRepository.lockStatus(parent.getContractId()).contains(ContractStatus.ACTIVE.name())) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "계약이 진행 중이 아닙니다.");
+        }
+        if (entitlementRepository.lockValidParent(parent.getId(), now).isEmpty()) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "부모 이용권이 지금 유효하지 않습니다.");
+        }
+        // 빠른 거절만 일반 읽기로 — 범위 잠금 읽기는 다른 부모의 첫 배분과 빈 구간 gap lock 으로 교착된다. 경쟁은 DB 유니크가 막는다
+        boolean duplicated = entitlementRepository.findAllByParentEntitlementId(parent.getId()).stream()
+                .anyMatch(child -> child.getStatus() == EntitlementStatus.ACTIVE && event.getId().equals(child.getEventId()));
+        if (duplicated) {
             throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "이 행사에는 이미 배분이 있습니다 — 배분량을 바꾸세요.");
         }
         int quota = request.composeQuota();

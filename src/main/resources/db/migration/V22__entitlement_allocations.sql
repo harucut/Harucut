@@ -7,6 +7,8 @@ ALTER TABLE `entitlement`
   -- 부모일 때: 활성 자식 배분량 합. 조건부 UPDATE(allocated + 요청 <= compose_quota)로만 바꾼다
   ADD COLUMN `allocated_quota` int NOT NULL DEFAULT 0,
   ADD KEY `idx_entitlement_parent` (`parent_entitlement_id`),
+  -- 계약 종료의 UPDATE(contract_id 로)가 표 전체를 잠그지 않게
+  ADD KEY `idx_entitlement_contract` (`contract_id`),
   ADD CONSTRAINT `fk_entitlement_parent` FOREIGN KEY (`parent_entitlement_id`) REFERENCES `entitlement` (`entitlement_id`);
 
 -- 작업 하나가 부모·자식 두 이용권을 함께 예약한다 — 유니크를 (작업, 이용권)으로. 새 키를 먼저 두어 FK 가 인덱스를 잃지 않게 한다

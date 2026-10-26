@@ -77,6 +77,8 @@ class AllocationConcurrencyMysqlTest {
     @Autowired private ComposeJobRepository composeJobRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+    @Autowired private com.harucut.entitlement.repository.ContractRepository contractRepository;
 
     @MockitoBean private FileStorageService fileStorageService;
 
@@ -156,6 +158,48 @@ class AllocationConcurrencyMysqlTest {
         assertThat(failures).singleElement().isInstanceOfSatisfying(BusinessException.class,
                 e -> assertThat(e.getErrorCode()).isEqualTo(EntitlementErrorCode.INVALID_TRANSITION));
         assertThat(entitlementRepository.findById(s.parent()).orElseThrow().getAllocatedQuota()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("리뷰 반영(#39): 서로 다른 부모의 첫 배분 2건이 동시에 와도 교착 없이 둘 다 성공한다")
+    void firstAllocationsOfDifferentParents() throws Exception {
+        Setup first = setup("gap-1", 10);
+        Setup second = setup("gap-2", 10);
+
+        // 부모 인덱스의 맨 끝 빈 구간을 먼저 잡아 두 배분의 insert 를 멈춰 세운다 — 범위 잠금 읽기로 중복을 검사하면
+        // 두 배분이 그 구간에 gap lock 을 함께 잡은 채 서로의 insert 를 기다려 교착된다
+        List<Throwable> failures = raceBehind(() -> jdbcTemplate.queryForList(
+                        "select entitlement_id from entitlement where parent_entitlement_id = ? for update", Long.MAX_VALUE),
+                () -> contractService.allocate(first.admin().getPublicId(), first.parentId(), new EntitlementDtos.AllocationRequest(first.a().getPublicId(), 3)),
+                () -> contractService.allocate(second.admin().getPublicId(), second.parentId(), new EntitlementDtos.AllocationRequest(second.a().getPublicId(), 3)));
+
+        assertThat(failures).isEmpty();
+        assertThat(entitlementRepository.findAllByParentEntitlementId(first.parent())).hasSize(1);
+        assertThat(entitlementRepository.findAllByParentEntitlementId(second.parent())).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("리뷰 반영(#39): 배분과 계약 종료가 동시에 와도 끝난 계약 아래 유효한 배분이 남지 않는다(계약 → 부모 → 자식)")
+    void allocationRacesContractEnd() throws Exception {
+        User admin = userRepository.save(User.localUser("admin@end.test", "e", "관리자"));
+        User owner = userRepository.save(User.localUser("owner@end.test", "e", "오너"));
+        WorkspaceResponse org = workspaceService.createOrganization(owner.getPublicId(), "계약 공간");
+        Event a = event(owner, org, "end-a");
+        EntitlementDtos.Contract contract = contractService.create(admin.getPublicId(), new EntitlementDtos.ContractRequest(org.workspaceId(),
+                "기업", com.harucut.entitlement.enums.EntitlementScope.WORKSPACE, null, 1000L, "KRW",
+                OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(30), null, new EntitlementDtos.Terms(10, null, null, null, Set.of())));
+        contractService.changeStatus(admin.getPublicId(), contract.contractId(), com.harucut.entitlement.enums.ContractStatus.ACTIVE);
+        Long contractId = contractRepository.findByPublicId(contract.contractId()).orElseThrow().getId();
+        String parentId = entitlementRepository.findAllByContractId(contractId).getFirst().getPublicId();
+
+        List<Throwable> failures = raceBehind(() -> contractRepository.lockStatus(contractId),
+                () -> contractService.allocate(admin.getPublicId(), parentId, new EntitlementDtos.AllocationRequest(a.getPublicId(), 3)),
+                () -> contractService.changeStatus(admin.getPublicId(), contract.contractId(), com.harucut.entitlement.enums.ContractStatus.ENDED));
+
+        assertThat(failures).allSatisfy(f -> assertThat(f).isInstanceOf(BusinessException.class));   // 교착(500)이 아니다
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        assertThat(entitlementRepository.findAllByContractId(contractId))
+                .noneMatch(e -> e.getStatus() == com.harucut.entitlement.enums.EntitlementStatus.ACTIVE && e.getValidTo().isAfter(now));
     }
 
     private record Setup(User admin, String parentId, Long parent, Event a, Event b) {

@@ -517,6 +517,30 @@ class EntitlementIntegrationTest {
         });
     }
 
+    @Test
+    @DisplayName("리뷰 반영(#39): 끝난 계약의 기업 총량에서는 배분할 수 없다(GEN-002) — 계약 종료는 그 계약의 배분도 끝낸다")
+    void allocationNeedsActiveContract() {
+        Event event = eventRepository.findByPublicId(ready("contract-alloc").eventId()).orElseThrow();   // 배분은 게시가 필요 없다
+        Event other = eventRepository.findByPublicId(ready("contract-alloc-2").eventId()).orElseThrow();
+        EntitlementDtos.Contract contract = contractService.create(admin.getPublicId(), new EntitlementDtos.ContractRequest(
+                org.workspaceId(), "기업", EntitlementScope.WORKSPACE, null, 1000L, "KRW",
+                OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(30), null, new EntitlementDtos.Terms(10, null, null, null, Set.of())));
+        contractService.changeStatus(admin.getPublicId(), contract.contractId(), ContractStatus.ACTIVE);
+        String parentId = contractService.entitlements().stream().filter(e -> contract.contractId().equals(e.contractId()))
+                .findFirst().orElseThrow().entitlementId();
+        String child = contractService.allocate(admin.getPublicId(), parentId, new EntitlementDtos.AllocationRequest(event.getPublicId(), 3))
+                .entitlementId();
+
+        contractService.changeStatus(admin.getPublicId(), contract.contractId(), ContractStatus.ENDED);
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(entitlementService.applicable(event)).isEmpty();   // 배분도 함께 끝났다
+        assertThat(contractService.entitlements()).filteredOn(e -> e.entitlementId().equals(child)).singleElement()
+                .satisfies(e -> assertThat(e.validTo()).isBeforeOrEqualTo(OffsetDateTime.now()));
+        assertCode(() -> contractService.allocate(admin.getPublicId(), parentId, new EntitlementDtos.AllocationRequest(other.getPublicId(), 3)),
+                GlobalErrorCode.INVALID_INPUT_VALUE);
+    }
+
     private String manualParent(int quota) {
         return contractService.grantManually(admin.getPublicId(), new EntitlementDtos.ManualGrantRequest(org.workspaceId(), null,
                 OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(30),

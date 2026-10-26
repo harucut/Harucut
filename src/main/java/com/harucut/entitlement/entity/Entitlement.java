@@ -28,7 +28,8 @@ import java.util.Set;
 @Entity
 @Table(name = "entitlement", indexes = {
         @Index(name = "idx_entitlement_workspace", columnList = "workspace_id, status"),
-        @Index(name = "idx_entitlement_event", columnList = "event_id, status")})
+        @Index(name = "idx_entitlement_event", columnList = "event_id, status"),
+        @Index(name = "idx_entitlement_contract", columnList = "contract_id")})
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Entitlement extends BaseEntity {

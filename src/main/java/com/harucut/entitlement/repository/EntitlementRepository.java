@@ -69,10 +69,21 @@ public interface EntitlementRepository extends JpaRepository<Entitlement, Long> 
     @Query(value = "select compose_quota from entitlement where entitlement_id = :id and status = 'ACTIVE' for update", nativeQuery = true)
     List<Integer> lockActiveQuota(@Param("id") Long id);
 
-    // 부모의 활성 자식(행사를 주면 그 행사만) — 잠금 읽기(부모를 잡은 뒤). 같은 부모의 배분은 부모 잠금에서 줄을 서므로 최신 커밋까지 본다
-    @Query(value = "select entitlement_id from entitlement where parent_entitlement_id = :parentId and status = 'ACTIVE' "
-            + "and (:eventId is null or event_id = :eventId) for update", nativeQuery = true)
-    List<Long> lockActiveChildIds(@Param("parentId") Long parentId, @Param("eventId") Long eventId);
+    // 부모의 활성 자식 — 잠금 읽기(부모 회수에서 부모를 쥔 뒤). 이 경로는 그 범위에 insert 하지 않아 gap lock 이 다른 부모와 교착하지 않는다.
+    // 배분 만들기에서는 쓰지 않는다 — 빈 범위의 gap lock 을 다른 부모의 첫 배분과 함께 잡고 서로의 insert 를 기다려 교착된다(#39)
+    @Query(value = "select entitlement_id from entitlement where parent_entitlement_id = :parentId and status = 'ACTIVE' for update",
+            nativeQuery = true)
+    List<Long> lockActiveChildIds(@Param("parentId") Long parentId);
+
+    // 배분할 부모 — 행 잠금 + 지금 유효한가(활성·기간 안). 비면 배분할 수 없다
+    @Query(value = "select entitlement_id from entitlement where entitlement_id = :id and status = 'ACTIVE' "
+            + "and valid_from <= :now and valid_to > :now for update", nativeQuery = true)
+    List<Long> lockValidParent(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    // 계약 종료 — 그 계약의 이용권(배분 포함)을 지금 끝낸다. UPDATE 는 현재 읽기라, 미리 골라 두면 놓치는 방금 커밋된 배분까지 끝낸다
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update Entitlement e set e.validTo = :now where e.contractId = :contractId and e.validTo > :now")
+    int endByContract(@Param("contractId") Long contractId, @Param("now") LocalDateTime now);
 
     // 회수 — ACTIVE 일 때만 한 번. 동시에 두 번 회수해도 한쪽만 1(부모 카운터를 한 번만 돌려준다)
     @Modifying(clearAutomatically = true, flushAutomatically = true)

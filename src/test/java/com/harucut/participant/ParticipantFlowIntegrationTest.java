@@ -118,6 +118,12 @@ class ParticipantFlowIntegrationTest {
     void byodFlow() throws Exception {
         JsonNode event = ok(mvc.get().uri("/api/public/events/{slug}", slug).exchange());
         assertThat(event.path("eventId").asString()).isEqualTo(eventId);
+        // 동의 화면은 운영자가 쓴 문구를 그대로 보여 준다 — 제목·본문·필수·버전이 실려야 한다
+        JsonNode consentItem = event.path("consentItems").get(0);
+        assertThat(consentItem.path("title").asString()).isEqualTo("사진 수집 동의");
+        assertThat(consentItem.path("body").asString()).isEqualTo("신랑신부가 사진을 받습니다.");
+        assertThat(consentItem.path("required").asBoolean()).isTrue();
+        assertThat(consentItem.path("version").asInt()).isEqualTo(1);
 
         String token = data(mvc.post().uri("/api/public/events/{slug}/sessions", slug)
                 .contentType(MediaType.APPLICATION_JSON).content("{\"channel\":\"BYOD\"}").exchange(), 201)

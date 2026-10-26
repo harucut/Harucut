@@ -46,6 +46,8 @@ public final class ParticipantDtos {
     public record ConsentRequest(
             @NotEmpty @Valid @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<ConsentItem> items
     ) {
+        // EventSettings.ConsentItem(운영자가 쓰는 항목 정의)과 단순 이름이 같다 — 스키마 이름을 따로 준다
+        @Schema(name = "ParticipantConsentItem", description = "참가자의 항목별 동의 결정")
         public record ConsentItem(
                 @NotBlank @Schema(description = "동의 항목 코드", example = "photo-collection") String code,
                 @NotNull @Schema(description = "항목 버전 — 공개 행사 정보의 값 그대로", example = "1") Integer version,
@@ -102,7 +104,8 @@ public final class ParticipantDtos {
     ) {
     }
 
-    @Schema(description = "행사 합성 접수")
+    // 스키마 이름을 따로 준다 — 단순 이름이 개인 합성 media.dto.ComposeRequest 와 같아 springdoc 이 하나로 합친다
+    @Schema(name = "EventComposeRequest", description = "행사 합성 접수")
     public record ComposeRequest(
             @NotBlank @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String captureRunId,
             @NotNull @Schema(description = "이 회차에 제공된 프레임 발행본", requiredMode = Schema.RequiredMode.REQUIRED) Long frameVersionId,

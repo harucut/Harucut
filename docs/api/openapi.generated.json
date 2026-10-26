@@ -455,25 +455,30 @@
         "type" : "object"
       },
       "ComposeRequest" : {
-        "description" : "행사 합성 접수",
+        "description" : "네컷 합성 요청",
         "properties" : {
-          "captureRunId" : {
-            "minLength" : 1,
+          "backgroundColor" : {
+            "description" : "배경색 덮어쓰기 (선택). `#RRGGBB` 형식.\n\n**단색(COLOR) 배경 프레임에서만 쓸 수 있다** — 이미지 배경 프레임에 보내면 400 이다.\n생략하면 프레임에 저장된 배경 그대로 합성한다.\n\n⚠️ 같은 `idempotencyKey` 로 색만 바꿔 다시 보내면 **무시된다** —\n기존 작업이 그대로 재생되므로, 색을 바꿨으면 키도 새로 만들어야 한다.",
+            "example" : "#FFE4E1",
+            "pattern" : "^#[0-9a-fA-F]{6}$",
             "type" : "string"
           },
-          "frameVersionId" : {
-            "description" : "이 회차에 제공된 프레임 발행본",
+          "frameId" : {
+            "description" : "합성에 쓸 프레임 ID. 내 프레임이거나 시스템 프레임이어야 한다.\n**단건 조회와 같은 관문을 통과한다** — 보관 기간이 지났거나 한도 밖으로 밀려나\n조회가 막힌 프레임은 합성도 안 된다.",
+            "example" : 7,
             "format" : "int64",
             "type" : "integer"
           },
           "idempotencyKey" : {
-            "description" : "요청마다 새 UUID. 같은 키 재요청은 기존 작업을 돌려준다",
+            "description" : "중복 합성 방지용 키. 최대 64자.\n\n**합성 버튼을 누를 때마다 새로 만들고, 네트워크 재시도에는 같은 값을 다시 보낸다.**\n같은 키로 다시 오면 새로 합성하지 않고 **기존 작업의 상태를 그대로** 돌려준다\n(더블클릭도 여기서 걸린다).",
+            "example" : "550e8400-e29b-41d4-a716-446655440000",
             "maxLength" : 64,
             "minLength" : 0,
             "type" : "string"
           },
-          "sourceAssetIds" : {
-            "description" : "칸 순서대로 촬영 입력 4개",
+          "sourceKeys" : {
+            "description" : "원본 사진 4장의 S3 key. **정확히 4개**이고, **촬영 순서가 곧 슬롯 순서**다.\n\n업로드 API 에 `type: FOURCUT_SOURCE` 로 올린 뒤 받은 key 를 쓴다.\n본인 경로가 아니면 403 이다 — URL 로 감싸도 서버가 key 로 정규화하므로 우회되지 않는다.\n\n⚠️ **필터(흑백·밝게 등)는 올리기 전에 픽셀에 구워 넣어야 한다.** 서버는 필터를 모른다.",
+            "example" : [ "uploads/users/AbCdEf12Gh/fourcuts/sources/a.png", "uploads/users/AbCdEf12Gh/fourcuts/sources/b.png", "uploads/users/AbCdEf12Gh/fourcuts/sources/c.png", "uploads/users/AbCdEf12Gh/fourcuts/sources/d.png" ],
             "items" : {
               "minLength" : 1,
               "type" : "string"
@@ -483,31 +488,38 @@
             "type" : "array"
           }
         },
-        "required" : [ "captureRunId", "frameVersionId", "idempotencyKey", "sourceAssetIds" ],
+        "required" : [ "frameId", "idempotencyKey", "sourceKeys" ],
         "type" : "object"
       },
       "ConsentItem" : {
+        "description" : "참가 동의 항목",
         "properties" : {
-          "code" : {
-            "description" : "동의 항목 코드",
-            "example" : "photo-collection",
-            "minLength" : 1,
+          "body" : {
+            "description" : "본문 — 사진을 받는 주체·목적·보관 기간",
             "type" : "string"
           },
-          "decision" : {
-            "description" : "AGREED · DECLINED · WITHDRAWN",
-            "enum" : [ "AGREED", "DECLINED", "WITHDRAWN" ],
-            "example" : "AGREED",
+          "code" : {
+            "description" : "항목 코드",
+            "example" : "photo-collection",
+            "type" : "string"
+          },
+          "required" : {
+            "description" : "필수 여부",
+            "example" : true,
+            "type" : "boolean"
+          },
+          "title" : {
+            "description" : "제목",
+            "example" : "사진 수집·이용 동의",
             "type" : "string"
           },
           "version" : {
-            "description" : "항목 버전 — 공개 행사 정보의 값 그대로",
+            "description" : "항목 버전 — 문구를 바꾸면 올린다",
             "example" : 1,
             "format" : "int32",
             "type" : "integer"
           }
         },
-        "required" : [ "code", "decision", "version" ],
         "type" : "object"
       },
       "ConsentRequest" : {
@@ -515,7 +527,7 @@
         "properties" : {
           "items" : {
             "items" : {
-              "$ref" : "#/components/schemas/ConsentItem"
+              "$ref" : "#/components/schemas/ParticipantConsentItem"
             },
             "minItems" : 1,
             "type" : "array"
@@ -846,6 +858,38 @@
             "type" : "integer"
           }
         }
+      },
+      "EventComposeRequest" : {
+        "description" : "행사 합성 접수",
+        "properties" : {
+          "captureRunId" : {
+            "minLength" : 1,
+            "type" : "string"
+          },
+          "frameVersionId" : {
+            "description" : "이 회차에 제공된 프레임 발행본",
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "idempotencyKey" : {
+            "description" : "요청마다 새 UUID. 같은 키 재요청은 기존 작업을 돌려준다",
+            "maxLength" : 64,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "sourceAssetIds" : {
+            "description" : "칸 순서대로 촬영 입력 4개",
+            "items" : {
+              "minLength" : 1,
+              "type" : "string"
+            },
+            "maxItems" : 4,
+            "minItems" : 4,
+            "type" : "array"
+          }
+        },
+        "required" : [ "captureRunId", "frameVersionId", "idempotencyKey", "sourceAssetIds" ],
+        "type" : "object"
       },
       "EventPatchRequest" : {
         "description" : "행사 설정 수정 — settings 에 **보낸 필드만** 바뀐다(null 을 보내면 그 값을 비운다)",
@@ -1850,6 +1894,31 @@
             "type" : "integer"
           }
         },
+        "type" : "object"
+      },
+      "ParticipantConsentItem" : {
+        "description" : "참가자의 항목별 동의 결정",
+        "properties" : {
+          "code" : {
+            "description" : "동의 항목 코드",
+            "example" : "photo-collection",
+            "minLength" : 1,
+            "type" : "string"
+          },
+          "decision" : {
+            "description" : "AGREED · DECLINED · WITHDRAWN",
+            "enum" : [ "AGREED", "DECLINED", "WITHDRAWN" ],
+            "example" : "AGREED",
+            "type" : "string"
+          },
+          "version" : {
+            "description" : "항목 버전 — 공개 행사 정보의 값 그대로",
+            "example" : 1,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "code", "decision", "version" ],
         "type" : "object"
       },
       "PaymentHistoryResponse" : {
@@ -14699,7 +14768,7 @@
           "content" : {
             "application/json" : {
               "schema" : {
-                "$ref" : "#/components/schemas/ComposeRequest"
+                "$ref" : "#/components/schemas/EventComposeRequest"
               }
             }
           },

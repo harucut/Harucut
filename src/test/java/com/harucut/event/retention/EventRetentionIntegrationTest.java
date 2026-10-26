@@ -63,6 +63,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.times;
 
 /*
@@ -119,7 +120,8 @@ class EventRetentionIntegrationTest {
         EventRetentionService.Result result = retentionService.run();
 
         assertThat(result.purgedResults()).isEqualTo(1);
-        then(s3Deleter).should().deleteAfterCommit(List.of("uploads/r/old.jpg",
+        // 정리 때 한 번, 같은 실행의 재삭제 단계에서 한 번 더(커밋 뒤 삭제가 빠졌을 때를 메우는 멱등 재시도)
+        then(s3Deleter).should(times(2)).deleteAfterCommit(List.of("uploads/r/old.jpg",
                 ComposeService.thumbnailKeyFor(composeJobRepository.findById(old.getId()).orElseThrow())));
         assertThat(composeJobRepository.findById(old.getId()).orElseThrow().getPurgedAt()).isNotNull();
         assertThat(photoService.page(owner.getPublicId(), event.getPublicId(), null, null, null, null, null, null, null).items())
@@ -187,7 +189,7 @@ class EventRetentionIntegrationTest {
         EventRetentionService.Result result = retentionService.run();
 
         assertThat(result.purgedResults()).isEqualTo(1);   // 실패한 행사는 0, 다른 행사는 1
-        then(s3Deleter).should(times(2)).deleteAfterCommit(anyCollection());
+        then(s3Deleter).should(atLeast(2)).deleteAfterCommit(anyCollection());
     }
 
     // 보관 1일·게시된 행사 — 공간마다 운영자와 이용권을 따로 만든다

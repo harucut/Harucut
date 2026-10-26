@@ -80,7 +80,7 @@ public class EventRetentionService {
     public Result run() {
         int purged = 0;
         for (Event event : eventRepository.findAllByStatusIn(EnumSet.of(EventStatus.LIVE, EventStatus.CAPTURE_CLOSED))) {
-            purged += isolated("결과 정리", event, () -> purge(event), 0);
+            purged += isolated("결과 정리", event, () -> purge(event.getId()), 0);
         }
         // 삭제 요청·보관 종료 이틀 안의 결과 객체 삭제를 다시 예약한다 — 커밋 뒤 삭제는 실패해도 다시 시도하지 않는다(없는 key 삭제는 멱등)
         transaction.executeWithoutResult(status -> composeJobRepository.findRecentlyRemovedResults(now().minusDays(2))
@@ -115,14 +115,20 @@ public class EventRetentionService {
         }
     }
 
-    // 한 행사의 기한 지난 결과 — 배치 크기씩 끝까지
-    private int purge(Event event) {
-        LocalDateTime cutoff = now().minusDays(event.getResultRetentionDays());
+    // 한 행사의 기한 지난 결과 — 배치 크기씩 끝까지. 영구 삭제라 기준 시각은 배치마다 트랜잭션 안에서 지금 설정으로 다시 계산한다
+    private int purge(Long eventId) {
         int total = 0;
         while (true) {
             Integer done = transaction.execute(status -> {
-                List<ComposeJob> jobs = composeJobRepository.findPurgeable(event.getId(), cutoff, PageRequest.of(0, batchSize));
+                // 잠금 읽기 — 실행 처음에 읽은 행사로 계산하면, 그 뒤 운영자가 보관 일수를 늘려도 예전 기준으로 지운다.
+                // 이 배치가 커밋할 때까지 설정 저장이 기다리고, 먼저 커밋된 저장은 여기서 보인다
+                Integer retentionDays = eventRepository.lockRetentionDays(eventId).stream().findFirst().orElse(null);
+                if (retentionDays == null) {
+                    return 0;
+                }
                 LocalDateTime now = now();
+                LocalDateTime cutoff = now.minusDays(retentionDays);
+                List<ComposeJob> jobs = composeJobRepository.findPurgeable(eventId, cutoff, PageRequest.of(0, batchSize));
                 for (ComposeJob job : jobs) {
                     // purged_at 만 원자적으로 — 엔티티를 고쳐 저장하면 그사이 커밋된 삭제 요청(deleted_at)을 덮는다
                     if (composeJobRepository.markPurged(job.getId(), now) == 1) {

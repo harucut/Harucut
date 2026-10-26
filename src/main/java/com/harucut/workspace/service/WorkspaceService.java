@@ -74,16 +74,14 @@ public class WorkspaceService {
     }
 
     /**
-     * 공간 public id 를 내부 공간으로 바꾸면서 권한을 확인한다. 멤버가 아니거나 역할이 모자라면
-     * 공간이 있다는 사실도 알리지 않는다(404).
+     * 공간 public id 를 내부 공간으로 바꾸면서 권한을 확인한다. 멤버가 아니면 공간이 있다는 사실도 알리지 않는다(404).
+     * 멤버인데 역할이 모자라면 403 GEN-021(ADR-0009 §3).
      */
     @Transactional(readOnly = true)
     public Workspace requireRole(String workspacePublicId, Long userId, Collection<WorkspaceRole> allowed) {
         Workspace workspace = workspaceRepository.findByPublicId(workspacePublicId)
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
-        membershipRepository.findByWorkspaceIdAndUserIdAndStatus(workspace.getId(), userId, MembershipStatus.ACTIVE)
-                .filter(m -> allowed.contains(m.getRole()))
-                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        requireMember(workspace.getId(), userId, allowed);
         return workspace;
     }
 
@@ -98,15 +96,23 @@ public class WorkspaceService {
         return WorkspaceResponse.of(workspace, WorkspaceRole.OWNER);
     }
 
-    /** 내부 id 로 권한을 본다. 없거나 역할이 모자라면 404 */
+    /** 내부 id 로 권한을 본다. 없거나 멤버가 아니면 404, 역할이 모자라면 403 GEN-021 */
     @Transactional(readOnly = true)
     public Workspace requireRole(Long workspaceId, Long userId, Collection<WorkspaceRole> allowed) {
         Workspace workspace = workspaceRepository.findById(workspaceId)
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
-        membershipRepository.findByWorkspaceIdAndUserIdAndStatus(workspaceId, userId, MembershipStatus.ACTIVE)
-                .filter(m -> allowed.contains(m.getRole()))
-                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        requireMember(workspaceId, userId, allowed);
         return workspace;
+    }
+
+    // 멤버가 아니면 404(공간이 있다는 것도 숨긴다), 멤버인데 역할이 모자라면 403 GEN-021(ADR-0009 §3 「범위 안 권한 부족」)
+    private void requireMember(Long workspaceId, Long userId, Collection<WorkspaceRole> allowed) {
+        WorkspaceRole role = membershipRepository.findByWorkspaceIdAndUserIdAndStatus(workspaceId, userId, MembershipStatus.ACTIVE)
+                .map(WorkspaceMembership::getRole)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        if (!allowed.contains(role)) {
+            throw new BusinessException(GlobalErrorCode.FORBIDDEN, "이 공간에서 할 수 없는 일입니다(" + role + ").");
+        }
     }
 
     /** 조직 공간이면 그 공간. 개인 공간·없는 id·null 이면 빈 값 — 프레임이 "공간의 것"인지 가르는 판정 */

@@ -12,10 +12,12 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -42,7 +44,7 @@ public class ProjectController {
         return Response.ok(projectService.create(principal.publicId(), workspaceId, request));
     }
 
-    @Operation(summary = "프로젝트 목록", description = "최신순. 보관한 것도 archived=true 로 함께 준다.")
+    @Operation(summary = "프로젝트 목록", description = "최신순. 보관한 것도 archived=true 로 함께 준다. OPERATOR 는 멤버인 프로젝트만 본다.")
     @ApiErrors({"GEN-002: 개인 공간", "GEN-031: 공간이 없거나 권한이 없다"})
     @GetMapping("/api/auth/workspaces/{workspaceId}/projects")
     public Response<List<ProjectDtos.Project>> list(@AuthenticationPrincipal AuthenticatedUser principal,
@@ -62,6 +64,39 @@ public class ProjectController {
                                                @Parameter(description = "프로젝트 public id") @PathVariable String projectId,
                                                @RequestBody JsonNode body) {
         return Response.ok(projectService.patch(principal.publicId(), projectId, body));
+    }
+
+    @Operation(summary = "프로젝트 멤버 목록", description = "공간 OWNER·ADMIN 만. 멤버마다 운영 권한(operations)과 사진 권한(permissions).")
+    @ApiErrors({"GEN-031: 프로젝트가 없거나 멤버가 아니다", "GEN-021: OWNER·ADMIN 이 아니다"})
+    @GetMapping("/api/auth/projects/{projectId}/members")
+    public Response<List<ProjectDtos.Member>> members(@AuthenticationPrincipal AuthenticatedUser principal,
+                                                      @Parameter(description = "프로젝트 public id") @PathVariable String projectId) {
+        return Response.ok(projectService.members(principal.publicId(), projectId));
+    }
+
+    @Operation(summary = "프로젝트 멤버 권한 정하기",
+            description = """
+                    공간 OWNER·ADMIN 만. 대상은 이 공간의 OPERATOR 멤버. 그 프로젝트의 모든 행사(앞으로 만들 행사 포함)에 같은 권한을 준다 —
+                    판정 때 행사 권한과 합친다. 권한을 통째로 바꾸고(없으면 만든다), 둘 다 비면 멤버에서 뺀다.
+                    MANAGE_EVENT 를 받으면 그 프로젝트 안에서 행사를 만들 수 있다.
+                    """)
+    @ApiErrors({"GEN-031: 프로젝트·사용자가 없거나 멤버가 아니다", "GEN-021: OWNER·ADMIN 이 아니다", "GEN-002: 대상이 OPERATOR 멤버가 아니다"})
+    @PutMapping("/api/auth/projects/{projectId}/members/{userId}")
+    public Response<ProjectDtos.Member> putMember(@AuthenticationPrincipal AuthenticatedUser principal,
+                                                  @Parameter(description = "프로젝트 public id") @PathVariable String projectId,
+                                                  @Parameter(description = "사용자 public id") @PathVariable String userId,
+                                                  @RequestBody @Valid ProjectDtos.MemberRequest request) {
+        return Response.ok(projectService.putMember(principal.publicId(), projectId, userId, request));
+    }
+
+    @Operation(summary = "프로젝트 멤버 빼기", description = "공간 OWNER·ADMIN 만. 그 프로젝트 행사의 상속 권한이 함께 사라진다(행사에서 직접 받은 권한은 남는다).")
+    @ApiErrors({"GEN-031: 프로젝트·멤버가 없다", "GEN-021: OWNER·ADMIN 이 아니다"})
+    @DeleteMapping("/api/auth/projects/{projectId}/members/{userId}")
+    public Response<Void> deleteMember(@AuthenticationPrincipal AuthenticatedUser principal,
+                                       @Parameter(description = "프로젝트 public id") @PathVariable String projectId,
+                                       @Parameter(description = "사용자 public id") @PathVariable String userId) {
+        projectService.deleteMember(principal.publicId(), projectId, userId);
+        return Response.ok();
     }
 
     @Operation(summary = "공간 브랜드 기본값", description = "조직 공간의 OWNER·ADMIN 만. 정한 필드만 준다.")

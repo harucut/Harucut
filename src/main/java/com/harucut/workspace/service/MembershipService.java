@@ -6,6 +6,7 @@ import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.common.utils.OpaqueTokens;
 import com.harucut.event.repository.EventGrantRepository;
 import com.harucut.event.repository.EventRepository;
+import com.harucut.project.repository.ProjectMembershipRepository;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.dto.MemberDtos;
@@ -44,11 +45,14 @@ public class MembershipService {
 
     private static final Set<WorkspaceRole> OPERATOR_ROLES = EnumSet.of(WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
     private static final Set<WorkspaceRole> ANY_ROLE = EnumSet.allOf(WorkspaceRole.class);
+    // 멤버 목록 — 공간 멤버라면 누구나 보되, 배정받은 행사만 운영하는 OPERATOR 에게는 공간 명단을 보이지 않는다(ADR-0009 §3-2)
+    private static final Set<WorkspaceRole> MEMBER_LIST_ROLES = EnumSet.complementOf(EnumSet.of(WorkspaceRole.OPERATOR));
 
     private final WorkspaceService workspaceService;
     private final WorkspaceMembershipRepository membershipRepository;
     private final WorkspaceInvitationRepository invitationRepository;
     private final EventGrantRepository grantRepository;
+    private final ProjectMembershipRepository projectMembershipRepository;
     private final EventRepository eventRepository;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
@@ -57,6 +61,7 @@ public class MembershipService {
 
     public MembershipService(WorkspaceService workspaceService, WorkspaceMembershipRepository membershipRepository,
                              WorkspaceInvitationRepository invitationRepository, EventGrantRepository grantRepository,
+                             ProjectMembershipRepository projectMembershipRepository,
                              EventRepository eventRepository, UserRepository userRepository,
                              AuditLogService auditLogService, Clock clock,
                              @Value("${workspace.invitation-ttl:7d}") Duration invitationTtl) {
@@ -64,6 +69,7 @@ public class MembershipService {
         this.membershipRepository = membershipRepository;
         this.invitationRepository = invitationRepository;
         this.grantRepository = grantRepository;
+        this.projectMembershipRepository = projectMembershipRepository;
         this.eventRepository = eventRepository;
         this.userRepository = userRepository;
         this.auditLogService = auditLogService;
@@ -118,7 +124,7 @@ public class MembershipService {
     @Transactional(readOnly = true)
     public List<MemberDtos.Member> members(String actorPublicId, String workspacePublicId) {
         User actor = user(actorPublicId);
-        Workspace workspace = workspaceService.requireRole(workspacePublicId, actor.getId(), ANY_ROLE);
+        Workspace workspace = workspaceService.requireRole(workspacePublicId, actor.getId(), MEMBER_LIST_ROLES);
         List<WorkspaceMembership> memberships =
                 membershipRepository.findAllByWorkspaceIdAndStatusOrderByIdAsc(workspace.getId(), MembershipStatus.ACTIVE);
         Map<Long, User> users = userRepository.findAllById(memberships.stream().map(WorkspaceMembership::getUserId).toList())
@@ -164,6 +170,7 @@ public class MembershipService {
         }
         membership.remove();
         grantRepository.deleteByUserIdInWorkspace(target.getId(), workspace.getId());
+        projectMembershipRepository.deleteByUserIdInWorkspace(target.getId(), workspace.getId());
         auditLogService.record(actor.getId(), workspace.getId(), null, self ? "MEMBER_LEFT" : "MEMBER_REMOVED", "USER",
                 target.getPublicId(), Map.of("role", membership.getRole().name()));
     }

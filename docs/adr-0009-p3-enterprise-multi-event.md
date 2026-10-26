@@ -131,6 +131,20 @@
 | 공간 프레임 | 읽기만(행사 프레임 고르기용). 만들기·고치기 403 |
 | `me/events` | 위 행사들 + 사진 권한을 받은 행사(지금과 같다) |
 
+### 3-3. 구현에서 정한 것 (P3-2)
+
+- 판정은 `EventAccessPolicy.accessOf(event, user)` 한 곳 — 공간 역할 + EventGrant(사진·운영) + 그 행사 프로젝트의 ProjectMembership.
+  운영 권한은 공간 역할이 OPERATOR 일 때만 효력이 있다(역할을 내리면 사라진다). 공간 OWNER·ADMIN 은 운영 셋 다, 사진은 지금처럼 권한 행으로만.
+- 관문: 조회·미리보기는 운영 권한 하나라도, 설정·게시·일시중지·재개·촬영 종료는 MANAGE_EVENT, 부스는 MANAGE_BOOTH,
+  고객 초대·사진 권한 관리는 INVITE_CUSTOMERS(OPERATOR 는 자기 사진 권한 안에서만, 다른 운영자의 행은 못 바꿈).
+- 행사 만들기·복제: OWNER·ADMIN, 또는 MANAGE_EVENT 를 받은 프로젝트 안에서 OPERATOR. 행사의 프로젝트 변경은 OWNER·ADMIN 만.
+  OPERATOR 가 만든 행사에는 만든 사람 사진 권한을 따로 주지 않는다(프로젝트 권한으로 본다).
+- 배정 API: `PUT /api/auth/events/{eventId}/operators/{userId}` `{ operations[] }`(빈 목록 = 뺌),
+  프로젝트 멤버 `GET·PUT·DELETE /api/auth/projects/{projectId}/members[/{userId}]` `{ operations[], permissions[] }`(둘 다 비면 뺌). OWNER·ADMIN 만, 대상은 OPERATOR 멤버.
+- 행사 권한 목록(`GET …/grants`)의 각 행에 `operations` 가 같이 나온다(행사 고객은 빈 목록).
+- 공간 멤버인데 역할이 모자라면 403 GEN-021(전에는 404). 멤버가 아니면 404. 멤버 목록은 OPERATOR 에게 403.
+- 멤버를 내보내면 그 공간의 행사 권한과 프로젝트 멤버 권한을 함께 지운다.
+
 ## 4. 상시 캠페인 (P3-3)
 
 - `event.kind`: `SCHEDULED`(지금, 기본) · `ALWAYS_ON`. kind 는 게시 전 초안에서만 바꾼다.

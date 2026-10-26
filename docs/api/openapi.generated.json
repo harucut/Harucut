@@ -1499,7 +1499,7 @@
         "type" : "object"
       },
       "EventGrant" : {
-        "description" : "행사 사진 권한",
+        "description" : "행사 권한 — 사진 권한과(OPERATOR 에게 배정한) 운영 권한",
         "properties" : {
           "createdAt" : {
             "format" : "date-time",
@@ -1511,6 +1511,15 @@
           },
           "name" : {
             "type" : "string"
+          },
+          "operations" : {
+            "description" : "운영 권한 — OPERATOR 에게 배정한 것. 행사 고객은 빈 목록",
+            "items" : {
+              "enum" : [ "MANAGE_EVENT", "MANAGE_BOOTH", "INVITE_CUSTOMERS" ],
+              "type" : "string"
+            },
+            "type" : "array",
+            "uniqueItems" : true
           },
           "permissions" : {
             "items" : {
@@ -2574,7 +2583,7 @@
             "uniqueItems" : true
           },
           "role" : {
-            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER" ],
+            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER", "OPERATOR" ],
             "type" : "string"
           },
           "status" : {
@@ -2602,7 +2611,7 @@
             "uniqueItems" : true
           },
           "role" : {
-            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER" ],
+            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER", "OPERATOR" ],
             "type" : "string"
           },
           "workspaceId" : {
@@ -2653,7 +2662,7 @@
             "uniqueItems" : true
           },
           "role" : {
-            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER" ],
+            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER", "OPERATOR" ],
             "type" : "string"
           },
           "workspaceName" : {
@@ -2929,7 +2938,7 @@
             "type" : "string"
           },
           "role" : {
-            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER" ],
+            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER", "OPERATOR" ],
             "type" : "string"
           },
           "userId" : {
@@ -2950,7 +2959,7 @@
             "type" : "string"
           },
           "role" : {
-            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER" ],
+            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER", "OPERATOR" ],
             "example" : "DESIGNER",
             "type" : "string"
           }
@@ -2961,7 +2970,7 @@
       "MemberRoleRequest" : {
         "properties" : {
           "role" : {
-            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER" ],
+            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER", "OPERATOR" ],
             "type" : "string"
           }
         },
@@ -3022,8 +3031,17 @@
         "type" : "object"
       },
       "MyEventAccess" : {
-        "description" : "role 은 공간 운영자(OWNER·ADMIN)일 때만",
+        "description" : "role 은 공간 멤버(OWNER·ADMIN·OPERATOR 등)일 때만. FE 는 operations 로만 버튼을 정한다",
         "properties" : {
+          "operations" : {
+            "description" : "합쳐진 운영 권한 — OWNER·ADMIN 은 셋 다",
+            "items" : {
+              "enum" : [ "MANAGE_EVENT", "MANAGE_BOOTH", "INVITE_CUSTOMERS" ],
+              "type" : "string"
+            },
+            "type" : "array",
+            "uniqueItems" : true
+          },
           "permissions" : {
             "items" : {
               "enum" : [ "VIEW_PHOTOS", "DOWNLOAD_PHOTOS", "BULK_DOWNLOAD", "DELETE_PHOTOS" ],
@@ -3033,8 +3051,19 @@
             "uniqueItems" : true
           },
           "role" : {
-            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER" ],
+            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER", "OPERATOR" ],
             "type" : "string"
+          },
+          "sources" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "description" : "OPERATOR 일 때만 — 권한마다 EVENT·PROJECT·BOTH. PROJECT·BOTH 는 행사 화면에서 뺄 수 없다",
+            "example" : {
+              "MANAGE_EVENT" : "PROJECT",
+              "VIEW_PHOTOS" : "EVENT"
+            },
+            "type" : "object"
           }
         },
         "type" : "object"
@@ -3181,6 +3210,22 @@
             "type" : "integer"
           }
         },
+        "type" : "object"
+      },
+      "OperatorAssignmentRequest" : {
+        "description" : "행사 운영자 배정 — 빈 목록이면 운영 권한을 뺀다",
+        "properties" : {
+          "operations" : {
+            "example" : [ "MANAGE_EVENT", "MANAGE_BOOTH" ],
+            "items" : {
+              "enum" : [ "MANAGE_EVENT", "MANAGE_BOOTH", "INVITE_CUSTOMERS" ],
+              "type" : "string"
+            },
+            "type" : "array",
+            "uniqueItems" : true
+          }
+        },
+        "required" : [ "operations" ],
         "type" : "object"
       },
       "PageResponseNoticeAdminResponse" : {
@@ -3794,6 +3839,63 @@
           }
         },
         "required" : [ "name" ],
+        "type" : "object"
+      },
+      "ProjectMember" : {
+        "properties" : {
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "operations" : {
+            "items" : {
+              "enum" : [ "MANAGE_EVENT", "MANAGE_BOOTH", "INVITE_CUSTOMERS" ],
+              "type" : "string"
+            },
+            "type" : "array",
+            "uniqueItems" : true
+          },
+          "permissions" : {
+            "items" : {
+              "enum" : [ "VIEW_PHOTOS", "DOWNLOAD_PHOTOS", "BULK_DOWNLOAD", "DELETE_PHOTOS" ],
+              "type" : "string"
+            },
+            "type" : "array",
+            "uniqueItems" : true
+          },
+          "userId" : {
+            "description" : "사용자 public id",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ProjectMemberRequest" : {
+        "description" : "프로젝트 멤버 권한 — 그 프로젝트의 모든 행사(앞으로 만들 행사 포함)에 준다. 둘 다 비면 멤버에서 뺀다",
+        "properties" : {
+          "operations" : {
+            "example" : [ "MANAGE_EVENT" ],
+            "items" : {
+              "enum" : [ "MANAGE_EVENT", "MANAGE_BOOTH", "INVITE_CUSTOMERS" ],
+              "type" : "string"
+            },
+            "type" : "array",
+            "uniqueItems" : true
+          },
+          "permissions" : {
+            "example" : [ "VIEW_PHOTOS" ],
+            "items" : {
+              "enum" : [ "VIEW_PHOTOS", "DOWNLOAD_PHOTOS", "BULK_DOWNLOAD", "DELETE_PHOTOS" ],
+              "type" : "string"
+            },
+            "type" : "array",
+            "uniqueItems" : true
+          }
+        },
+        "required" : [ "operations", "permissions" ],
         "type" : "object"
       },
       "PublicEventResponse" : {
@@ -5237,6 +5339,34 @@
         },
         "type" : "object"
       },
+      "ResponseListProjectMember" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "description" : "응답 본문. 없으면 키 자체가 없다",
+            "items" : {
+              "$ref" : "#/components/schemas/ProjectMember"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseListTermsAdminResponse" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -5609,6 +5739,31 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/Project",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseProjectMember" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ProjectMember",
             "description" : "응답 본문. 없으면 키 자체가 없다"
           },
           "message" : {
@@ -6913,7 +7068,7 @@
           },
           "role" : {
             "description" : "이 공간에서의 내 역할",
-            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER" ],
+            "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER", "OPERATOR" ],
             "example" : "OWNER",
             "type" : "string"
           },
@@ -13436,7 +13591,7 @@
     },
     "/api/auth/events/{eventId}/grants" : {
       "get" : {
-        "description" : "OWNER·ADMIN.",
+        "description" : "INVITE_CUSTOMERS 권한. 사진 권한(permissions)과 OPERATOR 에게 배정한 운영 권한(operations)이 한 행에 같이 나온다.",
         "operationId" : "grants",
         "parameters" : [ {
           "description" : "행사 public id",
@@ -13499,7 +13654,7 @@
               "application/json" : {
                 "examples" : {
                   "GEN-021" : {
-                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / INVITE_CUSTOMERS 가 없다",
                     "value" : {
                       "code" : "GEN-021",
                       "message" : "Access denied.",
@@ -13512,14 +13667,14 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / INVITE_CUSTOMERS 가 없다 _(Access denied.)_"
           },
           "404" : {
             "content" : {
               "application/json" : {
                 "examples" : {
                   "GEN-031" : {
-                    "summary" : "GEN-031 — 없는 행사이거나 OWNER·ADMIN 이 아니다",
+                    "summary" : "GEN-031 — 없는 행사이거나 볼 수 없다",
                     "value" : {
                       "code" : "GEN-031",
                       "message" : "Resource not found.",
@@ -13532,7 +13687,7 @@
                 }
               }
             },
-            "description" : "- `GEN-031` — 없는 행사이거나 OWNER·ADMIN 이 아니다 _(Resource not found.)_"
+            "description" : "- `GEN-031` — 없는 행사이거나 볼 수 없다 _(Resource not found.)_"
           }
         },
         "security" : [ {
@@ -13540,13 +13695,13 @@
         }, {
           "bearerAuth" : [ ]
         } ],
-        "summary" : "행사 사진 권한 목록",
+        "summary" : "행사 권한 목록",
         "tags" : [ "행사 고객·권한" ]
       }
     },
     "/api/auth/events/{eventId}/grants/{grantId}" : {
       "delete" : {
-        "description" : "OWNER·ADMIN.",
+        "description" : "INVITE_CUSTOMERS 권한. OPERATOR 는 다른 운영자의 행을 지울 수 없다.",
         "operationId" : "delete_1",
         "parameters" : [ {
           "description" : "행사 public id",
@@ -13618,7 +13773,7 @@
               "application/json" : {
                 "examples" : {
                   "GEN-021" : {
-                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 권한 밖",
                     "value" : {
                       "code" : "GEN-021",
                       "message" : "Access denied.",
@@ -13631,14 +13786,14 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 권한 밖 _(Access denied.)_"
           },
           "404" : {
             "content" : {
               "application/json" : {
                 "examples" : {
                   "GEN-031" : {
-                    "summary" : "GEN-031 — 없는 행사·권한이거나 OWNER·ADMIN 이 아니다",
+                    "summary" : "GEN-031 — 없는 행사·권한이거나 볼 수 없다",
                     "value" : {
                       "code" : "GEN-031",
                       "message" : "Resource not found.",
@@ -13651,7 +13806,7 @@
                 }
               }
             },
-            "description" : "- `GEN-031` — 없는 행사·권한이거나 OWNER·ADMIN 이 아니다 _(Resource not found.)_"
+            "description" : "- `GEN-031` — 없는 행사·권한이거나 볼 수 없다 _(Resource not found.)_"
           }
         },
         "security" : [ {
@@ -13663,7 +13818,7 @@
         "tags" : [ "행사 고객·권한" ]
       },
       "patch" : {
-        "description" : "OWNER·ADMIN. 권한 집합을 통째로 바꾼다.",
+        "description" : "INVITE_CUSTOMERS 권한. 사진 권한 집합을 통째로 바꾼다. OPERATOR 는 자기 사진 권한 안에서만, 다른 운영자의 행은 못 바꾼다.",
         "operationId" : "update_1",
         "parameters" : [ {
           "description" : "행사 public id",
@@ -13769,7 +13924,7 @@
               "application/json" : {
                 "examples" : {
                   "GEN-021" : {
-                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 권한 밖",
                     "value" : {
                       "code" : "GEN-021",
                       "message" : "Access denied.",
@@ -13782,14 +13937,14 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 권한 밖 _(Access denied.)_"
           },
           "404" : {
             "content" : {
               "application/json" : {
                 "examples" : {
                   "GEN-031" : {
-                    "summary" : "GEN-031 — 없는 행사·권한이거나 OWNER·ADMIN 이 아니다",
+                    "summary" : "GEN-031 — 없는 행사·권한이거나 볼 수 없다",
                     "value" : {
                       "code" : "GEN-031",
                       "message" : "Resource not found.",
@@ -13802,7 +13957,7 @@
                 }
               }
             },
-            "description" : "- `GEN-031` — 없는 행사·권한이거나 OWNER·ADMIN 이 아니다 _(Resource not found.)_"
+            "description" : "- `GEN-031` — 없는 행사·권한이거나 볼 수 없다 _(Resource not found.)_"
           }
         },
         "security" : [ {
@@ -13816,7 +13971,7 @@
     },
     "/api/auth/events/{eventId}/invitations" : {
       "post" : {
-        "description" : "OWNER·ADMIN. 수락하면 공간 멤버가 아니라 이 행사의 사진 권한만 생긴다 — 공간의 다른 행사는 보이지 않는다.\n토큰 원문은 이 응답에서만, 링크 `/invite#<token>`, 7일.\n",
+        "description" : "INVITE_CUSTOMERS 권한(공간 OWNER·ADMIN 은 늘 가진다). OPERATOR 는 자기가 가진 사진 권한 안에서만 준다.\n수락하면 공간 멤버가 아니라 이 행사의 사진 권한만 생긴다 — 공간의 다른 행사는 보이지 않는다.\n토큰 원문은 이 응답에서만, 링크 `/invite#<token>`, 7일.\n",
         "operationId" : "invite_1",
         "parameters" : [ {
           "description" : "행사 public id",
@@ -13913,7 +14068,7 @@
               "application/json" : {
                 "examples" : {
                   "GEN-021" : {
-                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / INVITE_CUSTOMERS 가 없거나 자기 사진 권한 밖",
                     "value" : {
                       "code" : "GEN-021",
                       "message" : "Access denied.",
@@ -13926,14 +14081,14 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / INVITE_CUSTOMERS 가 없거나 자기 사진 권한 밖 _(Access denied.)_"
           },
           "404" : {
             "content" : {
               "application/json" : {
                 "examples" : {
                   "GEN-031" : {
-                    "summary" : "GEN-031 — 없는 행사이거나 OWNER·ADMIN 이 아니다",
+                    "summary" : "GEN-031 — 없는 행사이거나 볼 수 없다",
                     "value" : {
                       "code" : "GEN-031",
                       "message" : "Resource not found.",
@@ -13946,7 +14101,7 @@
                 }
               }
             },
-            "description" : "- `GEN-031` — 없는 행사이거나 OWNER·ADMIN 이 아니다 _(Resource not found.)_"
+            "description" : "- `GEN-031` — 없는 행사이거나 볼 수 없다 _(Resource not found.)_"
           }
         },
         "security" : [ {
@@ -13955,6 +14110,166 @@
           "bearerAuth" : [ ]
         } ],
         "summary" : "행사 고객 초대",
+        "tags" : [ "행사 고객·권한" ]
+      }
+    },
+    "/api/auth/events/{eventId}/operators/{userId}" : {
+      "put" : {
+        "description" : "공간 OWNER·ADMIN 만. 대상은 이 공간의 OPERATOR 멤버. 운영 권한 집합을 통째로 바꾸고, 빈 목록이면 뺀다.\n사진 권한은 고객 초대·권한 수정으로 따로 준다. 프로젝트 멤버 권한과는 판정 때 합쳐진다.\n",
+        "operationId" : "assignOperator",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "사용자 public id",
+          "in" : "path",
+          "name" : "userId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/OperatorAssignmentRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseEventGrant"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — 대상이 OPERATOR 멤버가 아니다",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — 대상이 OPERATOR 멤버가 아니다 _(Invalid input value.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 행사·사용자이거나 볼 수 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 행사·사용자이거나 볼 수 없다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "행사 운영자 배정",
         "tags" : [ "행사 고객·권한" ]
       }
     },
@@ -15235,7 +15550,7 @@
     },
     "/api/auth/me/events" : {
       "get" : {
-        "description" : "운영하는 공간(OWNER·ADMIN)의 행사와 사진 권한을 받은 행사. 최신순. 행사 고객에게는 Studio 의 시작점이다.",
+        "description" : "운영하는 공간(OWNER·ADMIN)의 행사, OPERATOR 로 운영 권한(행사·프로젝트)을 받은 행사, 사진 권한을 받은 행사. 최신순.\naccess.operations 로 운영 버튼을, permissions 로 사진 버튼을 정한다. OPERATOR 는 sources 로 권한마다 출처(EVENT·PROJECT·BOTH)를 준다.\n",
         "operationId" : "myEvents",
         "responses" : {
           "200" : {
@@ -15814,6 +16129,392 @@
           "bearerAuth" : [ ]
         } ],
         "summary" : "프로젝트 수정",
+        "tags" : [ "프로젝트·브랜드 기본값" ]
+      }
+    },
+    "/api/auth/projects/{projectId}/members" : {
+      "get" : {
+        "description" : "공간 OWNER·ADMIN 만. 멤버마다 운영 권한(operations)과 사진 권한(permissions).",
+        "operationId" : "members_1",
+        "parameters" : [ {
+          "description" : "프로젝트 public id",
+          "in" : "path",
+          "name" : "projectId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseListProjectMember"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 프로젝트가 없거나 멤버가 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 프로젝트가 없거나 멤버가 아니다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "프로젝트 멤버 목록",
+        "tags" : [ "프로젝트·브랜드 기본값" ]
+      }
+    },
+    "/api/auth/projects/{projectId}/members/{userId}" : {
+      "delete" : {
+        "description" : "공간 OWNER·ADMIN 만. 그 프로젝트 행사의 상속 권한이 함께 사라진다(행사에서 직접 받은 권한은 남는다).",
+        "operationId" : "deleteMember",
+        "parameters" : [ {
+          "description" : "프로젝트 public id",
+          "in" : "path",
+          "name" : "projectId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "사용자 public id",
+          "in" : "path",
+          "name" : "userId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 프로젝트·멤버가 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 프로젝트·멤버가 없다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "프로젝트 멤버 빼기",
+        "tags" : [ "프로젝트·브랜드 기본값" ]
+      },
+      "put" : {
+        "description" : "공간 OWNER·ADMIN 만. 대상은 이 공간의 OPERATOR 멤버. 그 프로젝트의 모든 행사(앞으로 만들 행사 포함)에 같은 권한을 준다 —\n판정 때 행사 권한과 합친다. 권한을 통째로 바꾸고(없으면 만든다), 둘 다 비면 멤버에서 뺀다.\nMANAGE_EVENT 를 받으면 그 프로젝트 안에서 행사를 만들 수 있다.\n",
+        "operationId" : "putMember",
+        "parameters" : [ {
+          "description" : "프로젝트 public id",
+          "in" : "path",
+          "name" : "projectId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "사용자 public id",
+          "in" : "path",
+          "name" : "userId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ProjectMemberRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseProjectMember"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — 대상이 OPERATOR 멤버가 아니다",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  },
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — 대상이 OPERATOR 멤버가 아니다 _(Invalid input value.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 프로젝트·사용자가 없거나 멤버가 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 프로젝트·사용자가 없거나 멤버가 아니다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "프로젝트 멤버 권한 정하기",
         "tags" : [ "프로젝트·브랜드 기본값" ]
       }
     },
@@ -21550,7 +22251,7 @@
     },
     "/api/auth/workspaces/{workspaceId}/projects" : {
       "get" : {
-        "description" : "최신순. 보관한 것도 archived=true 로 함께 준다.",
+        "description" : "최신순. 보관한 것도 archived=true 로 함께 준다. OPERATOR 는 멤버인 프로젝트만 본다.",
         "operationId" : "list",
         "parameters" : [ {
           "description" : "공간 public id",

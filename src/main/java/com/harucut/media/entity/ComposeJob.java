@@ -195,10 +195,4 @@ public class ComposeJob extends BaseEntity {
     public boolean isDeleted() {
         return deletedAt != null;
     }
-
-    public void markDeleted(LocalDateTime now) {
-        if (deletedAt == null) {
-            this.deletedAt = now;
-        }
-    }
 }

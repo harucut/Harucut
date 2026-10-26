@@ -23,6 +23,12 @@ public record AssetResponse(
         @Schema(description = "MIME", example = "image/png")
         String contentType,
 
+        @Schema(description = """
+                S3 key. 편집기 컴포넌트의 `source`(배경은 `key`)에 이 값을 넣고 `assetId` 도 함께 보낸다 —
+                서버는 assetId 로 key 를 정하므로 둘이 같으면 그대로 통과한다.""",
+                example = "uploads/users/AbCdEf12Gh/assets/As8kLm2Pq9Xz.png")
+        String key,
+
         @Schema(description = "실제 바이트 크기 — VERIFIED 이후")
         Long size,
 
@@ -43,7 +49,7 @@ public record AssetResponse(
 ) {
     public static AssetResponse of(Asset asset, String url, Instant urlExpiresAt) {
         return new AssetResponse(asset.getPublicId(), asset.getPurpose(), asset.getStatus(),
-                asset.getContentType(), asset.getActualSize(), asset.getWidth(), asset.getHeight(),
+                asset.getContentType(), asset.getS3Key(), asset.getActualSize(), asset.getWidth(), asset.getHeight(),
                 asset.getRejectReason(), url, urlExpiresAt);
     }
 }

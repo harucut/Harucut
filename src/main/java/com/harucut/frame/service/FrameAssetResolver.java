@@ -35,6 +35,20 @@ public class FrameAssetResolver {
         return asset;
     }
 
+    /** 초안의 assetIds — 용도는 묻지 않는다(편집기 문서가 배경·스티커·글자 무엇이든 쓴다). 검증·소유만 본다 */
+    public Asset requireForDraft(String assetPublicId, Long ownerUserId) {
+        Asset asset = assetRepository.findByPublicId(assetPublicId)
+                .orElseThrow(() -> notUsable("없는 자산: " + assetPublicId));
+        if (!asset.isVerified()) {
+            throw notUsable("미검증 자산: " + assetPublicId);
+        }
+        if (!ownerUserId.equals(asset.getUploadedByUserId())
+                && !workspaceService.isMember(asset.getWorkspaceId(), ownerUserId)) {
+            throw notUsable("남의 자산: " + assetPublicId);
+        }
+        return asset;
+    }
+
     /**
      * renderedKey 를 key 문자열로 받았을 때: 그 key 가 자산이면 자산으로 받은 것과 같은 검사를 한다.
      * 자산 행이 없으면 예전 경로(FRAME_COMPONENT 업로드)라 기존 소유권 검사에 맡긴다.

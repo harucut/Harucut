@@ -4,6 +4,7 @@ import com.harucut.workspace.entity.Workspace;
 import com.harucut.workspace.service.WorkspaceService;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.draft.service.FrameDraftCleaner;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.dto.FrameCreateRequest;
 import com.harucut.frame.dto.FrameResponse;
@@ -58,6 +59,9 @@ class FrameServiceTest {
     private FrameVersionCleaner frameVersionCleaner;
 
     @Mock
+    private FrameDraftCleaner frameDraftCleaner;
+
+    @Mock
     private FrameComponentAssembler frameComponentAssembler;
 
     @Mock
@@ -73,7 +77,7 @@ class FrameServiceTest {
     @BeforeEach
     void setUp() {
         frameService = new FrameService(frameRepository, userRepository,
-                frameComponentAssembler, frameSubscriptionPolicy, workspaceService, frameVersionCleaner);
+                frameComponentAssembler, frameSubscriptionPolicy, workspaceService, frameVersionCleaner, frameDraftCleaner);
         user = User.localUser("user@harucut.com", "encoded", "하루컷");
         ReflectionTestUtils.setField(user, "id", 1L);
     }
@@ -367,6 +371,7 @@ class FrameServiceTest {
                     .containsExactly("uploads/k1.png", "uploads/bg.png", "uploads/preview.png");
             // 발행본이 프레임을 FK 로 참조한다 — 프레임보다 먼저
             then(frameVersionCleaner).should().deleteForFrames(List.of(FRAME_ID));
+            then(frameDraftCleaner).should().deleteForFrames(List.of(FRAME_ID));
             then(frameRepository).should().delete(frame);
             then(frameSubscriptionPolicy).shouldHaveNoInteractions();
         }

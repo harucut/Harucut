@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * 행사 결과 보관 종료 (ADR-0008 §7). 단계마다·행사마다 트랜잭션을 나눠, 한 행사의 실패가 다른 행사를 막지 않게 한다.
@@ -78,21 +79,36 @@ public class EventRetentionService {
     public Result run() {
         int purged = 0;
         for (Event event : eventRepository.findAllByStatusIn(EnumSet.of(EventStatus.LIVE, EventStatus.CAPTURE_CLOSED))) {
-            purged += purge(event);
+            purged += isolated("결과 정리", event, () -> purge(event), 0);
         }
         Integer inputs = transaction.execute(status -> assetRepository.deleteSettledCaptureInputs());
         int archived = 0;
         for (Event event : eventRepository.findAllByStatusIn(EnumSet.of(EventStatus.LIVE, EventStatus.CAPTURE_CLOSED))) {
-            if (archiveIfDone(event.getId())) {
+            if (isolated("보관 종료", event, () -> archiveIfDone(event.getId()), false)) {
                 archived++;
             }
         }
         int cleaned = 0;
         for (Event event : eventRepository.findAllByStatusAndArchivedAtBefore(EventStatus.ARCHIVED, now().minus(cleanupAfterArchive))) {
-            cleanupArchived(event.getId());
-            cleaned++;
+            if (isolated("부가 행 정리", event, () -> {
+                cleanupArchived(event.getId());
+                return true;
+            }, false)) {
+                cleaned++;
+            }
         }
         return new Result(purged, inputs == null ? 0 : inputs, archived, cleaned);
+    }
+
+    // 한 행사의 실패가 다른 행사를 막지 않게 — 실패는 남기고 다음 실행이 다시 본다.
+    // 보관 종료는 Event 의 @Version 낙관적 잠금이라, 같은 순간 운영자가 설정을 바꿨으면 여기서 지고 다음 실행에 다시 시도된다
+    private <T> T isolated(String step, Event event, Supplier<T> work, T fallback) {
+        try {
+            return work.get();
+        } catch (RuntimeException e) {
+            log.warn("[행사 보관] {} 실패 — 행사 {} 는 다음 실행에서 다시 본다", step, event.getPublicId(), e);
+            return fallback;
+        }
     }
 
     // 한 행사의 기한 지난 결과 — 배치 크기씩 끝까지

@@ -49,6 +49,12 @@
   어디서도 참조하지 않는 VERIFIED·REJECTED 자산과 PENDING_UPLOAD 로 남은 자산은 생성 후 `storage.asset.orphan-after`(기본 7일)
   지나면 정리 배치가 S3 객체와 행을 지운다(매일 03:00). 참조 판정은 DB 관계로만 한다.
   P1 에서 새로 생긴 자산만 대상이다 — 기존 key 문자열(assetId 없는 프레임 자산)은 지금처럼 프레임 수정·삭제 때 정리한다.
+  - **구현(2026-10-26, `AssetOrphanCleaner`)**: 참조에는 id 참조(컴포넌트 assetId·renderedAssetId, 발행본, 초안)에 더해
+    **key 문자열 참조**(프레임 배경 JSON·프리뷰·컴포넌트 source·renderedKey)도 센다 — 발행 때 편입된 예전 key 는 프레임에
+    assetId 없이 문자열로 남아 있어, 발행본이 지워진 뒤 그 자산을 지우면 프레임이 깨지기 때문이다.
+    검증된 자산은 참조 규칙이 있는 용도만 지운다(FRAME_ASSET·TEXT_RENDER, 합성에 묶이지 않은 CAPTURE_INPUT).
+    PROFILE·PAGE_THEME_ASSET 은 참조 규칙이 생길 때까지 두고, 미검증(PENDING_UPLOAD·REJECTED)은 용도와 무관하게 지운다.
+    자산 하나씩 조건부 삭제(그사이 생긴 id 참조면 건너뜀) → 커밋 후 S3 삭제. 한 번에 최대 5000건.
 
 ## 3. 프레임 저장 확장 (기존 POST/PUT `/api/auth/user/frame`)
 

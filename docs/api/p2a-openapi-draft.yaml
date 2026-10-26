@@ -1,3 +1,4 @@
+# ⚠️ 정본은 docs/api/openapi.generated.json(실제 /v3/api-docs 산출물)이다. 이 파일은 구현 전 합의 기록이며 더 고치지 않는다.
 # P2A 계약 초안 — ADR-0007. 구현 전 합의용. 응답은 공통 봉투 { code, status, message?, data? } 의 data 만 적는다.
 openapi: 3.1.0
 info:

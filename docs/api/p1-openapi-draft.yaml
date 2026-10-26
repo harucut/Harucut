@@ -1,3 +1,4 @@
+# ⚠️ 정본은 docs/api/openapi.generated.json(실제 /v3/api-docs 산출물)이다. 이 파일은 구현 전 합의 기록이며 더 고치지 않는다.
 # P1 계약 초안 — ADR-0006. 구현 전 합의용이며 실제 /v3/api-docs 와 다를 수 있다.
 # 모든 응답은 공통 봉투 { code, status, message?, data? } 에 담긴다(아래 data 스키마만 적는다).
 # 인증: 전부 회원(cookieAuth 또는 bearerAuth). TERMS-004·GEN-011/021 은 기존 규칙대로 붙는다.

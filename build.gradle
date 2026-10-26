@@ -49,6 +49,10 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'org.springframework.boot:spring-boot-starter-batch'
+    // 스키마 변경의 단일 출처. 기본은 꺼져 있다(spring.flyway.enabled) — 운영 baseline 편입 전에는
+    // ddl-auto update 가 계속 스키마를 맞춘다. docs/adr-0005-flyway-adoption.md
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'
+    runtimeOnly 'org.flywaydb:flyway-mysql'
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'   // Boot 4.1 대응 버전. 2.x는 Boot 3 전용이라 여기서는 안 뜬다
     implementation 'io.jsonwebtoken:jjwt-api:0.12.7'
     implementation platform('software.amazon.awssdk:bom:2.25.67')
@@ -74,14 +78,33 @@ dependencies {
     testCompileOnly 'org.projectlombok:lombok'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testAnnotationProcessor 'org.projectlombok:lombok'
+    // 실제 MySQL 검증(@Tag("mysql")) 전용 — 기본 test 에서는 돌지 않는다. ./gradlew mysqlTest
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:testcontainers-mysql'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
 
     // pitest 는 JUnit 4 시절에 만들어졌다. JUnit 5 테스트를 인식시키려면 이 플러그인이 필요하다.
     pitest 'org.pitest:pitest-junit5-plugin:1.2.3'
 }
 
 tasks.named('test') {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        // Docker 가 필요한 실제 MySQL 테스트는 따로 돈다 — H2 단위·슬라이스 테스트가 CI 기본이다
+        excludeTags 'mysql'
+    }
     finalizedBy jacocoTestReport
+}
+
+// 실제 MySQL(Testcontainers)에 Flyway migration 을 적용하고 Hibernate validate 로 엔티티와 대조한다.
+// H2 create-drop 으로는 MySQL 의 nullable 유니크·FK 인덱스·DDL 문법을 입증하지 못한다(R5 17절)
+tasks.register('mysqlTest', Test) {
+    description = 'Flyway migration 을 실제 MySQL 에 적용해 검증한다 (Docker 필요)'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'mysql'
+    }
 }
 
 jacoco {

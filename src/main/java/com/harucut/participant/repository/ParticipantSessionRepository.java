@@ -1,6 +1,7 @@
 package com.harucut.participant.repository;
 
 import com.harucut.participant.entity.ParticipantSession;
+import com.harucut.participant.enums.SessionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -11,6 +12,12 @@ import java.util.Optional;
 public interface ParticipantSessionRepository extends JpaRepository<ParticipantSession, Long> {
 
     Optional<ParticipantSession> findByTokenHash(String tokenHash);
+
+    // 동의 결과로 ACTIVE·RESTRICTED 를 바꾼다 — 그사이 회수(REVOKED)됐으면 0. 엔티티 저장은 동시에 커밋된 회수를 덮는다
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update ParticipantSession s set s.status = :status where s.id = :id "
+            + "and s.status <> com.harucut.participant.enums.SessionStatus.REVOKED")
+    int changeStatusUnlessRevoked(@Param("id") Long id, @Param("status") SessionStatus status);
 
     // 부스 회차를 닫으면 그 손님의 세션을 끝낸다 — 공용 기기에 다음 손님이 이전 세션으로 들어가지 않게
     @Modifying(clearAutomatically = true, flushAutomatically = true)

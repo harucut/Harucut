@@ -10,6 +10,7 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,6 +29,11 @@ public class Frame extends BaseEntity {
 
     @Column(nullable = false)
     private String title;
+
+    // 발행 번호 카운터 — 발행 때 SQL 로만 올린다(FrameRepository.bumpVersionNo). 엔티티 저장이 예전 값으로 덮지 않게 읽기 전용
+    @ColumnDefault("0")
+    @Column(name = "last_version_no", nullable = false, insertable = false, updatable = false)
+    private int lastVersionNo;
 
     @Column(nullable = false)
     private String description;

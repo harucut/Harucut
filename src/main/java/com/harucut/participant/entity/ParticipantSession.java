@@ -50,18 +50,6 @@ public class ParticipantSession extends BaseEntity {
         return status != SessionStatus.REVOKED && now.isBefore(expiresAt);
     }
 
-    public void activate() {
-        if (status != SessionStatus.REVOKED) {
-            this.status = SessionStatus.ACTIVE;
-        }
-    }
-
-    public void restrict() {
-        if (status != SessionStatus.REVOKED) {
-            this.status = SessionStatus.RESTRICTED;
-        }
-    }
-
     public void revoke() {
         this.status = SessionStatus.REVOKED;
     }

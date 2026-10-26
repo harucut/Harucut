@@ -109,7 +109,7 @@ public class EventGrantService {
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
         EventAccessPolicy.Access access = policy.requireOperation(event, actor.getId(), OperationPermission.INVITE_CUSTOMERS);
         EventGrant grant = grantOf(event, grantId);
-        requireCustomerGrant(access, grant);
+        requireCustomerGrant(access, event, grant);
         requireWithinOwn(access, permissions);
         grant.replace(permissions);
         User target = userRepository.findById(grant.getUserId()).orElseThrow();
@@ -124,7 +124,7 @@ public class EventGrantService {
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
         EventAccessPolicy.Access access = policy.requireOperation(event, actor.getId(), OperationPermission.INVITE_CUSTOMERS);
         EventGrant grant = grantOf(event, grantId);
-        requireCustomerGrant(access, grant);
+        requireCustomerGrant(access, event, grant);
         grantRepository.delete(grant);
         String target = userRepository.findById(grant.getUserId()).map(User::getPublicId).orElse(null);
         auditLogService.record(actor.getId(), event.getWorkspaceId(), event.getId(), "GRANT_REVOKED", "USER", target, null);
@@ -203,9 +203,10 @@ public class EventGrantService {
         }
     }
 
-    // OPERATOR 는 다른 운영자(운영 권한이 있는 행)의 권한을 바꾸거나 지울 수 없다
-    private static void requireCustomerGrant(EventAccessPolicy.Access access, EventGrant grant) {
-        if (!access.admin() && !grant.getOperations().isEmpty()) {
+    // OPERATOR 는 고객의 행만 바꾸거나 지운다 — 대상이 이 행사를 운영할 수 있으면(행사·프로젝트에서 받은 운영 권한, 공간 OWNER·ADMIN)
+    // 그 사람의 사진 권한 행은 OWNER·ADMIN 만 다룬다. 행의 운영 칸만 보면 프로젝트로만 운영 권한을 받은 운영자를 고객으로 착각한다
+    private void requireCustomerGrant(EventAccessPolicy.Access access, Event event, EventGrant grant) {
+        if (!access.admin() && !policy.accessOf(event, grant.getUserId()).operations().isEmpty()) {
             throw new BusinessException(GlobalErrorCode.FORBIDDEN, "운영자의 권한은 공간 OWNER·ADMIN 만 바꿀 수 있습니다.");
         }
     }

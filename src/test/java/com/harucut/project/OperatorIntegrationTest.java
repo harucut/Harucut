@@ -8,10 +8,15 @@ import com.harucut.entitlement.repository.EntitlementRepository;
 import com.harucut.event.dto.EventPatchRequest;
 import com.harucut.event.dto.EventResponse;
 import com.harucut.event.dto.EventSettings;
+import com.harucut.event.entity.EventGrant;
 import com.harucut.event.enums.OperationPermission;
 import com.harucut.event.enums.PhotoPermission;
+import com.harucut.event.repository.EventGrantRepository;
+import com.harucut.event.repository.EventRepository;
+import com.harucut.event.service.EventAccessPolicy;
 import com.harucut.event.service.EventGrantService;
 import com.harucut.event.service.EventService;
+import com.harucut.event.service.PhotoService;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.dto.FrameCreateRequest;
 import com.harucut.frame.enums.FrameType;
@@ -79,6 +84,10 @@ class OperatorIntegrationTest {
     @Autowired private FrameVersionService frameVersionService;
     @Autowired private UserRepository userRepository;
     @Autowired private ObjectMapper objectMapper;
+    @Autowired private EventRepository eventRepository;
+    @Autowired private EventGrantRepository grantRepository;
+    @Autowired private EventAccessPolicy accessPolicy;
+    @Autowired private PhotoService photoService;
 
     @MockitoBean private FileStorageService fileStorageService;
 
@@ -234,6 +243,57 @@ class OperatorIntegrationTest {
         assertThat(projectMembershipRepository.findByProjectIdAndUserId(projectId, operator.getId())).isPresent();
         membershipService.remove(owner.getPublicId(), org.workspaceId(), operator.getPublicId());
         assertThat(projectMembershipRepository.findByProjectIdAndUserId(projectId, operator.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("프로젝트로만 운영 권한을 받은 운영자의 사진 전용 행도 「운영자의 행」 — 다른 OPERATOR 가 PATCH·DELETE 하면 403")
+    void projectOnlyOperatorGrantIsProtected() {
+        ProjectDtos.Project project = projectService.create(owner.getPublicId(), org.workspaceId(), new ProjectDtos.CreateRequest("봄", null));
+        EventResponse event = ready("guard-1", project.projectId());
+        Long eventId = eventRepository.findByPublicId(event.eventId()).orElseThrow().getId();
+        // operator: 행사에서 INVITE_CUSTOMERS(+ 사진 권한)
+        eventGrantService.assignOperator(owner.getPublicId(), event.eventId(), operator.getPublicId(),
+                EnumSet.of(OperationPermission.INVITE_CUSTOMERS));
+        grantRepository.findByEventIdAndUserId(eventId, operator.getId()).orElseThrow().replace(EnumSet.of(PhotoPermission.VIEW_PHOTOS));
+        // other: 운영 권한은 프로젝트에서만, 이 행사에는 사진 전용 행(운영 칸은 비어 있다)
+        User other = userRepository.save(User.localUser("op2@harucut.com", "e", "다른 운영 담당"));
+        membershipRepository.save(WorkspaceMembership.member(workspaceId, other.getId(), WorkspaceRole.OPERATOR));
+        projectService.putMember(owner.getPublicId(), project.projectId(), other.getPublicId(),
+                new ProjectDtos.MemberRequest(EnumSet.of(OperationPermission.MANAGE_EVENT), Set.of()));
+        Long otherGrant = grantRepository.save(new EventGrant(eventId, other.getId(), EnumSet.of(PhotoPermission.VIEW_PHOTOS), owner.getId())).getId();
+        assertThat(grantRepository.findById(otherGrant).orElseThrow().getOperations()).isEmpty();
+
+        assertCode(() -> eventGrantService.update(operator.getPublicId(), event.eventId(), otherGrant, EnumSet.of(PhotoPermission.VIEW_PHOTOS)),
+                GlobalErrorCode.FORBIDDEN);
+        assertCode(() -> eventGrantService.delete(operator.getPublicId(), event.eventId(), otherGrant), GlobalErrorCode.FORBIDDEN);
+        // 공간 OWNER 의 행도 운영자의 행이다
+        Long ownerGrant = grantRepository.findByEventIdAndUserId(eventId, owner.getId()).orElseThrow().getId();
+        assertCode(() -> eventGrantService.delete(operator.getPublicId(), event.eventId(), ownerGrant), GlobalErrorCode.FORBIDDEN);
+        // OWNER 는 할 수 있다
+        eventGrantService.delete(owner.getPublicId(), event.eventId(), otherGrant);
+    }
+
+    @Test
+    @DisplayName("프로젝트 사진 권한: OPERATOR 를 ADMIN 으로 올려도 남고(PHOTO-001 아님), VIEWER·DESIGNER 로 내리면 사라진다")
+    void projectPhotosSurvivePromotion() {
+        ProjectDtos.Project project = projectService.create(owner.getPublicId(), org.workspaceId(), new ProjectDtos.CreateRequest("봄", null));
+        EventResponse event = ready("promote-1", project.projectId());
+        projectService.putMember(owner.getPublicId(), project.projectId(), operator.getPublicId(),
+                new ProjectDtos.MemberRequest(Set.of(), EnumSet.of(PhotoPermission.VIEW_PHOTOS)));
+        assertThat(photoPermissions(event)).containsExactly(PhotoPermission.VIEW_PHOTOS);
+
+        membershipService.changeRole(owner.getPublicId(), org.workspaceId(), operator.getPublicId(), WorkspaceRole.ADMIN);
+        assertThat(photoPermissions(event)).containsExactly(PhotoPermission.VIEW_PHOTOS);
+        assertThat(photoService.page(operator.getPublicId(), event.eventId(), null, null, null, null, null, null, null).items()).isEmpty();
+
+        membershipService.changeRole(owner.getPublicId(), org.workspaceId(), operator.getPublicId(), WorkspaceRole.VIEWER);
+        assertThat(photoPermissions(event)).isEmpty();
+        membershipService.changeRole(owner.getPublicId(), org.workspaceId(), operator.getPublicId(), WorkspaceRole.DESIGNER);
+        assertThat(photoPermissions(event)).isEmpty();
+    }
+
+    private Set<PhotoPermission> photoPermissions(EventResponse event) {
+        return accessPolicy.photoPermissions(eventRepository.findByPublicId(event.eventId()).orElseThrow(), operator.getId());
     }
 
     private EventResponse ready(String slug, String projectId) {

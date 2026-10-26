@@ -28,7 +28,8 @@ import java.util.Set;
  *
  * <p>운영 권한: 공간 OWNER·ADMIN 은 셋 다. OPERATOR 는 행사 권한(EventGrant.operations) ∪ 그 행사 프로젝트의 멤버 권한 —
  * 공간 역할이 OPERATOR 일 때만 효력이 있다(역할을 내리면 운영 권한도 사라진다).
- * <p>사진 권한: EventGrant ∪ 프로젝트 멤버 권한. (a) 공간 OWNER·ADMIN 도 사진은 이 둘로만 본다 — 결정이 바뀌면 여기만 고친다.
+ * <p>사진 권한: EventGrant ∪ 프로젝트 멤버 권한(공간 역할이 OWNER·ADMIN·OPERATOR 일 때 — OPERATOR 를 ADMIN 으로 올려도 남고,
+ * VIEWER·DESIGNER 로 내리거나 멤버가 아니면 프로젝트 쪽은 빠진다). (a) 공간 OWNER·ADMIN 도 사진은 이 둘로만 본다 — 결정이 바뀌면 여기만 고친다.
  */
 @Component
 @RequiredArgsConstructor
@@ -67,7 +68,8 @@ public class EventAccessPolicy {
                 : projectMembershipRepository.findByProjectIdAndUserId(event.getProjectId(), userId);
 
         Set<PhotoPermission> eventPhotos = grant.map(EventGrant::getPermissions).orElse(Set.of());
-        Set<PhotoPermission> projectPhotos = role == WorkspaceRole.OPERATOR
+        boolean managing = role == WorkspaceRole.OPERATOR || (role != null && OPERATOR_ROLES.contains(role));
+        Set<PhotoPermission> projectPhotos = managing
                 ? member.map(ProjectMembership::getPermissions).orElse(Set.of()) : Set.of();
         Set<PhotoPermission> permissions = union(PhotoPermission.class, eventPhotos, projectPhotos);
 

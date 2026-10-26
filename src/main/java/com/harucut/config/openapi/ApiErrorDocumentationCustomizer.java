@@ -3,6 +3,8 @@ package com.harucut.config.openapi;
 import com.harucut.auth.exception.AuthErrorCode;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.config.SecurityPaths;
+import com.harucut.participant.exception.ParticipantErrorCode;
+import com.harucut.result.exception.ResultErrorCode;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.media.Content;
@@ -69,8 +71,10 @@ public class ApiErrorDocumentationCustomizer implements GlobalOpenApiCustomizer 
 
         Map<String, DocumentedError> errors = new LinkedHashMap<>();
 
-        boolean secured = !SecurityPaths.isPublic(path);
-        if (secured) {
+        if (SecurityPaths.isEvent(path)) {
+            // 행사 체인: 회원 쿠키·회원 401/403 이 아니라 경로마다 다른 헤더 자격과 코드
+            eventCredential(path, operation, errors);
+        } else if (!SecurityPaths.isPublic(path)) {
             requireAuthentication(operation);
             UNAUTHORIZED.forEach(error -> errors.put(error.code(), error));
 
@@ -87,6 +91,27 @@ public class ApiErrorDocumentationCustomizer implements GlobalOpenApiCustomizer 
         fillRemainingErrorSchemas(operation);
 
         discardCollectorExtension(operation);
+    }
+
+    private void eventCredential(String path, Operation operation, Map<String, DocumentedError> errors) {
+        if (SecurityPaths.isEventOpen(path)) {
+            return;
+        }
+        if (path.startsWith("/api/participant/")) {
+            requireScheme(operation, OpenApiConfig.PARTICIPANT_SCHEME);
+            errors.put(ParticipantErrorCode.SESSION_INVALID.getCode(),
+                    DocumentedError.of(ParticipantErrorCode.SESSION_INVALID, "참가자 토큰이 없거나 만료·회수"));
+        } else if (path.startsWith("/api/public/results")) {
+            requireScheme(operation, OpenApiConfig.RESULT_SCHEME);
+            errors.put(ResultErrorCode.TOKEN_INVALID.getCode(),
+                    DocumentedError.of(ResultErrorCode.TOKEN_INVALID, "결과 토큰이 없거나 틀림"));
+        } else if (path.startsWith("/api/booth/")) {
+            requireScheme(operation, OpenApiConfig.BOOTH_SCHEME);
+        }
+    }
+
+    private void requireScheme(Operation operation, String scheme) {
+        operation.setSecurity(new ArrayList<>(List.of(new SecurityRequirement().addList(scheme))));
     }
 
     /** {@link ApiErrorCollector} 가 넘긴 임시 확장 필드는 문서에 남기지 않는다. */

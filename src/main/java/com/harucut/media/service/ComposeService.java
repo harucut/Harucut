@@ -78,19 +78,27 @@ public class ComposeService {
 
         Frame frame = frameService.getComposableFrame(user, request.frameId());
         ComposeSpec spec = composeSpecAssembler.assemble(frame, request.backgroundColor());
-        assertSpecFits(spec);
 
-        ComposeJob job = composeJobRepository.save(ComposeJob.create(
-                user, frame.getId(), request.idempotencyKey(), sourceKeys, spec));
+        ComposeJob job = accept(ComposeJob.create(user, frame.getId(), request.idempotencyKey(), sourceKeys, spec));
+        return ComposeJobResponse.from(job);
+    }
+
+    /**
+     * 준비된 작업을 접수한다 — 저장하고, 커밋 후 실행할 이벤트를 발행한다. 개인 합성과 행사 참가자 합성이 같은 입구를 쓴다.
+     * spec_json 상한(8000자)도 여기서 본다.
+     */
+    public ComposeJob accept(ComposeJob prepared) {
+        assertSpecFits(prepared.getSpec());
+        ComposeJob job = composeJobRepository.save(prepared);
 
         // 실행은 커밋 후에 시작된다(AFTER_COMMIT 리스너) — 커밋 전에 실행 스레드가 뜨면
         // 아직 안 보이는 Job을 상대로 결과를 기록하려다 실패한다
         eventPublisher.publishEvent(new ComposeRequestedEvent(
-                job.getId(), spec, job.sourceKeys(),
+                job.getId(), job.getSpec(), job.sourceKeys(),
                 resultKeyFor(job), thumbnailKeyFor(job),
                 RESULT_FORMAT));
         composeMetrics.requestAccepted();
-        return ComposeJobResponse.from(job);
+        return job;
     }
 
     // 정확히 동시에 온 중복 요청의 패자가 여기로 온다. requestCompose 의 INSERT 가
@@ -237,12 +245,12 @@ public class ComposeService {
 
     // Job당 결정적 결과 key — 재실행이 겹쳐도 같은 객체를 덮어쓰므로 고아 파일이 안 생기고,
     // UserMedia의 s3Key unique가 중복 행의 최종 방어선이 된다
-    static String resultKeyFor(ComposeJob job) {
+    public static String resultKeyFor(ComposeJob job) {
         return job.getStorageRoot() + "fourcuts/job-" + job.getId() + "." + RESULT_FORMAT.extension();
     }
 
     // 썸네일도 같은 원칙의 결정적 key — 원본 옆에서 함께 살고 함께 지워진다
-    static String thumbnailKeyFor(ComposeJob job) {
+    public static String thumbnailKeyFor(ComposeJob job) {
         return job.getStorageRoot() + "fourcuts/job-" + job.getId() + "-thumb.jpg";
     }
 

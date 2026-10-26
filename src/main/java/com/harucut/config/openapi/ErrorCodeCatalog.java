@@ -10,7 +10,9 @@ import com.harucut.event.exception.EventErrorCode;
 import com.harucut.frame.exception.FrameErrorCode;
 import com.harucut.media.exception.MediaErrorCode;
 import com.harucut.notice.exception.NoticeErrorCode;
+import com.harucut.participant.exception.ParticipantErrorCode;
 import com.harucut.payment.exception.PaymentErrorCode;
+import com.harucut.result.exception.ResultErrorCode;
 import com.harucut.subscription.exception.SubscriptionErrorCode;
 import com.harucut.terms.exception.TermsErrorCode;
 
@@ -47,7 +49,9 @@ public final class ErrorCodeCatalog {
                     MediaErrorCode.values(),
                     AssetErrorCode.values(),
                     DraftErrorCode.values(),
-                    EventErrorCode.values())
+                    EventErrorCode.values(),
+                    ParticipantErrorCode.values(),
+                    ResultErrorCode.values())
             .flatMap(Arrays::stream)
             .collect(Collectors.toMap(
                     ErrorCode::getCode,

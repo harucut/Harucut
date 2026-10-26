@@ -73,6 +73,23 @@ public class Asset extends BaseEntity {
     @Column(name = "verified_at")
     private LocalDateTime verifiedAt;
 
+    // ── CAPTURE_INPUT(행사 촬영 입력) 전용 — 어느 회차의 몇 번째 칸인지, 어느 합성 작업에 묶였는지 ──
+    @Column(name = "event_id")
+    private Long eventId;
+
+    @Column(name = "participant_id")
+    private Long participantId;
+
+    @Column(name = "capture_run_id")
+    private Long captureRunId;
+
+    @Column(name = "slot_index")
+    private Integer slotIndex;
+
+    // 한 입력은 한 job 에만 귀속된다 — 다른 job 의 성공 정리가 이 입력을 지워 깨뜨리지 않게(R5 14절)
+    @Column(name = "bound_compose_job_id")
+    private Long boundComposeJobId;
+
     private Asset(String publicId, Long workspaceId, AssetPurpose purpose, AssetOrigin origin, String s3Key,
                   String contentType, long declaredSize, Long uploadedByUserId) {
         this.publicId = publicId;
@@ -94,6 +111,18 @@ public class Asset extends BaseEntity {
                                       String contentType, long declaredSize, Long uploadedByUserId) {
         return new Asset(publicId, workspaceId, purpose, AssetOrigin.CREATOR_BROWSER, s3Key,
                 contentType, declaredSize, uploadedByUserId);
+    }
+
+    /** 행사 참가자의 촬영 입력. 공간 범위가 아니라 행사·참가자·회차 범위다 */
+    public static Asset captureInput(String publicId, Long eventId, Long participantId, Long captureRunId,
+                                     int slotIndex, String s3Key, String contentType, long declaredSize) {
+        Asset asset = new Asset(publicId, null, AssetPurpose.CAPTURE_INPUT, AssetOrigin.CREATOR_BROWSER, s3Key,
+                contentType, declaredSize, null);
+        asset.eventId = eventId;
+        asset.participantId = participantId;
+        asset.captureRunId = captureRunId;
+        asset.slotIndex = slotIndex;
+        return asset;
     }
 
     public static String newPublicId() {

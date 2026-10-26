@@ -5,6 +5,7 @@ import com.harucut.auth.jwt.JwtProperties;
 import com.harucut.auth.oauth2.unlink.KakaoAuthProperties;
 import com.harucut.draft.config.FrameDraftProperties;
 import com.harucut.frame.config.FrameLimitsProperties;
+import com.harucut.participant.config.ParticipationProperties;
 import com.harucut.payment.config.PaymentProperties;
 import com.harucut.storage.config.AwsProperties;
 import com.harucut.storage.config.StorageProperties;
@@ -20,6 +21,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
         StorageProperties.class,
         FrameLimitsProperties.class,
         FrameDraftProperties.class,
+        ParticipationProperties.class,
         PlanPricingProperties.class,
         PaymentProperties.class,
         KakaoAuthProperties.class

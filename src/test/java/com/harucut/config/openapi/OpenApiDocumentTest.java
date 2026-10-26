@@ -152,7 +152,8 @@ class OpenApiDocumentTest {
 
             forEachOperation(group, (path, method, operation) -> {
                 boolean locked = operation.has("security");
-                if (locked == SecurityPaths.isPublic(path)) {
+                boolean open = SecurityPaths.isPublic(path) || SecurityPaths.isEventOpen(path);
+                if (locked == open) {
                     mismatched.add(method + " " + path + (locked ? " (공개인데 잠김)" : " (비공개인데 열림)"));
                 }
             });
@@ -188,7 +189,8 @@ class OpenApiDocumentTest {
             List<String> missing = new ArrayList<>();
 
             forEachOperation("1-user", (path, method, operation) -> {
-                if (!operation.has("security") || SecurityPaths.isAuthenticatedOnly(path)) {
+                // 행사 체인은 회원 역할을 보지 않는다 — 403 은 각 API 가 선언한 도메인 코드뿐
+                if (!operation.has("security") || SecurityPaths.isAuthenticatedOnly(path) || SecurityPaths.isEvent(path)) {
                     return;
                 }
                 if (!operation.get("responses").has("403")) {
@@ -197,6 +199,29 @@ class OpenApiDocumentTest {
             });
 
             assertThat(missing).isEmpty();
+        }
+
+        @Test
+        @DisplayName("행사 경로는 회원 쿠키가 아니라 자기 헤더 자격 하나만 건다")
+        void eventPathsUseTheirOwnCredential() {
+            List<String> wrong = new ArrayList<>();
+
+            forEachOperation("1-user", (path, method, operation) -> {
+                if (!SecurityPaths.isEvent(path) || !operation.has("security")) {
+                    return;
+                }
+                String schemes = operation.get("security").toString();
+                String expected = path.startsWith("/api/participant/") ? "participantToken"
+                        : path.startsWith("/api/public/results") ? "resultAccess" : "boothToken";
+                if (!schemes.contains(expected) || schemes.contains("cookieAuth") || schemes.contains("bearerAuth")) {
+                    wrong.add(method + " " + path + " " + schemes);
+                }
+                if (operation.get("responses").path("401").path("content").toString().contains("AUTH-")) {
+                    wrong.add(method + " " + path + " (회원 401 코드)");
+                }
+            });
+
+            assertThat(wrong).isEmpty();
         }
 
         @Test

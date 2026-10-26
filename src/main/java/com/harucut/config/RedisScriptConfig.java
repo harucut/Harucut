@@ -23,4 +23,14 @@ public class RedisScriptConfig {
 
         return script;
     }
+
+    // 고정 창 빈도 제한(RateLimiter) — INCR 와 만료를 원자적으로
+    @Bean
+    public RedisScript<Long> rateLimitScript() {
+        DefaultRedisScript<Long> script = new DefaultRedisScript<>();
+        script.setScriptSource(new ResourceScriptSource(new ClassPathResource("scripts/rate-limit.lua")));
+        script.setResultType(Long.class);
+        script.getSha1();
+        return script;
+    }
 }

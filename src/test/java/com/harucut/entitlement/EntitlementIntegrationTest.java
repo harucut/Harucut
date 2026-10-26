@@ -306,6 +306,55 @@ class EntitlementIntegrationTest {
                 Set.of(ParticipantChannel.BYOD), null, null, "x"), "1.2.3.4"), GlobalErrorCode.TOO_MANY_REQUESTS);
     }
 
+    @Test
+    @DisplayName("계약이 끝나면(validTo 단축, status 는 ACTIVE) 예약 UPDATE 가 0행 — 이미 잡힌 예약의 확정은 그대로")
+    void reserveChecksValidity() {
+        EntitlementDtos.Contract contract = contractService.create(admin.getPublicId(), new EntitlementDtos.ContractRequest(
+                org.workspaceId(), "웨딩홀", EntitlementScope.WORKSPACE, null, 1000L, "KRW",
+                OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusMonths(1), null,
+                new EntitlementDtos.Terms(10, null, null, null, Set.of())));
+        contractService.changeStatus(admin.getPublicId(), contract.contractId(), ContractStatus.ACTIVE);
+        Event event = published("validity");
+        Long entitlementId = entitlementService.applicable(event).orElseThrow().getId();
+        Participant participant = participantRepository.save(Participant.byod(event.getId()));
+        ComposeJob reserved = job(event, participant, "before-end");
+        entitlementService.reserve(reserved.getId(), event);
+
+        contractService.changeStatus(admin.getPublicId(), contract.contractId(), ContractStatus.ENDED);
+        entityManager.flush();
+        entityManager.clear();
+        // 종료 전에 읽은 후보로 예약을 시도해도(스냅샷·경합) 원자적 UPDATE 가 유효기간에서 막는다
+        assertThat(entitlementRepository.reserve(entitlementId, LocalDateTime.now())).isZero();
+
+        assertThat(composeService.completeJob(reserved.getId(), "uploads/r/1.jpg", "uploads/r/1_thumb.jpg")).isTrue();
+        entityManager.flush();
+        entityManager.clear();
+        Entitlement ended = entitlementRepository.findById(entitlementId).orElseThrow();
+        assertThat(ended.getUsed()).isEqualTo(1);
+        assertThat(ended.getReserved()).isZero();
+    }
+
+    @Test
+    @DisplayName("회수 영향: 행사 범위 이용권에 덮인 행사·이미 회수된 이용권은 운영 중 행사로 세지 않는다")
+    void impactCountsOnlyEventsUsingThisEntitlement() {
+        EntitlementDtos.Entitlement workspaceGrant = contractService.grantManually(admin.getPublicId(), new EntitlementDtos.ManualGrantRequest(
+                org.workspaceId(), null, OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(10),
+                new EntitlementDtos.Terms(10, null, null, null, Set.of()), "공간"));
+        Event covered = published("covered");
+        Event plain = published("plain");
+        EntitlementDtos.Entitlement eventGrant = contractService.grantManually(admin.getPublicId(), new EntitlementDtos.ManualGrantRequest(
+                org.workspaceId(), covered.getPublicId(), OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(10),
+                new EntitlementDtos.Terms(5, null, null, null, Set.of()), "행사"));
+
+        assertThat(contractService.impact(workspaceGrant.entitlementId()).liveEvents()).containsExactly(plain.getPublicId());
+        assertThat(contractService.impact(eventGrant.entitlementId()).liveEvents()).containsExactly(covered.getPublicId());
+
+        contractService.revoke(admin.getPublicId(), eventGrant.entitlementId(), "끝");
+        assertThat(contractService.impact(eventGrant.entitlementId()).liveEvents()).isEmpty();
+        assertThat(contractService.impact(workspaceGrant.entitlementId()).liveEvents())
+                .containsExactlyInAnyOrder(plain.getPublicId(), covered.getPublicId());
+    }
+
     // ── helpers ──────────────────────────────
 
     private void grant(int quota, Set<Feature> features) {

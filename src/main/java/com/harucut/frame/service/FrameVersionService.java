@@ -205,7 +205,7 @@ public class FrameVersionService {
                 layers,
                 FrameSpecV2.EditPolicy.FIXED);
 
-        int versionNo = frameVersionRepository.findMaxVersionNo(frame.getId()) + 1;
+        int versionNo = frameVersionRepository.lockLatestVersionNo(frame.getId()).stream().findFirst().orElse(0) + 1;
         FrameVersion version = frameVersionRepository.save(FrameVersion.publish(
                 frame.getId(), versionNo, frame.getFrameType(), objectMapper.writeValueAsString(spec), publisher.userId()));
         referenced.keySet().forEach(assetId ->

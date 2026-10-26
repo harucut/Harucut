@@ -200,16 +200,4 @@ public class ComposeJob extends BaseEntity {
     public boolean isDeleted() {
         return deletedAt != null || purgedAt != null;
     }
-
-    public void markPurged(LocalDateTime now) {
-        if (purgedAt == null) {
-            this.purgedAt = now;
-        }
-    }
-
-    public void markDeleted(LocalDateTime now) {
-        if (deletedAt == null) {
-            this.deletedAt = now;
-        }
-    }
 }

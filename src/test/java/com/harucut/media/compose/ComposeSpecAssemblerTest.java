@@ -7,6 +7,8 @@ import com.harucut.frame.entity.Frame;
 import com.harucut.frame.entity.FrameComponent;
 import com.harucut.frame.enums.ComponentType;
 import com.harucut.frame.enums.FrameType;
+import com.harucut.storage.util.S3Keys;
+import com.harucut.user.entity.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -169,6 +171,73 @@ class ComposeSpecAssemblerTest {
                     .isInstanceOf(BusinessException.class)
                     .extracting("errorCode")
                     .isEqualTo(GlobalErrorCode.INVALID_INPUT_VALUE);
+        }
+    }
+
+    /*
+     * 저장 시점 소유권 검사가 생기기 전에 저장된 프레임이 있을 수 있다 — 합성이 마지막 관문이다.
+     */
+    @Nested
+    @DisplayName("사용자 프레임의 자산 소유권")
+    class Ownership {
+
+        private final User owner = User.localUser("owner@harucut.com", "encoded", "하루컷");
+        private final String mine = S3Keys.userRoot(owner.getPublicId()) + "components/";
+        private final String foreign = "uploads/users/ZzZzZzZzZz99/components/";
+
+        @Test
+        @DisplayName("남의 STICKER key 가 들어 있으면 403 이다")
+        void foreignStickerForbidden() {
+            Frame frame = ownedColorFrame();
+            frame.addComponent(component(ComponentType.STICKER, foreign + "s.png", null));
+
+            assertThatThrownBy(() -> assembler.assemble(frame, null))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(GlobalErrorCode.FORBIDDEN);
+        }
+
+        @Test
+        @DisplayName("남의 PHOTO·TEXT 자산도 403 이다")
+        void foreignPhotoAndTextForbidden() {
+            Frame photoFrame = ownedColorFrame();
+            photoFrame.addComponent(component(ComponentType.PHOTO, foreign + "p.png", null));
+            Frame textFrame = ownedColorFrame();
+            textFrame.addComponent(component(ComponentType.TEXT, "봄", foreign + "t.png"));
+
+            assertThatThrownBy(() -> assembler.assemble(photoFrame, null))
+                    .isInstanceOf(BusinessException.class);
+            assertThatThrownBy(() -> assembler.assemble(textFrame, null))
+                    .isInstanceOf(BusinessException.class);
+        }
+
+        @Test
+        @DisplayName("남의 배경 이미지도 403 이다")
+        void foreignBackgroundForbidden() {
+            Frame frame = Frame.owned(owner, "내 프레임", "", mine + "p.png", FrameType.CLASSIC,
+                    new BackgroundAttributes.Image(foreign + "bg.png", 0.8, null));
+
+            assertThatThrownBy(() -> assembler.assemble(frame, null))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(GlobalErrorCode.FORBIDDEN);
+        }
+
+        @Test
+        @DisplayName("내 자산만 쓰면 통과한다")
+        void ownAssetsPass() {
+            Frame frame = Frame.owned(owner, "내 프레임", "", mine + "p.png", FrameType.CLASSIC,
+                    new BackgroundAttributes.Image(mine + "bg.png", 0.8, null));
+            frame.addComponent(component(ComponentType.PHOTO, mine + "p.png", null));
+            frame.addComponent(component(ComponentType.STICKER, mine + "s.png", null));
+            frame.addComponent(component(ComponentType.TEXT, "봄", mine + "t.png"));
+
+            assertThat(assembler.assemble(frame, null).layers()).hasSize(3);
+        }
+
+        private Frame ownedColorFrame() {
+            return Frame.owned(owner, "내 프레임", "", mine + "p.png", FrameType.CLASSIC,
+                    new BackgroundAttributes.Color("#FFE4E1"));
         }
     }
 

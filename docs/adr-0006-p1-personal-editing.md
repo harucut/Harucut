@@ -29,7 +29,8 @@
 - 테이블 `asset`: public_id, workspace_id(NULL=SYSTEM), purpose, origin, s3_key(unique), content_type,
   declared_size, actual_size, width, height, status, uploaded_by_user_id, verified_at.
 - purpose: `FRAME_ASSET`(배경·PHOTO·STICKER·로고), `TEXT_RENDER`(제작자 브라우저가 구운 글자 PNG), `PAGE_THEME_ASSET`(P2B),
-  `PROFILE`. `CAPTURE_INPUT` 은 P2A 참가자 경로 전용이라 여기서 받지 않는다(개인 합성 원본은 기존 FOURCUT_SOURCE presign 유지).
+  `PROFILE`. 형식: FRAME_ASSET PNG·JPEG, TEXT_RENDER PNG, PROFILE PNG·JPEG·GIF. **WEBP 는 받지 않는다**(합성기 ImageIO 가 못 읽고,
+  헤더만으로 검증 완료라 표시하지 않는다는 원칙 때문). 맞지 않으면 415 `GEN-051`. `CAPTURE_INPUT` 은 P2A 참가자 경로 전용이라 여기서 받지 않는다(개인 합성 원본은 기존 FOURCUT_SOURCE presign 유지).
 - origin: `CREATOR_BROWSER` | `SERVER`. P1 업로드는 전부 CREATOR_BROWSER.
 - status: `PENDING_UPLOAD` → (`complete`) → `VERIFIED` | `REJECTED`. **VERIFIED 가 아닌 자산은 프레임·합성에 쓸 수 없다.**
 - 흐름:
@@ -122,6 +123,7 @@
 | ASSET-003 | 422 | 실제 형식이 선언과 다르거나 지원하지 않는 형식·디코드 실패 |
 | ASSET-004 | 422 | 픽셀 수 상한 초과(`storage.asset.max-pixels`, 기본 40,000,000) |
 | ASSET-005 | 400 | 이 경로에서 받지 않는 purpose(CAPTURE_INPUT 등) |
+| ASSET-006 | 503 | 디코드 검증이 밀려 있다 — 잠시 뒤 같은 complete 를 다시 부른다(동시 검증 기본 2개, 대기 20초) |
 | FRAME-002 | 409 | 프레임 version 불일치(다른 기기에서 먼저 저장) |
 | FRAME-003 | 400 | 레이어 수 상한 초과 |
 | FRAME-004 | 400 | 합성 spec 크기 상한 초과 |

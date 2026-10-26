@@ -35,6 +35,7 @@ paths:
         '404': { description: GEN-031 }
         '409': { description: 'ASSET-001 S3 에 객체가 없다' }
         '422': { description: 'ASSET-002 크기 · ASSET-003 형식/디코드 · ASSET-004 픽셀 상한 (REJECTED 로 기록되고 같은 본문의 data 에 Asset 이 실린다)' }
+        '503': { description: 'ASSET-006 검증이 밀려 있다 — 잠시 뒤 재시도' }
 
   /api/auth/assets/{assetId}:
     get:
@@ -147,7 +148,7 @@ components:
       required: [purpose, contentType, fileSize, filename]
       properties:
         purpose: { type: string, enum: [FRAME_ASSET, TEXT_RENDER, PROFILE], description: 'CAPTURE_INPUT·PAGE_THEME_ASSET 은 이 경로에서 400 ASSET-005' }
-        contentType: { type: string, enum: [PNG, JPEG, WEBP, GIF], description: 'FRAME_ASSET·TEXT_RENDER 는 합성기가 읽는 PNG·JPEG 만. WEBP·GIF 는 PROFILE 만' }
+        contentType: { type: string, enum: [PNG, JPEG, GIF], description: 'FRAME_ASSET PNG·JPEG, TEXT_RENDER PNG, PROFILE PNG·JPEG·GIF. 그 밖은 415 GEN-051' }
         fileSize: { type: integer, minimum: 1, maximum: 10485760 }
         filename: { type: string, description: '확장자 검사용. 저장 key 에는 쓰지 않는다' }
         workspaceId: { type: string, description: '생략하면 개인 공간' }

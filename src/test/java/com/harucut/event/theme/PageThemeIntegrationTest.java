@@ -168,7 +168,9 @@ class PageThemeIntegrationTest {
                     assertThat(violations).extracting(v -> v.get("field")).containsExactly("theme");
                 });
 
-        EventResponse copyOnly = publishable(plain, plainOrg, plainFrame, "plain-copy", Map.of("copy", Map.of("welcome", "어서 오세요")));
+        // 빈 colors 와 SYSTEM(바꾸지 않음) 글꼴은 디자인이 아니다 — 문구와 함께 게시된다
+        EventResponse copyOnly = publishable(plain, plainOrg, plainFrame, "plain-copy", Map.of("copy", Map.of("welcome", "어서 오세요"),
+                "colors", Map.of(), "font", "SYSTEM"));
         eventService.publish(plain.getPublicId(), copyOnly.eventId());
         assertThat(publicEventService.getBySlug("plain-copy").theme().copy().welcome()).isEqualTo("어서 오세요");
     }

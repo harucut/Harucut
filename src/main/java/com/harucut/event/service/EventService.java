@@ -26,6 +26,7 @@ import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.entity.Workspace;
 import com.harucut.workspace.enums.WorkspaceRole;
+import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.workspace.service.WorkspaceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -65,6 +66,7 @@ public class EventService {
     private final FrameVersionRepository frameVersionRepository;
     private final FrameRepository frameRepository;
     private final WorkspaceService workspaceService;
+    private final WorkspaceRepository workspaceRepository;
     private final EventGrantService eventGrantService;
     private final ThemeResolver themeResolver;
     private final EventFeatures eventFeatures;
@@ -222,6 +224,15 @@ public class EventService {
         boolean booth = settings.has("boothEnabled") ? Boolean.TRUE.equals(typed.boothEnabled()) : event.isBoothEnabled();
         int retention = settings.has("resultRetentionDays") ? requireRetention(typed.resultRetentionDays())
                 : event.getResultRetentionDays();
+        if (settings.has("resultRetentionDays")) {
+            // 이용권의 보관 일수 상한 — 게시 뒤 PATCH 로도 넘지 못하게(보관·정리는 이 값을 바로 읽는다)
+            entitlementService.applicable(event).map(e -> e.getRetentionDays()).filter(Objects::nonNull)
+                    .filter(cap -> retention > cap)
+                    .ifPresent(cap -> {
+                        throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE,
+                                "이용권의 보관 일수 상한(" + cap + "일)을 넘습니다.");
+                    });
+        }
         event.configure(timezone, byod, booth, retention);
 
         EventExperienceDocument draft = read(event.getSettingsDraft());
@@ -326,7 +337,10 @@ public class EventService {
     private List<Map<String, String>> entitlementViolations(Event event) {
         List<Map<String, String>> violations = new ArrayList<>();
         entitlementService.applicable(event).ifPresent(entitlement -> {
-            if (entitlement.getMaxLiveEvents() != null && event.getStatus() != EventStatus.LIVE
+            // 처음 게시(DRAFT → LIVE)만 운영 중 행사 수를 늘린다(촬영 종료 뒤 재게시는 LIVE 로 돌아가지 않는다).
+            // 같은 공간에서 동시에 게시하면 둘 다 0 을 읽을 수 있어, 공간 행을 잠근 뒤 센다
+            if (entitlement.getMaxLiveEvents() != null && event.getStatus() == EventStatus.DRAFT
+                    && workspaceRepository.lockById(event.getWorkspaceId()).isPresent()
                     && eventRepository.countByWorkspaceIdAndStatus(event.getWorkspaceId(), EventStatus.LIVE)
                     >= entitlement.getMaxLiveEvents()) {
                 violations.add(violation("status", "이용권의 동시 운영 행사 수(" + entitlement.getMaxLiveEvents() + ")를 넘는다"));

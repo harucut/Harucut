@@ -7207,6 +7207,136 @@
         "tags" : [ "계약·이용권 관리" ]
       }
     },
+    "/api/admin/contracts/{contractId}/payment-verification" : {
+      "post" : {
+        "description" : "PORTONE 증빙을 PortOne API 로 다시 조회해 대조한다. 웹훅이 증빙 등록보다 먼저 와서 확인되지 않은 계약에 쓴다. 맞으면 paymentVerifiedAt 이 채워진 계약을 돌려준다(이미 확인된 계약도 그대로 200). 실연동 미확인.",
+        "operationId" : "verifyPayment",
+        "parameters" : [ {
+          "description" : "계약 public id",
+          "in" : "path",
+          "name" : "contractId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseContract"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-002" : {
+                    "summary" : "GEN-002 — PORTONE 증빙이 없음·PortOne 연동 꺼짐·결제가 계약과 맞지 않음",
+                    "value" : {
+                      "code" : "GEN-002",
+                      "message" : "Invalid input value.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-002` — PORTONE 증빙이 없음·PortOne 연동 꺼짐·결제가 계약과 맞지 않음 _(Invalid input value.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 계약",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 계약 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "계약 결제 다시 확인",
+        "tags" : [ "계약·이용권 관리" ]
+      }
+    },
     "/api/admin/coupons" : {
       "get" : {
         "description" : "비활성 쿠폰까지 전량, 최근 발행순이다.\n\n`redeemedCount` 에는 **아직 시작 안 한 예약분도 포함된다** —\n\"실제로 혜택이 나간 수\"보다 크거나 같다.\n`maxRedemptions`·`validUntil` 은 무제한·무기한이면 **키 자체가 없다.**\n",

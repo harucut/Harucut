@@ -5,6 +5,7 @@ import com.harucut.auth.jwt.JwtProperties;
 import com.harucut.auth.oauth2.unlink.KakaoAuthProperties;
 import com.harucut.payment.config.PaymentProperties;
 import com.harucut.storage.config.AwsProperties;
+import com.harucut.storage.config.StorageProperties;
 import com.harucut.subscription.config.PlanPricingProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -14,6 +15,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
         JwtProperties.class,
         CookieProperties.class,
         AwsProperties.class,
+        StorageProperties.class,
         PlanPricingProperties.class,
         PaymentProperties.class,
         KakaoAuthProperties.class

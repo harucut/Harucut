@@ -80,6 +80,14 @@ public class WorkspaceService {
         return workspace;
     }
 
+    /** 이 공간의 활성 멤버인가. 자산·초안처럼 공간 id 를 이미 가진 행의 접근 판정에 쓴다 */
+    @Transactional(readOnly = true)
+    public boolean isMember(Long workspaceId, Long userId) {
+        return workspaceId != null && membershipRepository
+                .findByWorkspaceIdAndUserIdAndStatus(workspaceId, userId, MembershipStatus.ACTIVE)
+                .isPresent();
+    }
+
     /**
      * 회원 탈퇴 마지막 단계(UserExitService). 다른 탈퇴 핸들러가 이 공간을 참조하는 데이터(프레임 등)를
      * 먼저 지운 뒤에 불려야 한다 — FK 때문에 순서가 의미를 가진다.

@@ -1,5 +1,6 @@
 package com.harucut.config.openapi;
 
+import com.harucut.asset.exception.AssetErrorCode;
 import com.harucut.auth.exception.AuthErrorCode;
 import com.harucut.common.exception.ErrorCode;
 import com.harucut.common.exception.GlobalErrorCode;
@@ -41,7 +42,8 @@ public final class ErrorCodeCatalog {
                     FrameErrorCode.values(),
                     PaymentErrorCode.values(),
                     CouponErrorCode.values(),
-                    MediaErrorCode.values())
+                    MediaErrorCode.values(),
+                    AssetErrorCode.values())
             .flatMap(Arrays::stream)
             .collect(Collectors.toMap(
                     ErrorCode::getCode,

@@ -123,6 +123,10 @@ public class ComposeJob extends BaseEntity {
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
+    // 보관 기한이 지나 결과 객체를 지운 시각(ADR-0008 §7)
+    @Column(name = "purged_at")
+    private LocalDateTime purgedAt;
+
     private ComposeJob(User user, String idempotencyScope, String storageRoot, Long frameId,
                        String idempotencyKey, List<String> sourceKeys, ComposeSpec spec) {
         this.user = user;
@@ -192,8 +196,15 @@ public class ComposeJob extends BaseEntity {
         return List.of(sourceKey1, sourceKey2, sourceKey3, sourceKey4);
     }
 
+    // 사진함·묶음·결과 링크에서 더는 보이지 않는가 — 삭제 요청이나 보관 종료
     public boolean isDeleted() {
-        return deletedAt != null;
+        return deletedAt != null || purgedAt != null;
+    }
+
+    public void markPurged(LocalDateTime now) {
+        if (purgedAt == null) {
+            this.purgedAt = now;
+        }
     }
 
     public void markDeleted(LocalDateTime now) {

@@ -39,6 +39,13 @@ public interface AssetRepository extends JpaRepository<Asset, Long> {
     @Query("delete from Asset a where a.workspaceId = :workspaceId")
     void deleteByWorkspaceId(Long workspaceId);
 
+    // 결과가 확정된(DONE·FAILED) 작업에 묶였던 촬영 입력 행 — S3 객체는 확정 때 이미 지웠다(ADR-0008 §7)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("delete from Asset a where a.purpose = com.harucut.asset.enums.AssetPurpose.CAPTURE_INPUT "
+            + "and a.boundComposeJobId in (select j.id from ComposeJob j where j.status in "
+            + "(com.harucut.media.enums.ComposeStatus.DONE, com.harucut.media.enums.ComposeStatus.FAILED))")
+    int deleteSettledCaptureInputs();
+
     // ── 미참조 자산 정리(ADR-0006 §2) — 참조 판정은 이 저장소 한 곳에 모은다 ──
 
     /**

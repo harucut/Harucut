@@ -4,6 +4,8 @@ import com.harucut.event.entity.Event;
 import com.harucut.event.enums.EventStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,4 +20,8 @@ public interface EventRepository extends JpaRepository<Event, Long> {
     List<Event> findAllByWorkspaceIdOrderByCreatedAtDesc(Long workspaceId);
 
     long countByWorkspaceIdAndStatus(Long workspaceId, EventStatus status);
+
+    List<Event> findAllByStatusIn(Collection<EventStatus> statuses);
+
+    List<Event> findAllByStatusAndArchivedAtBefore(EventStatus status, LocalDateTime before);
 }

@@ -30,7 +30,7 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
      */
     @Query("""
             select j, p.channel from ComposeJob j, Participant p
-            where p.id = j.participantId and j.eventId = :eventId and j.deletedAt is null
+            where p.id = j.participantId and j.eventId = :eventId and j.deletedAt is null and j.purgedAt is null
               and (:status is null or j.status = :status)
               and (:channel is null or p.channel = :channel)
               and (:frameVersionId is null or j.frameVersionId = :frameVersionId)
@@ -48,6 +48,16 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
                                    @Param("cursorAt") LocalDateTime cursorAt,
                                    @Param("cursorId") Long cursorId,
                                    Pageable pageable);
+
+    // 보관 종료 대상 — 그 행사에서 기한(cutoff) 전에 만든, 아직 보이는 결과
+    @Query("select j from ComposeJob j where j.eventId = :eventId and j.createdAt < :cutoff "
+            + "and j.purgedAt is null and j.deletedAt is null and j.resultKey is not null")
+    List<ComposeJob> findPurgeable(@Param("eventId") Long eventId, @Param("cutoff") LocalDateTime cutoff, Pageable pageable);
+
+    // 행사에 아직 보일 결과·진행 중 작업이 남았는가 — 없으면 보관 종료할 수 있다
+    @Query("select count(j) > 0 from ComposeJob j where j.eventId = :eventId and j.purgedAt is null and j.deletedAt is null "
+            + "and j.status in (com.harucut.media.enums.ComposeStatus.PENDING, com.harucut.media.enums.ComposeStatus.DONE)")
+    boolean hasVisibleResults(@Param("eventId") Long eventId);
 
     // 부스 화면이 지금 회차의 합성 상태를 본다 — 회차에 작업이 여럿이면 마지막 것
     Optional<ComposeJob> findFirstByCaptureRunIdOrderByIdDesc(Long captureRunId);

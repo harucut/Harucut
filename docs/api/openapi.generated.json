@@ -2484,7 +2484,7 @@
             "$ref" : "#/components/schemas/PageThemeCopy"
           },
           "font" : {
-            "description" : "글꼴",
+            "description" : "글꼴. SYSTEM = 바꾸지 않음(FE 기본 서체 그대로 — 지금은 Pretendard). 테마가 없으면 SYSTEM 으로 채워 내려준다",
             "enum" : [ "SYSTEM", "PRETENDARD", "NANUM_MYEONGJO", "GOWUN_DODUM", "BLACK_HAN_SANS" ],
             "example" : "PRETENDARD",
             "type" : "string"
@@ -5293,7 +5293,7 @@
         "description" : "자산 업로드 의도",
         "properties" : {
           "contentType" : {
-            "description" : "파일 형식(enum 이름). `FRAME_ASSET` 은 PNG·JPEG, `TEXT_RENDER` 는 PNG, `PROFILE` 은 PNG·JPEG·GIF.\n용도에 맞지 않으면 415 `GEN-051`.",
+            "description" : "파일 형식(enum 이름). `FRAME_ASSET`·`PAGE_THEME_ASSET` 은 PNG·JPEG, `TEXT_RENDER` 는 PNG, `PROFILE` 은 PNG·JPEG·GIF.\n용도에 맞지 않으면 415 `GEN-051`.",
             "enum" : [ "JPEG", "PNG", "WEBP", "GIF" ],
             "example" : "PNG",
             "type" : "string"
@@ -5313,7 +5313,7 @@
             "type" : "string"
           },
           "purpose" : {
-            "description" : "자산 용도. 이 경로는 `FRAME_ASSET`(배경·PHOTO·STICKER·로고) · `TEXT_RENDER`(구운 글자 PNG) · `PROFILE` 만 받는다.\n그 밖의 값은 400 `ASSET-005`.",
+            "description" : "자산 용도. 이 경로는 `FRAME_ASSET`(배경·PHOTO·STICKER·로고) · `TEXT_RENDER`(구운 글자 PNG) · `PROFILE` ·\n`PAGE_THEME_ASSET`(행사 테마 로고·배경 — workspaceId 에 조직 공간) 을 받는다.\n`CAPTURE_INPUT` 은 참가자 경로 전용이라 400 `ASSET-005`.",
             "enum" : [ "FRAME_ASSET", "TEXT_RENDER", "PAGE_THEME_ASSET", "PROFILE", "CAPTURE_INPUT" ],
             "example" : "FRAME_ASSET",
             "type" : "string"
@@ -8112,7 +8112,7 @@
               "application/json" : {
                 "examples" : {
                   "ASSET-005" : {
-                    "summary" : "ASSET-005 — 이 경로에서 받지 않는 purpose(CAPTURE_INPUT·PAGE_THEME_ASSET)",
+                    "summary" : "ASSET-005 — 이 경로에서 받지 않는 purpose(CAPTURE_INPUT — 참가자 경로 전용)",
                     "value" : {
                       "code" : "ASSET-005",
                       "message" : "This purpose cannot be uploaded through this endpoint.",
@@ -8137,7 +8137,7 @@
                 }
               }
             },
-            "description" : "- `ASSET-005` — 이 경로에서 받지 않는 purpose(CAPTURE_INPUT·PAGE_THEME_ASSET) _(This purpose cannot be uploaded through this endpoint.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+            "description" : "- `ASSET-005` — 이 경로에서 받지 않는 purpose(CAPTURE_INPUT — 참가자 경로 전용) _(This purpose cannot be uploaded through this endpoint.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
           },
           "401" : {
             "content" : {

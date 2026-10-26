@@ -12,7 +12,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 public record PageTheme(
         @Schema(description = "스키마 버전", example = "1", allowableValues = "1") Integer schemaVersion,
         Colors colors,
-        @Schema(description = "글꼴", allowableValues = {"SYSTEM", "PRETENDARD", "NANUM_MYEONGJO", "GOWUN_DODUM", "BLACK_HAN_SANS"},
+        @Schema(description = "글꼴. SYSTEM = 바꾸지 않음(FE 기본 서체 그대로 — 지금은 Pretendard). 테마가 없으면 SYSTEM 으로 채워 내려준다", allowableValues = {"SYSTEM", "PRETENDARD", "NANUM_MYEONGJO", "GOWUN_DODUM", "BLACK_HAN_SANS"},
                 example = "PRETENDARD") String font,
         @Schema(description = "로고 — 이 공간의 VERIFIED PAGE_THEME_ASSET id") String logoAssetId,
         @Schema(description = "배경 이미지 — 이 공간의 VERIFIED PAGE_THEME_ASSET id") String backgroundAssetId,

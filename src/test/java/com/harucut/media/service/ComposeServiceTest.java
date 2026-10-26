@@ -5,6 +5,7 @@ import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.enums.FrameType;
+import com.harucut.entitlement.service.EntitlementService;
 import com.harucut.frame.service.FrameService;
 import com.harucut.media.compose.ComposeMetrics;
 import com.harucut.media.compose.ComposeRequestedEvent;
@@ -86,6 +87,9 @@ class ComposeServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private EntitlementService entitlementService;
+
     private ComposeService composeService;
     private User user;
 
@@ -95,7 +99,8 @@ class ComposeServiceTest {
         Clock fixed = Clock.fixed(Instant.parse("2026-07-20T10:00:00Z"), ZoneOffset.UTC);
         composeService = new ComposeService(userRepository, composeJobRepository,
                 userMediaRepository, frameService, composeSpecAssembler, s3Deleter,
-                eventPublisher, new ComposeMetrics(new SimpleMeterRegistry()), fixed, JsonMapper.builder().build());
+                eventPublisher, new ComposeMetrics(new SimpleMeterRegistry()), fixed, JsonMapper.builder().build(),
+                entitlementService);
         user = User.localUser("owner@harucut.com", "encoded", "소유자");
         ReflectionTestUtils.setField(user, "id", 1L);
         // 결과 key 는 작업이 생성 때 고정한 storage_root(= 사용자 폴더)에서 나온다

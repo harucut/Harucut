@@ -3,6 +3,7 @@ package com.harucut.media.service;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.frame.attributes.BackgroundAttributes;
+import com.harucut.entitlement.service.EntitlementService;
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.exception.FrameErrorCode;
 import com.harucut.frame.service.FrameService;
@@ -54,6 +55,7 @@ public class ComposeService {
     private final ComposeMetrics composeMetrics;
     private final Clock clock;
     private final ObjectMapper objectMapper;
+    private final EntitlementService entitlementService;
 
     // ComposeJob.spec_json 컬럼 길이와 같아야 한다
     private static final int SPEC_JSON_MAX_CHARS = 8000;
@@ -187,10 +189,14 @@ public class ComposeService {
                     thumbnailKey, DisplayNames.resolve(null, resultKey, LocalDateTime.now(clock))));
             composeJobRepository.attachMedia(jobId, media.getId());
         }
-        // 합성 중에 사진함에서 삭제 요청된 행사 작업 — 방금 만든 결과·썸네일을 남기지 않는다.
-        // 잠금 읽기(FOR UPDATE)라 엇갈려 커밋된 삭제 요청을 놓치지 않는다(삭제 쪽도 잠금 읽기로 결과 key 를 다시 본다)
-        if (job.getEventId() != null && composeJobRepository.lockDeletedAt(jobId).stream().anyMatch(Objects::nonNull)) {
-            s3Deleter.deleteAfterCommit(List.of(resultKey, thumbnailKey));
+        if (job.getEventId() != null) {
+            // 사용량 예약을 확정한다 — 전이를 이긴 이 트랜잭션에서만(늦은 통지는 위에서 false 로 끝났다)
+            entitlementService.commit(jobId);
+            // 합성 중에 사진함에서 삭제 요청됐다 — 방금 만든 결과·썸네일을 남기지 않는다.
+            // 잠금 읽기(FOR UPDATE)라 엇갈려 커밋된 삭제 요청을 놓치지 않는다(삭제 쪽도 잠금 읽기로 결과 key 를 다시 본다)
+            if (composeJobRepository.lockDeletedAt(jobId).stream().anyMatch(Objects::nonNull)) {
+                s3Deleter.deleteAfterCommit(List.of(resultKey, thumbnailKey));
+            }
         }
         // 원본은 성공 시 삭제 — 결과만 보관함에 남는다.
         // 원본은 합성 재료일 뿐 사용자의 보관 대상이 아니라 저장 비용만 먹는다
@@ -209,6 +215,9 @@ public class ComposeService {
         if (composeJobRepository.markFailed(jobId, ComposeJob.truncateFailureReason(reason),
                 ComposeStatus.PENDING, ComposeStatus.FAILED) == 0) {
             return false;
+        }
+        if (job.get().getEventId() != null) {
+            entitlementService.release(jobId);   // 예약 수량을 돌려준다(돈의 환불이 아니다)
         }
         s3Deleter.deleteAfterCommit(job.get().sourceKeys());
         return true;

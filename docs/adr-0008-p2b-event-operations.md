@@ -151,19 +151,27 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
   maxLiveEvents, features: [WHITE_LABEL, CUSTOM_THEME, BULK_DOWNLOAD], validFrom, validTo, source: CONTRACT|MANUAL, contractId? }`
 - ManualGrant: `POST /api/admin/entitlements` 를 `source: MANUAL` + `{ grantorNote(사유) }` 로. 부여자·사유·기간·한도를 남긴다.
   회수·만료 전에 `GET /api/admin/entitlements/{id}/impact` 로 영향(사용 중 행사·남은 예약)을 보여 준다.
+  사용 중 행사 = 지금 그 행사에 **적용되는** 이용권이 이것인 LIVE 행사(행사 범위 이용권에 덮였거나 이미 끝난 이용권이면 제외).
 
 ### 6-2. 적용
 - 행사에 적용되는 이용권 = 유효기간 안의 **행사 범위 > 공간 범위** 중 하나(가장 구체적인 것, 같으면 validTo 가 늦은 것).
 - **게시**: 적용 이용권이 없으면 403 `ENT-001`. 공간의 LIVE 행사 수가 maxLiveEvents 이상이면 게시 위반.
 - **합성 접수**: 새 job 일 때만(멱등 재생은 제외) 예약 1건. `usage_reservation(job_id unique, entitlement_id, status RESERVED|COMMITTED|RELEASED)` 를
   job 저장과 같은 트랜잭션에 넣고, 이용권 카운터는 조건부 UPDATE
-  `reserved = reserved + 1 WHERE used + reserved + 1 <= compose_quota` — 0행이면 409 `ENT-002`(참가 화면: 「촬영 한도에 도달」).
+  `reserved = reserved + 1 WHERE status = ACTIVE AND valid_from <= now < valid_to AND used + reserved + 1 <= compose_quota`
+  — 0행이면 409 `ENT-002`(참가 화면: 「촬영 한도에 도달」). 후보를 읽은 뒤 계약이 끝나도(validTo 단축) 끝난 이용권에 예약하지 않는다.
+  이미 잡힌 예약의 확정·반환은 유효기간과 무관하다.
 - **확정·반환**: `completeJob` 의 PENDING→DONE 전이를 이긴 트랜잭션 안에서 `RESERVED→COMMITTED`(used+1, reserved−1),
   `failJob` 전이 안에서 `RESERVED→RELEASED`(reserved−1). 예약 행의 조건부 UPDATE 가 **COMMIT·RELEASE 중 하나만** 허용한다.
   늦게 온 성공·실패는 이미 종결된 예약을 되살리지 않는다. `usage_ledger` 에 RESERVE·COMMIT·RELEASE 이력을 남긴다(감사용).
 - 다운로드·결과 링크 재방문·부스 회차 닫기는 차감하지 않는다. 개인 합성은 이 원장과 무관하다(개인 요금제 그대로).
 - **부스 기기 수**: 적용 이용권의 maxBoothDevices 가 설정값(20)을 대신한다.
-- **보관 기간**: 이용권 retentionDays 가 있으면 행사 resultRetentionDays 의 상한이 된다.
+- **보관 기간**: 이용권 retentionDays 가 있으면 행사 resultRetentionDays 의 상한이 된다. PATCH 에서 넘으면 400 `GEN-002`
+  (게시 뒤에도 넘기지 못하게), 게시 검사에서도 한 번 더 본다.
+- **동시 운영 상한**: 게시 검사의 maxLiveEvents 는 공간 행을 잠근 뒤 **잠금 읽기(FOR UPDATE)로** 센다 — 동시에 두 행사를 게시해도 상한을 넘지 않는다.
+  MySQL REPEATABLE READ 에서는 잠금 전 일반 읽기로 스냅샷이 잡히므로, 잠금 뒤에 일반 읽기로 세면 방금 커밋된 LIVE 를 놓친다. 부스 기기 수도 같은 방식.
+- **기존 LIVE 행사(이 변경 전에 게시된 것)**: 적용 이용권이 없으면 회차 시작·합성 접수가 409 `ENT-002` 가 된다(게시 관문을 거치지 않았으므로).
+  배포 전에 운영 DB 에서 이용권 없는 LIVE·CAPTURE_CLOSED 행사를 세어 보고, 있으면 ManualGrant 를 먼저 부여한다 — 사용자 확인 후 진행.
 - 회차 시작에서도 잔량이 0 이면 409 `ENT-002` — 찍고 나서 막히지 않게(접수에서 다시 검사한다).
 
 ### 6-3. 조회
@@ -203,6 +211,7 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
 | ENT-001 | 403 | 적용할 이용권이 없다(게시 불가) |
 | ENT-002 | 409 | 이용권의 합성 한도에 도달했다 |
 | ENT-003 | 409 | 계약·이용권 상태 전이가 맞지 않다(CMS) |
+| ENT-004 | 403 | 이용권에 그 기능이 없다(예: BULK_DOWNLOAD 없이 묶음 요청) |
 | GEN-061 | 429 | 문의 접수 빈도 초과(기존 코드) |
 
 ## 10. 설정값

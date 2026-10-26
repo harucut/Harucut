@@ -3,6 +3,8 @@ package com.harucut.export.service;
 import com.harucut.audit.service.AuditLogService;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.entitlement.enums.Feature;
+import com.harucut.entitlement.service.EntitlementService;
 import com.harucut.event.entity.Event;
 import com.harucut.event.enums.PhotoPermission;
 import com.harucut.event.service.EventAccessPolicy;
@@ -59,6 +61,7 @@ public class ExportService {
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
     private final ApplicationEventPublisher eventPublisher;
+    private final EntitlementService entitlementService;
     private final Clock clock;
     private final int maxPhotos;
 
@@ -66,7 +69,7 @@ public class ExportService {
                          ExportJobItemRepository itemRepository, ComposeJobRepository composeJobRepository,
                          FileStorageService fileStorageService, S3Deleter s3Deleter, StorageProperties storageProperties,
                          UserRepository userRepository, AuditLogService auditLogService,
-                         ApplicationEventPublisher eventPublisher, Clock clock,
+                         ApplicationEventPublisher eventPublisher, EntitlementService entitlementService, Clock clock,
                          @Value("${event.export.max-photos:2000}") int maxPhotos) {
         this.policy = policy;
         this.exportJobRepository = exportJobRepository;
@@ -78,6 +81,7 @@ public class ExportService {
         this.userRepository = userRepository;
         this.auditLogService = auditLogService;
         this.eventPublisher = eventPublisher;
+        this.entitlementService = entitlementService;
         this.clock = clock;
         this.maxPhotos = maxPhotos;
     }
@@ -85,6 +89,7 @@ public class ExportService {
     public ExportDtos.Export create(String actorPublicId, String eventPublicId, ExportDtos.ExportRequest request) {
         Long actorId = userId(actorPublicId);
         Event event = policy.requirePhoto(actorId, eventPublicId, PhotoPermission.BULK_DOWNLOAD);
+        entitlementService.requireFeature(event, Feature.BULK_DOWNLOAD);   // 계약 기능 — 없으면 403 ENT-004
         List<ComposeJob> targets = targets(event, request);
         if (targets.isEmpty() || targets.size() > maxPhotos) {
             throw new BusinessException(ExportErrorCode.INVALID_SELECTION,

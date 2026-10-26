@@ -18,6 +18,9 @@ import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.dto.WorkspaceResponse;
 import com.harucut.workspace.service.WorkspaceService;
+import com.harucut.entitlement.repository.EntitlementRepository;
+import com.harucut.support.TestEntitlements;
+import com.harucut.workspace.repository.WorkspaceRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -75,6 +78,10 @@ class ParticipantFlowIntegrationTest {
     @Autowired private FrameVersionService frameVersionService;
     @Autowired private UserRepository userRepository;
 
+    @Autowired private EntitlementRepository entitlementRepository;
+
+    @Autowired private WorkspaceRepository workspaceRepository;
+
     @MockitoBean private FileStorageService fileStorageService;
     @MockitoBean private RateLimiter rateLimiter;
 
@@ -96,6 +103,7 @@ class ParticipantFlowIntegrationTest {
 
         User operator = userRepository.save(User.localUser("op@harucut.com", "encoded", "운영자"));
         WorkspaceResponse org = workspaceService.createOrganization(operator.getPublicId(), "웨딩팀");
+        TestEntitlements.grant(entitlementRepository, workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId());
         Long frameId = frameService.createFrame(operator.getPublicId(), new FrameCreateRequest("프레임", null,
                 S3Keys.userRoot(operator.getPublicId()) + "frames/p.png", FrameType.CLASSIC, null, null,
                 new BackgroundAttributes.Color("#FFFFFF"), null, List.of(), null, org.workspaceId())).frameId();

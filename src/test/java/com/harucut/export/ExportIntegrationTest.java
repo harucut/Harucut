@@ -3,6 +3,7 @@ package com.harucut.export;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.ErrorCode;
 import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.entitlement.repository.EntitlementRepository;
 import com.harucut.event.dto.EventResponse;
 import com.harucut.event.dto.EventSettings;
 import com.harucut.event.entity.Event;
@@ -30,10 +31,12 @@ import com.harucut.result.dto.DownloadUrlResponse;
 import com.harucut.storage.service.FileStorageService;
 import com.harucut.storage.service.S3Deleter;
 import com.harucut.storage.service.S3MultipartOutputStream;
+import com.harucut.support.TestEntitlements;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.dto.MemberDtos;
 import com.harucut.workspace.dto.WorkspaceResponse;
+import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.workspace.service.InvitationService;
 import com.harucut.workspace.service.WorkspaceService;
 import jakarta.persistence.EntityManager;
@@ -104,6 +107,8 @@ class ExportIntegrationTest {
     @Autowired private ComposeJobRepository composeJobRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private EntityManager entityManager;
+    @Autowired private EntitlementRepository entitlementRepository;
+    @Autowired private WorkspaceRepository workspaceRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
 
     @MockitoBean private FileStorageService fileStorageService;
@@ -134,6 +139,8 @@ class ExportIntegrationTest {
 
         owner = userRepository.save(User.localUser("owner@harucut.com", "e", "오너"));
         WorkspaceResponse org = workspaceService.createOrganization(owner.getPublicId(), "웨딩홀");
+        // 묶음 다운로드는 계약 기능 BULK_DOWNLOAD 가 필요하다(P2B-5)
+        TestEntitlements.grant(entitlementRepository, workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId());
         EventResponse created = eventService.create(owner.getPublicId(), org.workspaceId(),
                 new EventSettings("민지 ♥ 준호", "export-event", null, null, null, null, null, null, null, null, null, null));
         event = eventRepository.findByPublicId(created.eventId()).orElseThrow();

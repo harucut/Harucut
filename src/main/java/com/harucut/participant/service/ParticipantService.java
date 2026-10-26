@@ -9,6 +9,7 @@ import com.harucut.common.utils.OpaqueTokens;
 import com.harucut.config.RateLimiter;
 import com.harucut.event.dto.EventExperienceDocument;
 import com.harucut.event.dto.EventSettings;
+import com.harucut.entitlement.service.EntitlementService;
 import com.harucut.event.entity.Event;
 import com.harucut.event.entity.EventExperienceVersion;
 import com.harucut.event.exception.EventErrorCode;
@@ -76,6 +77,7 @@ public class ParticipantService {
     private final FrameVersionService frameVersionService;
     private final ResultService resultService;
     private final RateLimiter rateLimiter;
+    private final EntitlementService entitlementService;
     private final ParticipationProperties properties;
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -171,6 +173,7 @@ public class ParticipantService {
         Event event = requireOwnEvent(principal, eventPublicId);
         requireActive(principal);
         requireCaptureOpen(event);
+        entitlementService.requireRemaining(event);   // 찍고 나서 막히지 않게 — 접수에서 예약으로 다시 확인한다
         if (principal.isBooth()) {
             releaseExpiredBoothRun(principal.boothDeviceId());
         }

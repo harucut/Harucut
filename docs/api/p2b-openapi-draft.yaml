@@ -149,6 +149,10 @@ paths:
       summary: 상태 전이(DRAFT→ACTIVE→ENDED, →CANCELLED). ACTIVE 가 되면 이용권 생성
       requestBody: { content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [ACTIVE, ENDED, CANCELLED] } } } } } }
       responses: { '200': { content: { application/json: { schema: { $ref: '#/components/schemas/Contract' } } } }, '409': { description: ENT-003 } }
+  /api/admin/contracts/{contractId}/payment-verification:
+    post:
+      summary: PORTONE 증빙을 PortOne API 로 다시 대조(웹훅이 증빙보다 먼저 온 경우) — 실연동 미확인
+      responses: { '200': { content: { application/json: { schema: { $ref: '#/components/schemas/Contract' } } } }, '400': { description: GEN-002(증빙 없음·연동 꺼짐·불일치) } }
   /api/admin/entitlements:
     post:
       summary: ManualGrant(source MANUAL) — 사유 필수

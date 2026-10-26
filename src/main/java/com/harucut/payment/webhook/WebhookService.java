@@ -1,13 +1,9 @@
 package com.harucut.payment.webhook;
 
-import com.harucut.audit.service.AuditLogService;
 import com.harucut.entitlement.entity.Contract;
 import com.harucut.entitlement.enums.EvidenceKind;
 import com.harucut.entitlement.repository.ContractRepository;
-import com.harucut.payment.config.PaymentProperties;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
@@ -15,8 +11,6 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
-import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -32,20 +26,15 @@ public class WebhookService {
 
     private final WebhookReceiptRepository receiptRepository;
     private final ContractRepository contractRepository;
-    private final ObjectProvider<PortOnePaymentClient> portOneClient;
-    private final AuditLogService auditLogService;
-    private final PaymentProperties properties;
+    private final ContractPaymentVerifier paymentVerifier;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
     public WebhookService(WebhookReceiptRepository receiptRepository, ContractRepository contractRepository,
-                          ObjectProvider<PortOnePaymentClient> portOneClient, AuditLogService auditLogService,
-                          PaymentProperties properties, ObjectMapper objectMapper, Clock clock) {
+                          ContractPaymentVerifier paymentVerifier, ObjectMapper objectMapper, Clock clock) {
         this.receiptRepository = receiptRepository;
         this.contractRepository = contractRepository;
-        this.portOneClient = portOneClient;
-        this.auditLogService = auditLogService;
-        this.properties = properties;
+        this.paymentVerifier = paymentVerifier;
         this.objectMapper = objectMapper;
         this.clock = clock;
     }
@@ -55,16 +44,10 @@ public class WebhookService {
     public boolean handle(String provider, String webhookId, String rawBody) {
         JsonNode body = parse(rawBody);
         String type = body == null ? null : body.path("type").asString(null);
-        if (webhookId != null) {
-            if (receiptRepository.existsByProviderAndWebhookId(provider, webhookId)) {
-                return false;
-            }
-            try {
-                receiptRepository.saveAndFlush(new WebhookReceipt(LocalDateTime.now(clock), provider, webhookId,
-                        type == null ? null : type.substring(0, Math.min(60, type.length()))));
-            } catch (DataIntegrityViolationException e) {
-                return false;   // 같은 웹훅이 동시에 두 번 들어와 다른 쪽이 먼저 기록했다
-            }
+        // INSERT IGNORE — 같은 웹훅이 동시에 두 번 와도 예외(→ 트랜잭션 롤백 전용 → 500) 없이 한쪽만 1 을 받는다
+        if (webhookId != null && receiptRepository.recordOnce(LocalDateTime.now(clock), provider, webhookId,
+                type == null ? null : type.substring(0, Math.min(60, type.length()))) != 1) {
+            return false;
         }
         if (!"portone".equals(provider) || type == null || !type.startsWith("Transaction.")) {
             log.info("[payment] 웹훅 수신 provider={} type={} bodyLength={}", provider, type, rawBody.length());
@@ -77,28 +60,14 @@ public class WebhookService {
         return true;
     }
 
-    // 결제 조회 → 그 paymentId 를 증빙으로 단 계약과 대조. 맞지 않으면 바꾸지 않고 남긴다
+    // 그 paymentId 를 증빙으로 단 계약만 대조한다. 계약이 아직 없으면 관리자가 증빙 등록 뒤 다시 확인한다
     private void verifyContractPayment(String paymentId) {
         Optional<Contract> contract = contractRepository.findByEvidenceKindAndEvidenceReference(EvidenceKind.PORTONE, paymentId);
         if (contract.isEmpty()) {
             log.info("[payment] PortOne {} — 연결된 계약 없음(개인 결제이거나 아직 증빙 미등록)", paymentId);
             return;
         }
-        PortOnePaymentClient.PortOnePayment payment = portOneClient.getObject().get(paymentId);
-        Contract target = contract.get();
-        boolean matches = "PAID".equals(payment.status())
-                && Objects.equals(payment.storeId(), properties.portone().storeId())
-                && Objects.equals(payment.totalAmount(), target.getAmount())
-                && target.getCurrency().equalsIgnoreCase(Objects.requireNonNullElse(payment.currency(), ""));
-        if (!matches) {
-            log.warn("[payment] PortOne {} 계약 {} 대조 불일치 status={} store={} amount={} currency={}", paymentId,
-                    target.getPublicId(), payment.status(), payment.storeId(), payment.totalAmount(), payment.currency());
-            return;
-        }
-        if (target.markPaymentVerified(LocalDateTime.now(clock))) {
-            auditLogService.record(null, target.getWorkspaceId(), null, "CONTRACT_PAYMENT_VERIFIED", "CONTRACT",
-                    target.getPublicId(), Map.of("paymentId", paymentId));
-        }
+        paymentVerifier.verify(contract.get());
     }
 
     private JsonNode parse(String rawBody) {

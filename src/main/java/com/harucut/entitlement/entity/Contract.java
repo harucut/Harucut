@@ -129,15 +129,6 @@ public class Contract extends BaseEntity {
         return new Terms(composeQuota, retentionDays, maxBoothDevices, maxLiveEvents, features);
     }
 
-    /** @return 처음 확인했으면 true */
-    public boolean markPaymentVerified(LocalDateTime now) {
-        if (paymentVerifiedAt != null) {
-            return false;
-        }
-        this.paymentVerifiedAt = now;
-        return true;
-    }
-
     public void attachEvidence(EvidenceKind kind, String reference) {
         this.evidenceKind = kind;
         this.evidenceReference = reference;

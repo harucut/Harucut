@@ -90,6 +90,12 @@ public class ContractService {
         return contractRepository.findAllByOrderByIdDesc(PageRequest.of(0, 200)).stream().map(this::view).toList();
     }
 
+    @Transactional(readOnly = true)
+    public EntitlementDtos.Contract get(String contractPublicId) {
+        return view(contractRepository.findByPublicId(contractPublicId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND)));
+    }
+
     public EntitlementDtos.Contract changeStatus(String adminPublicId, String contractPublicId, ContractStatus to) {
         User admin = user(adminPublicId);
         Contract contract = contractRepository.findByPublicId(contractPublicId)

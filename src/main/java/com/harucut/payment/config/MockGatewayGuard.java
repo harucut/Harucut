@@ -12,13 +12,16 @@ import org.springframework.stereotype.Component;
 public class MockGatewayGuard {
 
     public MockGatewayGuard(PaymentGateway paymentGateway, PaymentProperties properties) {
-        if (paymentGateway.provider() != PgProvider.MOCK) {
+        boolean mockGateway = paymentGateway.provider() == PgProvider.MOCK;
+        // mock 웹훅 검증기는 서명을 보지 않고 전부 통과시킨다
+        boolean mockWebhook = "mock".equals(properties.webhook().provider());
+        if (!mockGateway && !mockWebhook) {
             return;
         }
         if (!properties.mock().allowedOutsideLocal()) {
-            throw new IllegalStateException("Mock payment gateway must not be active outside local/test profiles.");
+            throw new IllegalStateException("Mock payment gateway or webhook verifier must not be active outside local/test profiles.");
         }
-        log.warn("[결제] mock 게이트웨이가 허용된 채로 기동했다 — 실제 결제는 일어나지 않는다. "
-                + "PG 를 붙이면 payment.mock.allowed-outside-local(PAYMENT_MOCK_ALLOWED)을 지울 것");
+        log.warn("[결제] mock(게이트웨이={}, 웹훅 검증={})이 허용된 채로 기동했다 — 실제 결제·서명 검증은 일어나지 않는다. "
+                + "PG·웹훅을 붙이면 payment.mock.allowed-outside-local(PAYMENT_MOCK_ALLOWED)을 지울 것", mockGateway, mockWebhook);
     }
 }

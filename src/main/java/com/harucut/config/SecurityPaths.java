@@ -45,6 +45,12 @@ public final class SecurityPaths {
     };
 
     /**
+     * 플랫폼 관리자 경로 ({@code hasRole("ADMIN")}). 컨트롤러마다 붙인 {@code @PreAuthorize} 와 별개로
+     * URL 수준에서 한 번 더 막는다 — 새 관리자 컨트롤러가 애노테이션을 빠뜨려도 일반 사용자에게 열리지 않는다.
+     */
+    public static final String ADMIN = "/api/admin/**";
+
+    /**
      * 로그인만 되어 있으면 되는 경로 ({@code authenticated}). 나머지 경로는 전부
      * {@code hasAnyRole("USER","ADMIN")} 이라 탈퇴 요청·정지 상태에서 403 이 난다.
      *

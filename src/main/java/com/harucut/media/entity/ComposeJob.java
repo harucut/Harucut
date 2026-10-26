@@ -24,7 +24,7 @@ import java.util.List;
         // 인덱스가 없으면 그 풀스캔 비용이 누적 행 수를 따라 계속 자란다.
         // 지금 규모에서 느려서 거는 게 아니라, 큰 테이블에 나중에 거는 편이 훨씬 비싸서 건다.
         //
-        // ⚠️ ddl-auto가 운영은 none, load는 validate인데 Hibernate의 validate는 인덱스를
+        // ⚠️ ddl-auto가 운영은 update(Flyway 편입 전), load는 validate인데 Hibernate의 validate는 인덱스를
         //    검사하지 않는다(테이블·컬럼·타입만 본다). 이 애노테이션만으로는 기존 DB에
         //    인덱스가 생기지 않는다 — local(update)로 새로 만들거나 CREATE INDEX를 직접 쳐야 한다
         indexes = @Index(name = "idx_compose_job_status_started_at",

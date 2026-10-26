@@ -70,6 +70,15 @@ spring:
     job:
       enabled: false
 
+  # Flyway — 기본 OFF. 운영 스키마를 V1 기준선에 명시적으로 편입(baseline)하기 전에는 켜지 않는다.
+  # 켜는 순간 ddl-auto 도 validate 로 바꿔야 한다 (둘이 동시에 스키마를 고치면 안 된다).
+  # baseline-on-migrate 는 쓰지 않는다 — 잘못된 DB 를 조용히 기준선으로 삼는 보호 해제다.
+  # docs/adr-0005-flyway-adoption.md
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+
   # Spring Batch 메타테이블(BATCH_*) 생성. Boot 4는 배치 스키마를 만들어주지 않는다
   # (JDBC 저장소 자체가 옵트인이다 — BatchConfig 참고). 스크립트에 IF NOT EXISTS가 없어
   # 두 번째 기동부터는 오류가 나지만 continue-on-error가 무시한다 — 재기동에 안전하다.

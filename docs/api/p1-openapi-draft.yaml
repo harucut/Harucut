@@ -1,0 +1,338 @@
+# P1 계약 초안 — ADR-0006. 구현 전 합의용이며 실제 /v3/api-docs 와 다를 수 있다.
+# 모든 응답은 공통 봉투 { code, status, message?, data? } 에 담긴다(아래 data 스키마만 적는다).
+# 인증: 전부 회원(cookieAuth 또는 bearerAuth). TERMS-004·GEN-011/021 은 기존 규칙대로 붙는다.
+openapi: 3.1.0
+info:
+  title: Harucut P1 — 개인·공통 편집 (초안)
+  version: 0.1.0-draft
+paths:
+  /api/auth/workspaces:
+    get:
+      summary: 접근 가능한 공간 목록 (P1 은 개인 공간 하나)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Workspace' } } } } }
+
+  /api/auth/assets/upload-intents:
+    post:
+      summary: 자산 업로드 의도 생성 — presigned PUT URL 과 필수 헤더 발급
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UploadIntentRequest' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/UploadIntent' } } } }
+        '400': { description: 'GEN-003 검증 실패 · ASSET-005 이 경로에서 받지 않는 purpose · GEN-051 확장자/형식 불일치' }
+        '404': { description: 'GEN-031 workspaceId 가 없거나 접근 불가' }
+
+  /api/auth/assets/{assetId}/complete:
+    post:
+      summary: 업로드 완료 확인 — 존재·크기·실제 형식·디코드 검증 후 VERIFIED
+      description: |
+        멱등이다. 이미 VERIFIED 면 그대로 돌려준다. REJECTED 는 다시 검사하지 않는다(새 intent 를 만들 것).
+        S3 PUT 이 412 를 받았어도(첫 응답 유실 후 재시도) 이 API 로 확인하면 된다.
+      parameters: [ { $ref: '#/components/parameters/AssetId' } ]
+      responses:
+        '200': { description: 'VERIFIED 또는 REJECTED', content: { application/json: { schema: { $ref: '#/components/schemas/Asset' } } } }
+        '404': { description: GEN-031 }
+        '409': { description: 'ASSET-001 S3 에 객체가 없다' }
+        '422': { description: 'ASSET-002 크기 · ASSET-003 형식/디코드 · ASSET-004 픽셀 상한 (REJECTED 로 기록되고 같은 본문의 data 에 Asset 이 실린다)' }
+
+  /api/auth/assets/{assetId}:
+    get:
+      summary: 자산 메타데이터와 짧은 GET URL
+      parameters: [ { $ref: '#/components/parameters/AssetId' } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Asset' } } } }
+        '404': { description: GEN-031 }
+
+  /api/auth/user/frame:
+    post:
+      summary: (기존) 프레임 생성 — 본문에 선택 필드 추가
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/FrameSaveRequest' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/FrameResponse' } } } }
+        '400': { description: 'FRAME-003 레이어 수 · FRAME-004 spec 크기 · FRAME-005 쓸 수 없는 assetId · (기존 코드들)' }
+
+  /api/auth/user/frame/{frameId}:
+    put:
+      summary: (기존) 프레임 전체 교체 — version 을 보내면 낙관적 잠금
+      parameters: [ { $ref: '#/components/parameters/FrameId' } ]
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/FrameSaveRequest' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/FrameResponse' } } } }
+        '409': { description: 'FRAME-002 version 불일치 — data 에 { currentVersion } ' }
+
+  /api/auth/user/frame/{frameId}/versions:
+    post:
+      summary: 현재 프레임을 불변 발행본으로 고정
+      parameters: [ { $ref: '#/components/parameters/FrameId' } ]
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/FrameVersion' } } } }
+        '400': { description: 'FRAME-003/004/005 · GEN-002 구운 PNG 없는 TEXT' }
+        '404': { description: GEN-031 }
+    get:
+      summary: 발행본 목록 (최신순, spec 제외)
+      parameters: [ { $ref: '#/components/parameters/FrameId' } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/FrameVersionSummary' } } } } }
+
+  /api/auth/user/frame/{frameId}/versions/{versionNo}:
+    get:
+      summary: 발행본 하나 (spec 포함, 자산 URL 해결)
+      parameters: [ { $ref: '#/components/parameters/FrameId' }, { name: versionNo, in: path, required: true, schema: { type: integer, minimum: 1 } } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/FrameVersion' } } } }
+        '404': { description: GEN-031 }
+
+  /api/admin/frames/{frameId}/versions:
+    post:
+      summary: 시스템 프레임 발행 (관리자) — 응답은 사용자 경로와 같다
+      parameters: [ { $ref: '#/components/parameters/FrameId' } ]
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/FrameVersion' } } } }
+
+  /api/auth/user/frame-drafts:
+    post:
+      summary: 서버 초안 생성
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DraftCreateRequest' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Draft' } } } }
+        '413': { description: DRAFT-002 }
+    get:
+      summary: 내 초안 목록 (document 제외)
+      parameters:
+        - { name: frameId, in: query, required: false, description: '숫자면 그 프레임의 초안, "new" 면 새 프레임 초안만', schema: { type: string } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/DraftSummary' } } } } }
+
+  /api/auth/user/frame-drafts/{draftId}:
+    get:
+      summary: 초안 하나 (document 포함)
+      parameters: [ { $ref: '#/components/parameters/DraftId' } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Draft' } } } }
+        '404': { description: GEN-031 }
+    put:
+      summary: 초안 저장 — revision 이 서버와 같을 때만
+      parameters: [ { $ref: '#/components/parameters/DraftId' } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DraftUpdateRequest' } } } }
+      responses:
+        '200': { description: 'OK — revision 이 1 증가', content: { application/json: { schema: { $ref: '#/components/schemas/Draft' } } } }
+        '409': { description: 'DRAFT-001 — data 에 서버의 { revision, updatedAt }' }
+        '413': { description: DRAFT-002 }
+    delete:
+      summary: 초안 삭제 (멱등 아님 — 없으면 404)
+      parameters: [ { $ref: '#/components/parameters/DraftId' } ]
+      responses:
+        '200': { description: OK }
+        '404': { description: GEN-031 }
+
+components:
+  parameters:
+    AssetId: { name: assetId, in: path, required: true, schema: { type: string, example: 'As8kLm2Pq9Xz' } }
+    FrameId: { name: frameId, in: path, required: true, schema: { type: integer, format: int64 } }
+    DraftId: { name: draftId, in: path, required: true, schema: { type: string, example: 'Dr3nQ7wE1tYu' } }
+
+  schemas:
+    Workspace:
+      type: object
+      required: [workspaceId, type, name, role]
+      properties:
+        workspaceId: { type: string, description: 'public id (12자)', example: 'Ws1aB2cD3eF4' }
+        type: { type: string, enum: [PERSONAL, ORGANIZATION] }
+        name: { type: string, example: '내 공간' }
+        role: { type: string, enum: [OWNER, ADMIN, DESIGNER, VIEWER] }
+
+    UploadIntentRequest:
+      type: object
+      required: [purpose, contentType, fileSize, filename]
+      properties:
+        purpose: { type: string, enum: [FRAME_ASSET, TEXT_RENDER, PROFILE], description: 'CAPTURE_INPUT·PAGE_THEME_ASSET 은 이 경로에서 400 ASSET-005' }
+        contentType: { type: string, enum: [PNG, JPEG, WEBP, GIF], description: 'FRAME_ASSET·TEXT_RENDER 는 합성기가 읽는 PNG·JPEG 만. WEBP·GIF 는 PROFILE 만' }
+        fileSize: { type: integer, minimum: 1, maximum: 10485760 }
+        filename: { type: string, description: '확장자 검사용. 저장 key 에는 쓰지 않는다' }
+        workspaceId: { type: string, description: '생략하면 개인 공간' }
+
+    UploadIntent:
+      type: object
+      required: [assetId, uploadUrl, method, headers, expiresAt]
+      properties:
+        assetId: { type: string }
+        uploadUrl: { type: string, format: uri }
+        method: { type: string, enum: [PUT] }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+          description: '이 헤더를 **그대로** 보낸다. 빼거나 바꾸면 S3 가 403(서명 불일치). Host·Content-Length 는 브라우저가 정한다'
+          example: { Content-Type: image/png, If-None-Match: '*' }
+        expiresAt: { type: string, format: date-time }
+
+    Asset:
+      type: object
+      required: [assetId, purpose, status, contentType]
+      properties:
+        assetId: { type: string }
+        purpose: { type: string, enum: [FRAME_ASSET, TEXT_RENDER, PAGE_THEME_ASSET, PROFILE, CAPTURE_INPUT] }
+        status: { type: string, enum: [PENDING_UPLOAD, VERIFIED, REJECTED] }
+        contentType: { type: string, example: image/png }
+        size: { type: integer, description: 'VERIFIED 이후 실제 크기' }
+        width: { type: integer }
+        height: { type: integer }
+        rejectReason: { type: string, description: 'REJECTED 일 때만 — 오류 코드와 같은 값' }
+        url: { type: string, format: uri, description: 'VERIFIED 일 때만. 짧은 GET URL(기본 5분)' }
+        urlExpiresAt: { type: string, format: date-time }
+
+    BackgroundImage:
+      type: object
+      required: [type, opacity]
+      properties:
+        type: { const: IMAGE }
+        key: { type: string, description: '(기존) key 또는 presigned URL. assetId 가 있으면 무시' }
+        assetId: { type: string, description: '(신규) FRAME_ASSET·VERIFIED 자산' }
+        opacity: { type: number, minimum: 0, maximum: 1 }
+        fit: { type: string, enum: [COVER, CONTAIN], default: COVER }
+        focalX: { type: number, minimum: 0, maximum: 1, default: 0.5 }
+        focalY: { type: number, minimum: 0, maximum: 1, default: 0.5 }
+        crop:
+          type: object
+          required: [x, y, width, height]
+          description: '원본 이미지에서 쓸 영역(0~1 정규화). 없으면 전체'
+          properties:
+            x: { type: number, minimum: 0, maximum: 1 }
+            y: { type: number, minimum: 0, maximum: 1 }
+            width: { type: number, exclusiveMinimum: 0, maximum: 1 }
+            height: { type: number, exclusiveMinimum: 0, maximum: 1 }
+        url: { type: string, readOnly: true, description: '(기존) 응답 전용 presigned URL' }
+
+    FrameSaveRequest:
+      type: object
+      description: '기존 FrameCreateRequest + 선택 필드. 기존 필드 의미는 그대로'
+      properties:
+        version: { type: integer, format: int64, description: '(신규) PUT 낙관적 잠금. 생략 시 기존처럼 덮어쓴다' }
+        title: { type: string }
+        description: { type: string }
+        previewKey: { type: string }
+        frameType: { type: string, enum: [CLASSIC, WIDE, GRID, POLAROID] }
+        background:
+          oneOf:
+            - { type: object, properties: { type: { const: COLOR }, value: { type: string } } }
+            - { $ref: '#/components/schemas/BackgroundImage' }
+        cellCutouts: { type: array, items: { type: boolean }, minItems: 4, maxItems: 4 }
+        components:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string, enum: [PHOTO, STICKER, TEXT] }
+              source: { type: string, description: '(기존) PHOTO·STICKER key/경로, TEXT 본문' }
+              assetId: { type: string, description: '(신규) PHOTO·STICKER 자산. 있으면 source 의 key 대신' }
+              renderedKey: { type: string, description: '(기존) TEXT 구운 PNG key' }
+              renderedAssetId: { type: string, description: '(신규) TEXT_RENDER 자산. 있으면 renderedKey 대신' }
+              locked: { type: boolean, default: false, description: '(신규) 편집기 잠금. 인가 근거 아님' }
+              x: { type: number }
+              y: { type: number }
+              width: { type: number }
+              height: { type: number }
+              scale: { type: number }
+              rotation: { type: number }
+              zIndex: { type: integer }
+              styleJson: { type: object }
+
+    FrameResponse:
+      type: object
+      description: '기존 FrameResponse + 추가 필드'
+      properties:
+        frameId: { type: integer }
+        version: { type: integer, format: int64, description: '(신규)' }
+        components:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string }
+              source: { type: string, description: 'PHOTO·(신규)uploads/ STICKER 는 presigned URL, 정적 STICKER 는 경로, TEXT 는 본문' }
+              key: { type: string, description: '순수 key — 재저장 때 source 자리에 넣는다(STICKER 포함)' }
+              assetId: { type: string }
+              renderedKey: { type: string, description: '(신규) TEXT 구운 PNG key' }
+              renderedUrl: { type: string, description: '(신규) TEXT 구운 PNG presigned URL' }
+              renderedAssetId: { type: string }
+              locked: { type: boolean }
+
+    FrameVersionSummary:
+      type: object
+      required: [frameVersionId, frameId, versionNo, createdAt]
+      properties:
+        frameVersionId: { type: integer, format: int64 }
+        frameId: { type: integer, format: int64 }
+        versionNo: { type: integer }
+        frameType: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    FrameVersion:
+      allOf:
+        - $ref: '#/components/schemas/FrameVersionSummary'
+        - type: object
+          required: [spec]
+          properties:
+            spec: { $ref: '#/components/schemas/FrameSpecV2' }
+
+    FrameSpecV2:
+      type: object
+      required: [schemaVersion, canvas, layout, slotBindings, layers, editPolicy]
+      properties:
+        schemaVersion: { const: 2 }
+        canvas: { type: object, properties: { width: { type: integer }, height: { type: integer } } }
+        background: { description: 'COLOR 또는 BackgroundImage(assetId·url 해결됨)' }
+        layout: { type: object, properties: { frameType: { type: string }, slots: { type: array, items: { type: object, properties: { slotId: { type: string }, x: { type: integer }, y: { type: integer }, width: { type: integer }, height: { type: integer } } } } } }
+        cellCutouts: { type: array, items: { type: boolean } }
+        slotBindings: { type: array, items: { type: object, properties: { slotId: { type: string }, sourceIndex: { type: integer, minimum: 0, maximum: 3 } } } }
+        layers:
+          type: array
+          items:
+            type: object
+            properties:
+              role: { type: string, enum: [DECOR, FOREGROUND], description: '배경은 background 로 따로 둔다' }
+              kind: { type: string, enum: [IMAGE, TEXT] }
+              assetId: { type: string, description: 'IMAGE 의 자산, TEXT 는 구운 PNG 자산' }
+              url: { type: string, description: '응답 전용 presigned URL' }
+              x: { type: number }
+              y: { type: number }
+              width: { type: number }
+              height: { type: number }
+              scale: { type: number }
+              rotation: { type: number }
+              zIndex: { type: integer }
+              opacity: { type: number }
+              text: { type: object, description: 'TEXT 일 때 { content, style }' }
+        editPolicy: { type: object, properties: { mode: { type: string, enum: [FIXED], description: 'P1 은 FIXED 고정. P2A 에서 제한 편집 추가' } } }
+
+    DraftCreateRequest:
+      type: object
+      required: [document]
+      properties:
+        frameId: { type: integer, format: int64, description: '생략하면 새 프레임 초안' }
+        workspaceId: { type: string, description: '생략하면 개인 공간' }
+        document: { type: object, description: '편집기 문서. 서버는 해석하지 않는다. 직렬화 256KB 이하' }
+
+    DraftUpdateRequest:
+      type: object
+      required: [revision, document]
+      properties:
+        revision: { type: integer, description: '마지막으로 받은 revision' }
+        document: { type: object }
+
+    DraftSummary:
+      type: object
+      required: [draftId, revision, updatedAt]
+      properties:
+        draftId: { type: string }
+        frameId: { type: integer, format: int64, nullable: true }
+        revision: { type: integer }
+        updatedAt: { type: string, format: date-time }
+
+    Draft:
+      allOf:
+        - $ref: '#/components/schemas/DraftSummary'
+        - type: object
+          required: [document]
+          properties:
+            document: { type: object }

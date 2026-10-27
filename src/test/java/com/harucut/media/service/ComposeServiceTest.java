@@ -144,6 +144,8 @@ class ComposeServiceTest {
             assertThat(event.thumbnailKey()).isEqualTo(THUMB_KEY);
             assertThat(event.sourceKeys()).containsExactlyElementsOf(SOURCE_KEYS);
             assertThat(event.spec()).isEqualTo(spec);
+            // 업로드 발급 때 남긴 24시간 정리 책임을 작업이 가져간다
+            SOURCE_KEYS.forEach(key -> then(s3Deleter).should().release(key));
         }
 
         @Test

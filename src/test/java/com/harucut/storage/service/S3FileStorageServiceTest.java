@@ -58,6 +58,9 @@ class S3FileStorageServiceTest {
     @Mock
     private S3Client s3Client;
 
+    @Mock
+    private S3Deleter s3Deleter;
+
     private S3Presigner s3Presigner;
     private S3FileStorageService service;
 
@@ -72,7 +75,7 @@ class S3FileStorageServiceTest {
                 new ProfileUploadPathStrategy(),
                 new FrameUploadPathStrategy(),
                 new FrameComponentUploadPathStrategy(),
-                new FourcutSourceUploadPathStrategy()));
+                new FourcutSourceUploadPathStrategy()), s3Deleter);
     }
 
     @AfterEach
@@ -111,6 +114,17 @@ class S3FileStorageServiceTest {
 
             assertThat(response.key())
                     .matches("uploads/users/" + PUBLIC_ID + "/fourcuts/sources/[0-9a-f\\-]{36}\\.jpg");
+            // 합성에 쓰이지 않으면 24시간 뒤 지워진다 — 합성 접수가 책임을 가져간다
+            then(s3Deleter).should().holdForUpload(response.key(), S3FileStorageService.SOURCE_RETENTION);
+        }
+
+        @Test
+        @DisplayName("FOURCUT_SOURCE 가 아닌 업로드는 정리 대상으로 잡지 않는다(도메인 등록으로 남는 파일)")
+        void otherTypesNotHeld() {
+            upload(UploadType.PROFILE, "profile.png", ContentType.PNG);
+            upload(UploadType.FRAME, "preview.png", ContentType.PNG);
+
+            then(s3Deleter).shouldHaveNoInteractions();
         }
 
         @Test
@@ -240,7 +254,7 @@ class S3FileStorageServiceTest {
         @DisplayName("전략이 하나라도 빠지면 기동 시점에 IllegalStateException으로 죽는다")
         void missingStrategyFailsStartup() {
             assertThatThrownBy(() -> new S3FileStorageService(s3Presigner, s3Client, properties(),
-                    List.of(new ProfileUploadPathStrategy())))
+                    List.of(new ProfileUploadPathStrategy()), s3Deleter))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("FRAME");
         }
@@ -250,7 +264,7 @@ class S3FileStorageServiceTest {
         void duplicateStrategyFailsStartup() {
             assertThatThrownBy(() -> new S3FileStorageService(s3Presigner, s3Client, properties(),
                     List.of(new ProfileUploadPathStrategy(), new ProfileUploadPathStrategy(),
-                            new FrameUploadPathStrategy(), new FrameComponentUploadPathStrategy())))
+                            new FrameUploadPathStrategy(), new FrameComponentUploadPathStrategy()), s3Deleter))
                     .isInstanceOf(IllegalStateException.class);
         }
     }

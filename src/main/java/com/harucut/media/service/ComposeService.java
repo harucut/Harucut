@@ -89,6 +89,8 @@ public class ComposeService {
         ComposeSpec spec = composeSpecAssembler.assemble(frame, request.backgroundColor());
 
         ComposeJob job = accept(ComposeJob.create(user, frame.getId(), request.idempotencyKey(), sourceKeys, spec));
+        // 업로드 발급 때 남긴 "24시간 뒤 원본 삭제" 책임을 작업이 가져간다 — 이제 성공·최종 실패가 원본을 지운다
+        sourceKeys.forEach(s3Deleter::release);
         return ComposeJobResponse.from(job);
     }
 

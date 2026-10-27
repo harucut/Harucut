@@ -36,16 +36,20 @@ import java.util.stream.Collectors;
 public class S3FileStorageService implements FileStorageService {
 
     private static final Duration EXPIRY = Duration.ofHours(24);
+    /** 합성에 쓰이지 않은 원본을 남겨 두는 시간 — 합성은 최대 90초라 하루면 넉넉하다. */
+    static final Duration SOURCE_RETENTION = Duration.ofHours(24);
     private static final String IF_NONE_MATCH = "If-None-Match";
 
     private final S3Presigner s3Presigner;
     private final S3Client s3Client;
     private final String bucket;
     private final Map<UploadType, UploadPathStrategy> strategies;
+    private final S3Deleter s3Deleter;
 
     public S3FileStorageService(S3Presigner s3Presigner, S3Client s3Client,
-                              AwsProperties awsProperties, List<UploadPathStrategy> strategies) {
+                              AwsProperties awsProperties, List<UploadPathStrategy> strategies, S3Deleter s3Deleter) {
         this.s3Presigner = s3Presigner;
+        this.s3Deleter = s3Deleter;
         this.s3Client = s3Client;
         this.bucket = awsProperties.s3().bucket();
         this.strategies = strategies.stream()
@@ -62,6 +66,12 @@ public class S3FileStorageService implements FileStorageService {
     public PresignedUploadResponse generatePresignedUploadUrl(UploadType type, String filename, ContentType contentType, long fileSize, String publicId) {
         String extension = contentType.validateExtension(extractExtension(filename));
         String key = strategies.get(type).generateKey(publicId, extension);
+        if (type == UploadType.FOURCUT_SOURCE) {
+            // 합성 원본은 임시다 — URL 을 내주기 전에 24시간 뒤 지울 책임을 남긴다(s3_deletion). 합성 접수가 그 책임을 가져간다
+            // (ComposeService.requestCompose 의 release). 접수되지 않은 원본(업로드 중 실패·접수 실패)은 재시도 배치가 지운다.
+            // S3 수명 주기 규칙은 못 쓴다 — key 가 uploads/users/{publicId}/fourcuts/sources/ 라 사용자 id 가 prefix 가운데 있다
+            s3Deleter.holdForUpload(key, SOURCE_RETENTION);
+        }
 
         PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                 .bucket(bucket)

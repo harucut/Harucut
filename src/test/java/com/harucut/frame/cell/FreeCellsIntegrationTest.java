@@ -9,7 +9,11 @@ import com.harucut.event.dto.EventSettings;
 import com.harucut.event.service.EventService;
 import com.harucut.frame.dto.FrameVersionResponse;
 import com.harucut.frame.service.FrameVersionService;
+import com.harucut.frame.layout.FrameLayout;
+import com.harucut.frame.repository.FrameVersionRepository;
+import com.harucut.frame.version.FrameSpecComposer;
 import com.harucut.frame.version.FrameSpecV2;
+import com.harucut.media.compose.ComposeSpec;
 import com.harucut.storage.dto.StoredObject;
 import com.harucut.storage.service.FileStorageService;
 import com.harucut.storage.util.S3Keys;
@@ -69,6 +73,8 @@ class FreeCellsIntegrationTest {
     @Autowired private EntitlementRepository entitlementRepository;
     @Autowired private EventService eventService;
     @Autowired private FrameVersionService frameVersionService;
+    @Autowired private FrameSpecComposer frameSpecComposer;
+    @Autowired private FrameVersionRepository frameVersionRepository;
 
     @MockitoBean private FileStorageService fileStorageService;
     @MockitoBean private RateLimiter rateLimiter;
@@ -109,6 +115,12 @@ class FreeCellsIntegrationTest {
         assertThat(spec.layout().cells().get(0).rotation()).isEqualTo(-4.5);
         assertThat(spec.layout().slots().get(0)).isEqualTo(new FrameSpecV2.Slot("s1", 150, 200, 1700, 1200));
         assertThat(spec.slotBindings()).extracting(FrameSpecV2.SlotBinding::sourceIndex).containsExactly(3, 2, 1, 0);
+        // 행사 합성의 스냅샷(발행본 → ComposeSpec)에도 칸마다의 회전·모양·순번이 실린다(ADR-0012 §4)
+        ComposeSpec composed = frameSpecComposer.compose(frameVersionRepository.findById(version.frameVersionId()).orElseThrow());
+        assertThat(composed.cells()).extracting(ComposeSpec.Cell::shotIndex).containsExactly(3, 2, 1, 0);
+        assertThat(composed.cells().get(1).shape()).isEqualTo(ComposeSpec.CellShape.ELLIPSE);
+        assertThat(composed.cells().get(0).cornerRadius()).isEqualTo(40);
+        assertThat(composed.slots().get(0)).isEqualTo(new FrameLayout.Slot(150, 200, 1700, 1200));
 
         Map<String, Object> fixed = frame(workspace, null);
         fixed.put("version", created.path("version").asLong());

@@ -3,6 +3,7 @@ package com.harucut.media.compose;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.frame.attributes.BackgroundAttributes;
+import com.harucut.frame.cell.PhotoCell;
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.entity.FrameComponent;
 import com.harucut.frame.enums.ComponentType;
@@ -31,6 +32,27 @@ class ComposeSpecAssemblerTest {
     @Nested
     @DisplayName("프레임 → 스펙 변환")
     class Assemble {
+
+        @Test
+        @DisplayName("자유 사진 칸(ADR-0012) — 슬롯은 칸 사각형, 칸마다 회전·모양·반지름·순번을 싣는다. 고정 레이아웃이면 cells 없음")
+        void freeCellsMapped() {
+            Frame frame = colorFrame();
+            frame.assignPhotoCells(List.of(
+                    new PhotoCell(150, 200, 1700, 1200, -4.5, new PhotoCell.Shape(PhotoCell.ShapeType.RECT, 40, null), 3),
+                    new PhotoCell(150, 1480, 1700, 1200, 3, new PhotoCell.Shape(PhotoCell.ShapeType.ELLIPSE, null, null), 2),
+                    new PhotoCell(150, 2760, 1700, 1200, 0, new PhotoCell.Shape(PhotoCell.ShapeType.RECT, null, null), 1),
+                    new PhotoCell(100, 4000, 1800, 1300, 180, new PhotoCell.Shape(PhotoCell.ShapeType.ELLIPSE, null, null), 0)));
+
+            ComposeSpec spec = assembler.assemble(frame, null);
+
+            assertThat(spec.slots().get(3)).isEqualTo(new com.harucut.frame.layout.FrameLayout.Slot(100, 4000, 1800, 1300));
+            assertThat(spec.cells()).containsExactly(
+                    new ComposeSpec.Cell(-4.5, ComposeSpec.CellShape.RECT, 40, 3),
+                    new ComposeSpec.Cell(3, ComposeSpec.CellShape.ELLIPSE, 0, 2),
+                    new ComposeSpec.Cell(0, ComposeSpec.CellShape.RECT, 0, 1),
+                    new ComposeSpec.Cell(180, ComposeSpec.CellShape.ELLIPSE, 0, 0));
+            assertThat(assembler.assemble(colorFrame(), null).cells()).isNull();
+        }
 
         @Test
         @DisplayName("캔버스·슬롯은 frameType에서, cellCutouts는 프레임에서 온다")

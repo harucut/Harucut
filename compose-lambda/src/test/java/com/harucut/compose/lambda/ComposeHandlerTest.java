@@ -91,6 +91,28 @@ class ComposeHandlerTest {
     }
 
     @Test
+    @DisplayName("자유 사진 칸(ADR-0012) payload — 서버 잭슨이 실은 cells 를 읽어 모양대로 자른다(타원 밖 모서리는 배경)")
+    void freeCellsPayload() throws IOException {
+        List<Slot> big = List.of(new Slot(0, 0, 40, 40), new Slot(0, 0, 1, 1), new Slot(1, 0, 1, 1), new Slot(2, 0, 1, 1));
+        ComposeSpec spec = new ComposeSpec(40, 40, new BackgroundAttributes.Color("#FFFFFF"), big,
+                List.of(false, false, false, false), List.of(), List.of(
+                new ComposeSpec.Cell(0, ComposeSpec.CellShape.ELLIPSE, 0, 3),
+                new ComposeSpec.Cell(0, ComposeSpec.CellShape.RECT, 0, 2),
+                new ComposeSpec.Cell(0, ComposeSpec.CellShape.RECT, 0, 1),
+                new ComposeSpec.Cell(0, ComposeSpec.CellShape.RECT, 0, 0)));
+        given(s3Client.getObjectAsBytes(any(GetObjectRequest.class)))
+                .willReturn(ResponseBytes.fromByteArray(GetObjectResponse.builder().build(), solidPng(10, 10, Color.RED)));
+
+        new ComposeHandler(s3Client).handleRequest(payloadStream(spec, ImageFormat.PNG), new ByteArrayOutputStream(), null);
+
+        ArgumentCaptor<RequestBody> bodyCaptor = ArgumentCaptor.captor();
+        then(s3Client).should(times(2)).putObject(any(PutObjectRequest.class), bodyCaptor.capture());
+        BufferedImage result = ImageIO.read(bodyCaptor.getAllValues().get(0).contentStreamProvider().newStream());
+        assertThat(new Color(result.getRGB(20, 20))).isEqualTo(Color.RED);
+        assertThat(new Color(result.getRGB(39, 39))).isEqualTo(Color.WHITE);
+    }
+
+    @Test
     @DisplayName("JPEG 를 지시하면 바이트도 contentType 도 JPEG 다 — 셋이 어긋나면 안 된다")
     void honoursJpegOutputFormat() throws IOException {
         ComposeSpec spec = new ComposeSpec(40, 40,

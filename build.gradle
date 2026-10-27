@@ -92,6 +92,9 @@ tasks.named('test') {
         // Docker 가 필요한 실제 MySQL 테스트는 따로 돈다 — H2 단위·슬라이스 테스트가 CI 기본이다
         excludeTags 'mysql'
     }
+    // Gradle 테스트 워커의 기본 힙은 512MB 다. 설정이 다른 @SpringBootTest 컨텍스트가 캐시(기본 32개)에 쌓이면서 모자라
+    // OOM 으로 워커가 멈췄다 — 컨텍스트 하나에 HTTP 클라이언트·커넥션 풀이 같이 산다
+    maxHeapSize = '1536m'
     finalizedBy jacocoTestReport
 }
 

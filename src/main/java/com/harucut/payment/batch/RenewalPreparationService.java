@@ -9,6 +9,8 @@ import com.harucut.payment.repository.BillingKeyRepository;
 import com.harucut.payment.repository.PaymentOrderRepository;
 import com.harucut.subscription.config.PlanPricingProperties;
 import com.harucut.subscription.entity.UserSubscription;
+import com.harucut.subscription.enums.SubscriptionStatus;
+import com.harucut.subscription.enums.SubscriptionSource;
 import com.harucut.subscription.repository.UserSubscriptionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,8 +37,9 @@ public class RenewalPreparationService {
 
     @Transactional
     public void prepare(Long subscriptionId, LocalDateTime baseTime) {
-        UserSubscription subscription = userSubscriptionRepository.findById(subscriptionId).orElse(null);
-        if (subscription == null) {
+        // 리더가 고른 뒤 스토어 등록·갱신이 커밋됐을 수 있다 — 행을 잠그고 리더와 같은 조건을 다시 본다(아니면 쿠폰도 청구도 없이 건너뛴다)
+        UserSubscription subscription = userSubscriptionRepository.lockById(subscriptionId).orElse(null);
+        if (subscription == null || !isRenewable(subscription, baseTime)) {
             return;
         }
 
@@ -68,5 +71,15 @@ public class RenewalPreparationService {
         int amount = planPricingProperties.priceOf(subscription.getPlanTier());
         paymentOrderRepository.save(
                 PaymentOrder.createRenewal(userId, subscription.getPlanTier(), amount, idempotencyKey));
+    }
+
+    // SubscriptionRenewalJobConfig 의 리더 조건과 같다 — 둘 중 하나만 바꾸면 고르고도 건너뛰거나 재확인 없이 청구한다
+    static boolean isRenewable(UserSubscription subscription, LocalDateTime baseTime) {
+        SubscriptionStatus status = subscription.getSubscriptionStatus();
+        SubscriptionSource source = subscription.getSource();
+        return (status == SubscriptionStatus.ACTIVE || status == SubscriptionStatus.PAST_DUE)
+                && (source == null || source == SubscriptionSource.WEB)
+                && subscription.getCurrentPeriodEnd() != null
+                && !subscription.getCurrentPeriodEnd().isAfter(baseTime);
     }
 }

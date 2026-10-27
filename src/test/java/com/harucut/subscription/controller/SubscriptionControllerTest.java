@@ -8,6 +8,7 @@ import com.harucut.common.exception.BusinessException;
 import com.harucut.config.SecurityConfig;
 import com.harucut.subscription.dto.SubscriptionResponse;
 import com.harucut.subscription.enums.PlanTier;
+import com.harucut.subscription.enums.SubscriptionSource;
 import com.harucut.subscription.enums.SubscriptionStatus;
 import com.harucut.subscription.exception.SubscriptionErrorCode;
 import com.harucut.subscription.service.SubscriptionService;
@@ -61,7 +62,8 @@ class SubscriptionControllerTest extends SecurityBeansMockSupport {
         void paidSubscription() {
             given(subscriptionService.getMySubscription(PUBLIC_ID)).willReturn(new SubscriptionResponse(
                     PlanTier.PLUS, SubscriptionStatus.ACTIVE,
-                    LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 9, 1, 0, 0), true));
+                    LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 9, 1, 0, 0), true,
+                    SubscriptionSource.APP_STORE, "4a1d6f0e-2b3c-3d4e-9f00-112233445566"));
 
             assertThat(mockMvc.get().uri(BASE_URI).cookie(accessCookie()))
                     .hasStatusOk()
@@ -72,21 +74,24 @@ class SubscriptionControllerTest extends SecurityBeansMockSupport {
                             s -> assertThat(s).isEqualTo("2026-08-01T00:00:00"))
                     .hasPathSatisfying("$.data.currentPeriodEnd",
                             e -> assertThat(e).isEqualTo("2026-09-01T00:00:00"))
-                    .hasPathSatisfying("$.data.autoRenew", a -> assertThat(a).isEqualTo(true));
+                    .hasPathSatisfying("$.data.autoRenew", a -> assertThat(a).isEqualTo(true))
+                    .hasPathSatisfying("$.data.source", a -> assertThat(a).isEqualTo("APP_STORE"))
+                    .hasPathSatisfying("$.data.storeAccountToken", a -> assertThat(a).isEqualTo("4a1d6f0e-2b3c-3d4e-9f00-112233445566"));
         }
 
         @Test
         @DisplayName("BASIC은 null 주기 필드가 응답에서 통째로 빠진다 — non_null 직렬화")
         void basicOmitsNullPeriods() {
             given(subscriptionService.getMySubscription(PUBLIC_ID)).willReturn(new SubscriptionResponse(
-                    PlanTier.BASIC, SubscriptionStatus.ACTIVE, null, null, false));
+                    PlanTier.BASIC, SubscriptionStatus.ACTIVE, null, null, false, null, "token"));
 
             assertThat(mockMvc.get().uri(BASE_URI).cookie(accessCookie()))
                     .hasStatusOk()
                     .bodyJson()
                     .hasPathSatisfying("$.data.planTier", p -> assertThat(p).isEqualTo("BASIC"))
                     .doesNotHavePath("$.data.currentPeriodStart")
-                    .doesNotHavePath("$.data.currentPeriodEnd");
+                    .doesNotHavePath("$.data.currentPeriodEnd")
+                    .doesNotHavePath("$.data.source");
         }
 
         @Test

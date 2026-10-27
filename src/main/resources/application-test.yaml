@@ -58,3 +58,8 @@ storage:
   deletion:
     # 테스트는 재시도 배치를 직접 부른다 — 예약 주기가 테스트 도중 끼어들지 않게 길게
     retry-interval: 3650d
+billing:
+  store:
+    google:
+      # 테스트용 RTDN 푸시 토큰 — 컨텍스트마다 속성을 바꾸면 캐시된 컨텍스트가 늘어 테스트 JVM 메모리가 모자란다
+      push-token: test-push-token

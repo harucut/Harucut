@@ -16,6 +16,7 @@ import com.harucut.payment.service.PaymentHistoryService;
 import com.harucut.payment.service.PaymentService;
 import com.harucut.subscription.dto.SubscriptionResponse;
 import com.harucut.subscription.enums.PlanTier;
+import com.harucut.subscription.enums.SubscriptionSource;
 import com.harucut.subscription.enums.SubscriptionStatus;
 import com.harucut.support.FixedClockConfig;
 import com.harucut.support.SecurityBeansMockSupport;
@@ -80,7 +81,8 @@ class PaymentControllerTest extends SecurityBeansMockSupport {
     void success() {
         given(paymentService.subscribe(eq(PUBLIC_ID), any(SubscribeRequest.class)))
                 .willReturn(new SubscriptionResponse(PlanTier.PLUS, SubscriptionStatus.ACTIVE,
-                        LocalDateTime.of(2026, 8, 18, 10, 0), LocalDateTime.of(2026, 9, 18, 10, 0), true));
+                        LocalDateTime.of(2026, 8, 18, 10, 0), LocalDateTime.of(2026, 9, 18, 10, 0), true,
+                        SubscriptionSource.WEB, "token"));
 
         assertThat(post(VALID_BODY))
                 .hasStatusOk()
@@ -94,7 +96,8 @@ class PaymentControllerTest extends SecurityBeansMockSupport {
     @DisplayName("요청 본문이 DTO로 매핑되어 principal의 publicId와 함께 서비스로 간다")
     void mapsRequestBody() {
         given(paymentService.subscribe(eq(PUBLIC_ID), any(SubscribeRequest.class)))
-                .willReturn(new SubscriptionResponse(PlanTier.PLUS, SubscriptionStatus.ACTIVE, null, null, true));
+                .willReturn(new SubscriptionResponse(PlanTier.PLUS, SubscriptionStatus.ACTIVE, null, null, true,
+                        SubscriptionSource.WEB, "token"));
 
         post(VALID_BODY);
 

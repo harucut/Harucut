@@ -1,7 +1,9 @@
 package com.harucut.payment.batch;
 
 import com.harucut.payment.config.PaymentProperties;
+import com.harucut.subscription.enums.SubscriptionSource;
 import com.harucut.subscription.enums.SubscriptionStatus;
+import com.harucut.subscription.store.config.StoreProperties;
 import com.harucut.subscription.service.SubscriptionExpirationService;
 import jakarta.persistence.EntityManagerFactory;
 import lombok.extern.slf4j.Slf4j;
@@ -67,6 +69,7 @@ public class SubscriptionExpirationJobConfig {
     public JpaCursorItemReader<Long> expirableSubscriptionReader(
             EntityManagerFactory entityManagerFactory,
             PaymentProperties paymentProperties,
+            StoreProperties storeProperties,
             @Value("#{jobParameters['runDate']}") LocalDate runDate) {
         LocalDateTime baseTime = runDate.atStartOfDay();
         return new JpaCursorItemReaderBuilder<Long>()
@@ -76,13 +79,23 @@ public class SubscriptionExpirationJobConfig {
                         select s.id from UserSubscription s
                         where s.currentPeriodEnd is not null
                             and ((s.subscriptionStatus in :immediateStatuses and s.currentPeriodEnd <= :baseTime)
-                            or (s.subscriptionStatus = :pastDue and s.currentPeriodEnd <= :graceLimit))
+                            or (s.subscriptionStatus = :pastDue and (s.source is null or s.source = :web)
+                                and s.currentPeriodEnd <= :graceLimit)
+                            or (s.source in :storeSources and s.subscriptionStatus in :storeRenewing
+                                and s.currentPeriodEnd <= :storeGraceLimit))
                         """)
+                // 이 조건은 SubscriptionExpirationService.isExpirable 이 처리 직전에 다시 본다 — 둘을 같이 바꿀 것.
+                // 스토어 구독(ADR-0011 §2)은 스토어가 갱신한다 — 기한이 지나고 유예(billing.store.grace-days)가 지나도 갱신 알림이 없으면 강등.
+                // 읽기 시점 등급은 기한에서 바로 BASIC 이다(effectiveTier)
                 .parameterValues(Map.of(
                         "immediateStatuses", List.of(SubscriptionStatus.CANCELED, SubscriptionStatus.GRANTED),
                         "pastDue", SubscriptionStatus.PAST_DUE,
+                        "web", SubscriptionSource.WEB,
                         "baseTime", baseTime,
-                        "graceLimit", baseTime.minusDays(paymentProperties.graceDays())))
+                        "graceLimit", baseTime.minusDays(paymentProperties.graceDays()),
+                        "storeSources", List.of(SubscriptionSource.APP_STORE, SubscriptionSource.PLAY_STORE),
+                        "storeRenewing", List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.PAST_DUE),
+                        "storeGraceLimit", baseTime.minusDays(storeProperties.graceDays())))
                 .build();
     }
 

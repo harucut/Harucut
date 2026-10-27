@@ -13,6 +13,7 @@ import com.harucut.payment.repository.PaymentOrderRepository;
 import com.harucut.payment.repository.PaymentRepository;
 import com.harucut.subscription.entity.UserSubscription;
 import com.harucut.subscription.enums.PlanTier;
+import com.harucut.subscription.enums.SubscriptionSource;
 import com.harucut.subscription.enums.SubscriptionStatus;
 import com.harucut.subscription.repository.UserSubscriptionRepository;
 import com.harucut.support.UserFixtures;
@@ -127,6 +128,32 @@ class SubscriptionExpirationJobTest {
     }
 
     @Test
+    @DisplayName("스토어 구독: 자동갱신을 끈 것은 기한에 바로, 갱신 중(ACTIVE·PAST_DUE)인데 알림이 없으면 유예(3일) 뒤에 강등 — 출처도 지운다")
+    void storeSubscriptions() throws Exception {
+        LocalDate runDate = LocalDate.of(2033, 8, 8);
+        LocalDateTime base = runDate.atStartOfDay();
+        User canceled = saveUser("expire-store-canceled@harucut.com");
+        saveStore(canceled, SubscriptionStatus.CANCELED, base);
+        User inGrace = saveUser("expire-store-grace@harucut.com");
+        saveStore(inGrace, SubscriptionStatus.ACTIVE, base.minusDays(2));
+        User lost = saveUser("expire-store-lost@harucut.com");
+        saveStore(lost, SubscriptionStatus.ACTIVE, base.minusDays(3));
+        User retrying = saveUser("expire-store-retry@harucut.com");
+        saveStore(retrying, SubscriptionStatus.PAST_DUE, base.minusDays(3));
+
+        JobExecution execution = jobOperator.start(subscriptionExpirationJob, params(runDate));
+
+        assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED);
+        for (User expired : new User[]{canceled, lost, retrying}) {
+            UserSubscription subscription = userSubscriptionRepository.findByUserId(expired.getId()).orElseThrow();
+            assertThat(subscription.getSubscriptionStatus()).isEqualTo(SubscriptionStatus.EXPIRED);
+            assertThat(subscription.getSource()).isNull();
+        }
+        assertThat(userSubscriptionRepository.findByUserId(inGrace.getId()).orElseThrow().getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.ACTIVE);
+    }
+
+    @Test
     @DisplayName("예약 쿠폰이 있으면 강등 대신 grant로 이어진다 — 카드는 그대로 남는다")
     void reservedCouponConvertsToGrant() throws Exception {
         LocalDate runDate = LocalDate.of(2032, 2, 10);
@@ -225,6 +252,13 @@ class SubscriptionExpirationJobTest {
     private void saveGranted(User user, LocalDateTime periodEnd) {
         UserSubscription subscription = UserSubscription.createBasic(user.getId());
         subscription.activateGrant(PlanTier.PLUS, periodEnd.minusMonths(1), periodEnd);
+        userSubscriptionRepository.save(subscription);
+    }
+
+    private void saveStore(User user, SubscriptionStatus status, LocalDateTime periodEnd) {
+        UserSubscription subscription = UserSubscription.createBasic(user.getId());
+        subscription.activateStore(SubscriptionSource.PLAY_STORE, PlanTier.PLUS, status, periodEnd.minusMonths(1), periodEnd,
+                status != SubscriptionStatus.CANCELED);
         userSubscriptionRepository.save(subscription);
     }
 

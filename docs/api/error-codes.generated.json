@@ -407,6 +407,22 @@
   "status" : 409,
   "message" : "There is no auto-renewal to cancel for this subscription."
 }, {
+  "code" : "SUBS-007",
+  "status" : 400,
+  "message" : "The store purchase could not be verified."
+}, {
+  "code" : "SUBS-008",
+  "status" : 409,
+  "message" : "The store purchase belongs to another account."
+}, {
+  "code" : "SUBS-009",
+  "status" : 409,
+  "message" : "Already subscribed through another payment source."
+}, {
+  "code" : "SUBS-010",
+  "status" : 400,
+  "message" : "Unknown store product."
+}, {
   "code" : "TERMS-001",
   "status" : 404,
   "message" : "The requested terms do not exist or are inactive."

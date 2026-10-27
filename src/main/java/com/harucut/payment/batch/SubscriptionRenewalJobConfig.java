@@ -2,6 +2,7 @@ package com.harucut.payment.batch;
 
 import com.harucut.payment.enums.OrderStatus;
 import com.harucut.payment.enums.OrderType;
+import com.harucut.subscription.enums.SubscriptionSource;
 import com.harucut.subscription.enums.SubscriptionStatus;
 import jakarta.persistence.EntityManagerFactory;
 import lombok.extern.slf4j.Slf4j;
@@ -98,11 +99,15 @@ public class SubscriptionRenewalJobConfig {
                 .queryString("""
                         select s.id from UserSubscription s
                         where s.subscriptionStatus in :statuses
+                            and (s.source is null or s.source = :web)
                             and s.currentPeriodEnd is not null
                             and s.currentPeriodEnd <= :baseTime
                         """)
+                // 웹 정기결제만 청구한다 — 스토어 구독은 스토어가 갱신하고 카드도 없다(ADR-0011 §2).
+                // 이 조건은 RenewalPreparationService.isRenewable 이 처리 직전에 다시 본다 — 둘을 같이 바꿀 것
                 .parameterValues(Map.of(
                         "statuses", List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.PAST_DUE),
+                        "web", SubscriptionSource.WEB,
                         "baseTime", runDate.atStartOfDay()))
                 .build();
     }

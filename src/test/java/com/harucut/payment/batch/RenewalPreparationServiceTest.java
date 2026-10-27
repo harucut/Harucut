@@ -12,6 +12,7 @@ import com.harucut.payment.repository.PaymentOrderRepository;
 import com.harucut.subscription.config.PlanPricingProperties;
 import com.harucut.subscription.entity.UserSubscription;
 import com.harucut.subscription.enums.PlanTier;
+import com.harucut.subscription.enums.SubscriptionSource;
 import com.harucut.subscription.enums.SubscriptionStatus;
 import com.harucut.subscription.repository.UserSubscriptionRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -88,7 +89,7 @@ class RenewalPreparationServiceTest {
     @Test
     @DisplayName("구독이 사라졌으면 아무것도 하지 않는다")
     void missingSubscriptionDoesNothing() {
-        given(userSubscriptionRepository.findById(SUB_ID)).willReturn(Optional.empty());
+        given(userSubscriptionRepository.lockById(SUB_ID)).willReturn(Optional.empty());
 
         service.prepare(SUB_ID, BASE_TIME);
 
@@ -154,6 +155,35 @@ class RenewalPreparationServiceTest {
         then(paymentOrderRepository).should(never()).save(any());
     }
 
+    @Test
+    @DisplayName("#43: 리더가 고른 뒤 스토어 등록이 커밋됐으면(출처 APP_STORE) 잠그고 다시 봐서 건너뛴다 — 예약 쿠폰을 쓰지도, 주문을 만들지도 않는다")
+    void skipsWhenSwitchedToStore() {
+        UserSubscription store = UserSubscription.createBasic(USER_ID);
+        store.activateStore(SubscriptionSource.APP_STORE, PlanTier.PLUS, SubscriptionStatus.ACTIVE,
+                BASE_TIME.minusDays(1), BASE_TIME.plusMonths(1), true);
+        store.reserveGrant(77L);
+        ReflectionTestUtils.setField(store, "id", SUB_ID);
+        givenSubscription(store);
+
+        service.prepare(SUB_ID, BASE_TIME);
+
+        then(grantActivationService).shouldHaveNoInteractions();
+        then(paymentOrderRepository).should(never()).save(any());
+        assertThat(store.getSource()).isEqualTo(SubscriptionSource.APP_STORE);
+    }
+
+    @Test
+    @DisplayName("재확인 조건은 리더와 같다 — 웹(또는 출처 없음) ACTIVE·PAST_DUE 이고 기한이 기준 시각 이전")
+    void renewableMatchesReader() {
+        assertThat(RenewalPreparationService.isRenewable(activePlus(), BASE_TIME)).isTrue();
+        UserSubscription future = UserSubscription.createBasic(USER_ID);
+        future.activatePaid(PlanTier.PLUS, BASE_TIME, BASE_TIME.plusDays(1));
+        assertThat(RenewalPreparationService.isRenewable(future, BASE_TIME)).isFalse();
+        UserSubscription canceled = activePlus();
+        canceled.cancelAutoRenew();
+        assertThat(RenewalPreparationService.isRenewable(canceled, BASE_TIME)).isFalse();
+    }
+
     // ── fixtures ──────────────────────────────
 
     private UserSubscription activePlus() {
@@ -165,7 +195,7 @@ class RenewalPreparationServiceTest {
     }
 
     private void givenSubscription(UserSubscription subscription) {
-        given(userSubscriptionRepository.findById(SUB_ID)).willReturn(Optional.of(subscription));
+        given(userSubscriptionRepository.lockById(SUB_ID)).willReturn(Optional.of(subscription));
     }
 
     private BillingKey billingKey() {

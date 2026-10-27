@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Arrays;
 import java.util.List;
 
-@Tag(name = "행사 설정")
+@Tag(name = "행사 운영")
 @RestController
 public class TextStyleController {
 

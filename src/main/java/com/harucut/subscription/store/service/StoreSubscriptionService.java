@@ -1,6 +1,7 @@
 package com.harucut.subscription.store.service;
 
 import com.harucut.common.exception.BusinessException;
+import com.harucut.coupon.service.GrantActivationService;
 import com.harucut.payment.exception.PaymentErrorCode;
 import com.harucut.payment.webhook.WebhookReceiptRepository;
 import com.harucut.subscription.dto.SubscriptionResponse;
@@ -55,6 +56,7 @@ public class StoreSubscriptionService {
     private final PlayStoreVerifier playStoreVerifier;
     private final StoreProperties properties;
     private final WebhookReceiptRepository receiptRepository;
+    private final GrantActivationService grantActivationService;
     private final Clock clock;
     private final TransactionTemplate transaction;
 
@@ -68,7 +70,11 @@ public class StoreSubscriptionService {
         }
         UserSubscription subscription = lockSubscription(userPublicId);
         requireNoOtherSource(subscription, request.platform(), now);
-        bind(subscription.getUserId(), userPublicId, verified, tier, now);
+        StorePurchase purchase = bind(subscription.getUserId(), userPublicId, verified, tier, now);
+        if (!purchase.grantsAt(now)) {
+            // 이미 환불·만료로 기록된 구매의 옛 증빙 — 저장된 상태가 이긴다
+            throw new BusinessException(SubscriptionErrorCode.STORE_VERIFICATION_FAILED, "환불·만료로 기록된 구매의 옛 증빙");
+        }
         sync(subscription, subscription.getUserId(), request.platform(), now);
         return SubscriptionResponse.of(subscription, subscription.effectiveTier(now), userPublicId);
     }
@@ -94,8 +100,9 @@ public class StoreSubscriptionService {
                 otherSourceChecked = true;
             }
             try {
-                bind(subscription.getUserId(), userPublicId, verified.get(), tier.get(), now);
-                restored++;
+                if (bind(subscription.getUserId(), userPublicId, verified.get(), tier.get(), now).grantsAt(now)) {
+                    restored++;
+                }
             } catch (BusinessException e) {
                 if (e.getErrorCode() != SubscriptionErrorCode.STORE_PURCHASE_OWNED_BY_OTHER) {
                     throw e;
@@ -185,14 +192,16 @@ public class StoreSubscriptionService {
         if (notificationId != null && receiptRepository.recordOnce(now, verified.platform().name(), notificationId, type) == 0) {
             return;   // 이미 처리한 알림
         }
-        PlanTier tier = properties.products().get(verified.productId());
         StorePurchase purchase = purchaseRepository.lockByKey(verified.platform(), StorePurchase.hash(verified.storeKey())).orElseThrow();
         // 늦게 도착한 옛 알림이 만료를 되돌리지 않게 — 환불이 아니면 기한은 앞으로만
         VerifiedPurchase merged = !verified.revoked() && verified.expiresAt().isBefore(purchase.getExpiresAt())
                 ? new VerifiedPurchase(verified.platform(), verified.storeKey(), purchase.getProductId(), purchase.getExpiresAt(),
                 verified.autoRenew(), false, verified.billingRetry(), verified.environment(), verified.accountToken())
                 : verified;
-        purchase.apply(merged, tier != null ? tier : purchase.getPlanTier(), now);
+        // 저장된 상품·기한을 남겼으면 등급도 저장값 — 알림 상품의 등급과 섞지 않는다(모르는 상품도 저장값)
+        PlanTier tier = merged == verified ? properties.products().getOrDefault(verified.productId(), purchase.getPlanTier())
+                : purchase.getPlanTier();
+        purchase.apply(merged, tier, now);
         // 이 스토어가 구독의 출처면 늘 맞추고(연장·강등), 지금 무료·쿠폰이면 유효한 구매로 다시 올린다. 웹·다른 스토어로 구독 중이면 구매만 갱신
         SubscriptionSource active = activeSource(subscription, now);
         boolean drivenByThis = subscription.getSource() == verified.platform().source();
@@ -202,20 +211,28 @@ public class StoreSubscriptionService {
         }
     }
 
-    // 이 계정에 묶는다 — 이미 다른 계정 것이거나 다른 계정 표시가 실렸으면 SUBS-008
-    private void bind(Long userId, String userPublicId, VerifiedPurchase verified, PlanTier tier, LocalDateTime now) {
+    /**
+     * 이 계정에 묶는다 — 이미 다른 계정 것이거나 다른 계정 표시가 실렸으면 SUBS-008.
+     * 앱이 보낸 증빙은 서명은 맞아도 옛 스냅샷일 수 있다(환불·자동갱신 끔은 거래 JWS 에 늦게 실리거나 안 실린다). 그래서 이미 있는 구매는
+     * 저장값보다 늦게 끝나는(새 갱신의) 증빙일 때만 바꾼다 — 알림이 반영한 환불(REVOKED)·자동갱신 끔을 옛 증빙이 되돌리지 못한다
+     */
+    private StorePurchase bind(Long userId, String userPublicId, VerifiedPurchase verified, PlanTier tier, LocalDateTime now) {
         if (verified.accountToken() != null && !verified.accountToken().equalsIgnoreCase(StoreAccountTokens.of(userPublicId))) {
             throw new BusinessException(SubscriptionErrorCode.STORE_PURCHASE_OWNED_BY_OTHER, "다른 계정 표시가 실린 구매");
         }
         String hash = StorePurchase.hash(verified.storeKey());
         // 넣어 보고(없는 키를 잠금 읽기하면 빈 구간 gap lock 끼리 교착한다) 그 행을 잠금 읽기로 다시 본다 — 먼저 묶은 계정이 이긴다
-        purchaseRepository.insertIfAbsent(userId, verified.platform().name(), verified.storeKey(), hash, verified.productId(),
-                tier.name(), verified.statusAt(now).name(), verified.autoRenew(), verified.expiresAt(), verified.environment().name(), now);
+        int inserted = purchaseRepository.insertIfAbsent(userId, verified.platform().name(), verified.storeKey(), hash,
+                verified.productId(), tier.name(), verified.statusAt(now).name(), verified.autoRenew(), verified.expiresAt(),
+                verified.environment().name(), now);
         StorePurchase purchase = purchaseRepository.lockByKey(verified.platform(), hash).orElseThrow();
         if (!purchase.getUserId().equals(userId)) {
             throw new BusinessException(SubscriptionErrorCode.STORE_PURCHASE_OWNED_BY_OTHER, "다른 계정에 묶인 구매");
         }
-        purchase.apply(verified, tier, now);
+        if (inserted == 1 || verified.expiresAt().isAfter(purchase.getExpiresAt())) {
+            purchase.apply(verified, tier, now);
+        }
+        return purchase;
     }
 
     // 이 플랫폼에서 이 계정이 가진 구매 중 지금 등급을 주는 것(가장 늦게 끝나는 것)으로 구독을 맞춘다. 없으면 이 플랫폼이 출처였을 때만 강등
@@ -232,7 +249,12 @@ public class StoreSubscriptionService {
             };
             subscription.activateStore(platform.source(), purchase.getPlanTier(), status, now, purchase.getExpiresAt(), purchase.isAutoRenew());
         } else if (subscription.getSource() == platform.source()) {
-            subscription.expireToFree();
+            // 예약 쿠폰이 있으면 강등 대신 이어 받는다 — 만료 배치(SubscriptionExpirationService)와 같은 규칙
+            if (subscription.getReservedUserCouponId() != null) {
+                grantActivationService.activate(subscription, now);
+            } else {
+                subscription.expireToFree();
+            }
         }
     }
 

@@ -1,6 +1,11 @@
 package com.harucut.subscription.store;
 
 import com.harucut.auth.service.JwtTokenService;
+import com.harucut.coupon.entity.Coupon;
+import com.harucut.coupon.entity.UserCoupon;
+import com.harucut.coupon.enums.UserCouponStatus;
+import com.harucut.coupon.repository.CouponRepository;
+import com.harucut.coupon.repository.UserCouponRepository;
 import com.harucut.subscription.entity.UserSubscription;
 import com.harucut.subscription.enums.PlanTier;
 import com.harucut.subscription.enums.SubscriptionSource;
@@ -45,6 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class StoreNotificationIntegrationTest {
 
     private static final String PLUS = "harucut.plus.monthly";
+    private static final String PRO = "harucut.pro.monthly";
 
     @Autowired private MockMvcTester mvc;
     @Autowired private ObjectMapper objectMapper;
@@ -53,8 +59,11 @@ class StoreNotificationIntegrationTest {
     @Autowired private UserSubscriptionRepository subscriptionRepository;
     @Autowired private StorePurchaseRepository purchaseRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private CouponRepository couponRepository;
+    @Autowired private UserCouponRepository userCouponRepository;
 
     private final List<Long> users = new ArrayList<>();
+    private final List<Long> coupons = new ArrayList<>();
     private User user;
     // DB 왕복에서 마이크로초가 잘리지 않게
     private final LocalDateTime later = LocalDateTime.now().plusDays(30).truncatedTo(ChronoUnit.SECONDS);
@@ -67,10 +76,12 @@ class StoreNotificationIntegrationTest {
     @AfterEach
     void cleanUp() {
         users.forEach(id -> {
+            jdbcTemplate.update("delete from user_coupon where user_id = ?", id);
             jdbcTemplate.update("delete from store_purchase where user_id = ?", id);
             jdbcTemplate.update("delete from user_subscription where user_id = ?", id);
             jdbcTemplate.update("delete from users where user_id = ?", id);
         });
+        coupons.forEach(id -> jdbcTemplate.update("delete from coupon where coupon_id = ?", id));
         jdbcTemplate.update("delete from webhook_receipt where provider in ('APP_STORE', 'PLAY_STORE')");
     }
 
@@ -135,12 +146,81 @@ class StoreNotificationIntegrationTest {
         assertThat(postWebhook("/api/payments/webhooks/google-play?token=test-push-token", rtdn("mock:{}"))).hasStatusOk();
     }
 
+    @Test
+    @DisplayName("#43 P1: 환불(REVOKED)·자동갱신 끔(CANCELED)으로 기록된 구매의 옛 증빙을 다시 내도 되돌리지 못한다 — 등록 SUBS-007, 복원은 건너뜀, 더 늦게 끝나는 새 갱신 증빙만 반영")
+    void staleProofCannotRevertStoredState() {
+        String proof = proof("tx-20", PLUS, later, Map.of());
+        assertThat(purchase(user, "APP_STORE", PLUS, proof)).hasStatusOk();
+        notify("n-20", "DID_CHANGE_RENEWAL_STATUS", transaction("tx-20", later, Map.of("autoRenew", false)));
+        assertThat(purchase(user, "APP_STORE", PLUS, proof)).hasStatusOk();   // 같은 기한의 옛 증빙 — 저장 상태 유지
+        assertThat(subscription(user).getSubscriptionStatus()).isEqualTo(SubscriptionStatus.CANCELED);
+        assertThat(subscription(user).isAutoRenew()).isFalse();
+
+        notify("n-21", "REFUND", transaction("tx-20", later, Map.of("revoked", true)));
+        assertThat(purchase(user, "APP_STORE", PLUS, proof)).hasStatus(400).bodyJson()
+                .hasPathSatisfying("$.code", v -> assertThat(v).isEqualTo("SUBS-007"));
+        assertThat(restore(user, "APP_STORE", List.of(Map.of("productId", PLUS, "proof", proof)))).hasStatusOk().bodyJson()
+                .hasPathSatisfying("$.data.planTier", v -> assertThat(v).isEqualTo("BASIC"));
+        assertThat(purchaseRepository.findAllByUserIdAndPlatform(user.getId(), StorePlatform.APP_STORE)).singleElement()
+                .satisfies(row -> assertThat(row.getStatus()).isEqualTo(StorePurchaseStatus.REVOKED));
+
+        // 환불 뒤 같은 원거래로 다시 구독(더 늦게 끝나는 새 거래) — 반영된다
+        assertThat(purchase(user, "APP_STORE", PLUS, proof("tx-20", PLUS, later.plusMonths(1), Map.of()))).hasStatusOk().bodyJson()
+                .hasPathSatisfying("$.data.planTier", v -> assertThat(v).isEqualTo("PLUS"));
+    }
+
+    @Test
+    @DisplayName("#43 P2: 저장 PRO 구매에 늦게 온 옛 PLUS 알림 — 상품·기한을 남기면 등급도 PRO 를 남긴다")
+    void staleNotificationKeepsStoredTier() {
+        assertThat(purchase(user, "APP_STORE", PRO, proof("tx-21", PRO, later, Map.of()))).hasStatusOk();
+
+        notify("n-22", "DID_RENEW", transaction("tx-21", later.minusDays(10), Map.of(), PLUS));
+
+        assertThat(purchaseRepository.findAllByUserIdAndPlatform(user.getId(), StorePlatform.APP_STORE)).singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getProductId()).isEqualTo(PRO);
+                    assertThat(row.getPlanTier()).isEqualTo(PlanTier.PRO);
+                });
+        assertThat(subscription(user).getPlanTier()).isEqualTo(PlanTier.PRO);
+    }
+
+    @Test
+    @DisplayName("#43 P2: 쿠폰을 예약한 스토어 구독자에게 만료 알림이 먼저 오면 강등 대신 쿠폰을 이어 받는다(만료 배치와 같은 규칙)")
+    void expiryActivatesReservedCoupon() throws InterruptedException {
+        LocalDateTime soon = LocalDateTime.now().plusSeconds(2).truncatedTo(ChronoUnit.MILLIS);
+        assertThat(purchase(user, "APP_STORE", PLUS, proof("tx-22", PLUS, soon, Map.of()))).hasStatusOk();
+        Coupon coupon = couponRepository.save(Coupon.create("스토어 만료 쿠폰", "STORE-EXPIRE-" + System.nanoTime() % 100000, PlanTier.PRO, null, null));
+        coupons.add(coupon.getId());
+        UserCoupon reserved = userCouponRepository.save(UserCoupon.reserved(coupon, user.getId(), LocalDateTime.now()));
+        UserSubscription subscription = subscription(user);
+        subscription.reserveGrant(reserved.getId());
+        subscriptionRepository.save(subscription);
+
+        Thread.sleep(2500);   // 그 기한이 지났다
+        notify("n-23", "EXPIRED", transaction("tx-22", soon, Map.of()));
+
+        UserSubscription granted = subscription(user);
+        assertThat(granted.getSubscriptionStatus()).isEqualTo(SubscriptionStatus.GRANTED);
+        assertThat(granted.getPlanTier()).isEqualTo(PlanTier.PRO);
+        assertThat(granted.getSource()).isEqualTo(SubscriptionSource.COUPON);
+        assertThat(granted.getReservedUserCouponId()).isNull();
+        assertThat(userCouponRepository.findById(reserved.getId()).orElseThrow().getStatus()).isEqualTo(UserCouponStatus.REDEEMED);
+    }
+
     private String proof(String storeKey, String productId, LocalDateTime expiresAt, Map<String, Object> extra) {
         return "mock:" + objectMapper.writeValueAsString(transaction(storeKey, expiresAt, extra, productId));
     }
 
     private Map<String, Object> transaction(String storeKey, LocalDateTime expiresAt, Map<String, Object> extra) {
         return transaction(storeKey, expiresAt, extra, PLUS);
+    }
+
+    private MvcTestResult restore(User who, String platform, List<Map<String, String>> items) {
+        return mvc.post().uri("/api/auth/subscriptions/store-purchases/restore").contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of("platform", platform, "items", items)))
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtTokenService
+                        .createAccessToken(who.getPublicId(), who.getUserRole(), who.getUserStatus()).value())
+                .exchange();
     }
 
     private static Map<String, Object> transaction(String storeKey, LocalDateTime expiresAt, Map<String, Object> extra, String productId) {

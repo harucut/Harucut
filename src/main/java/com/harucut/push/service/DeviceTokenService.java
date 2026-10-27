@@ -7,6 +7,7 @@ import com.harucut.push.entity.DevicePlatform;
 import com.harucut.push.entity.DeviceToken;
 import com.harucut.push.repository.DeviceTokenRepository;
 import com.harucut.user.entity.User;
+import com.harucut.user.enums.UserStatus;
 import com.harucut.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +36,11 @@ public class DeviceTokenService {
     public void register(String publicId, DeviceRegisterRequest request) {
         User user = userRepository.lockByPublicId(publicId)
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        // 잠근 뒤 상태를 다시 본다 — 토큰은 발급 시점 상태라 그사이 탈퇴 요청·정지·탈퇴 처리된 계정에 기기를 묶지 않는다.
+        // 탈퇴 처리(UserExitService)는 기기 행을 먼저 지우고 회원 행을 나중에 고치므로, 여기서 기기 행에 손대기 전에 끝나야 교차 대기가 없다
+        if (user.getUserStatus() != UserStatus.ACTIVE) {
+            throw new BusinessException(GlobalErrorCode.FORBIDDEN);
+        }
         LocalDateTime now = LocalDateTime.now(clock);
         deviceTokenRepository.upsert(user.getId(), request.token(), DevicePlatform.from(request.platform()).name(), now);
 

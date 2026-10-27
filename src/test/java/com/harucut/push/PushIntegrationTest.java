@@ -95,6 +95,19 @@ class PushIntegrationTest {
     }
 
     @Test
+    @DisplayName("토큰 발급 뒤 탈퇴 요청한 계정은 등록할 수 없다(잠근 뒤 DB 상태로 판정) — 403 GEN-021")
+    void deletedRequestedCannotRegister() {
+        String bearer = "Bearer " + jwtTokenService.createAccessToken(user.getPublicId(), user.getUserRole(), user.getUserStatus()).value();
+        user.deleteRequested(java.time.LocalDateTime.now());
+        userRepository.flush();
+
+        assertCode(mvc.post().uri("/api/auth/devices").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"token\":\"" + TOKEN + "\",\"platform\":\"ios\"}")
+                .header(HttpHeaders.AUTHORIZATION, bearer).exchange(), 403, "GEN-021");
+        assertThat(deviceTokenRepository.findAll()).isEmpty();
+    }
+
+    @Test
     @DisplayName("Expo 형식이 아닌 토큰·소문자가 아닌 플랫폼은 400 GEN-003")
     void validation() {
         assertCode(register(user, "fcm-raw-token", "ios"), 400, "GEN-003");

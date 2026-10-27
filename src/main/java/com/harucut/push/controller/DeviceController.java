@@ -38,6 +38,7 @@ public class DeviceController {
                     """)
     @ApiErrors({
             "GEN-003: token 이 Expo 형식이 아니거나 platform 이 ios·android 가 아님",
+            "GEN-021: 탈퇴 요청·정지 상태(잠근 뒤 다시 본 상태)",
             "GEN-031: 토큰은 유효한데 그 계정이 사라짐"
     })
     @PostMapping

@@ -24,6 +24,8 @@ class TextRendererTest {
 
         assertThat(normalized.lines()).containsExactly("민지 ♥ 준호", "", "2026.10.27");
         assertThat(normalized.text()).isEqualTo("민지 ♥ 준호\n\n2026.10.27");
+        // 앞뒤 정리는 JS trim 과 같은 범위 — NBSP·BOM·전각 공백도 뗀다(앱과 글자 수가 같게)
+        assertThat(RENDERER.normalize("\u00A0\uFEFF\u3000하루\u202F", TextStyle.PRETENDARD_BOLD_DARK, 2, 1).text()).isEqualTo("하루");
     }
 
     @Test

@@ -61,7 +61,7 @@ public class TextRenderer {
     public Normalized normalize(String raw, TextStyle style, int maxLength, int maxLines) {
         String text = raw == null ? "" : Normalizer.normalize(raw, Normalizer.Form.NFC)
                 .replace("\r\n", "\n").replace('\r', '\n');
-        List<String> lines = Arrays.stream(text.split("\n", -1)).map(String::strip).toList();
+        List<String> lines = Arrays.stream(text.split("\n", -1)).map(TextRenderer::trim).toList();
         // 앞뒤의 빈 줄은 떼고, 가운데 빈 줄(의도한 줄 간격)은 남긴다
         int from = 0;
         int to = lines.size();
@@ -138,6 +138,23 @@ public class TextRenderer {
             g.dispose();
         }
         return new Rendered(encode(image), width, height, size);
+    }
+
+    // JS String.prototype.trim 과 같은 범위 — 앱이 세는 글자 수와 맞춘다. Java strip() 은 NBSP(U+00A0)·U+202F·BOM 을 남긴다
+    static String trim(String line) {
+        int from = 0;
+        int to = line.length();
+        while (from < to && trimmable(line.charAt(from))) {
+            from++;
+        }
+        while (to > from && trimmable(line.charAt(to - 1))) {
+            to--;
+        }
+        return line.substring(from, to);
+    }
+
+    private static boolean trimmable(char c) {
+        return Character.isWhitespace(c) || Character.isSpaceChar(c) || c == '\uFEFF';
     }
 
     private static double widest(Font font, List<String> lines, FontRenderContext context) {

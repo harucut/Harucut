@@ -143,10 +143,8 @@ class FreeTextIntegrationTest {
         assertThat(ok(mvc.get().uri("/api/public/text-styles").exchange())).hasSize(4);
 
         String token = activeParticipant();
-        assertCode(post("/api/participant/events/" + eventId + "/text-preview", token,
-                Map.of("frameVersionId", frameVersionId, "text", "안녕", "styleId", "pretendard-bold-dark")), 403, "PART-007");
-
         Run run = run(token);
+        assertCode(preview(token, run, "안녕", "pretendard-bold-dark"), 403, "PART-007");
         assertCode(post("/api/participant/events/" + eventId + "/compose-jobs", token, compose(run, "k-fixed",
                 Map.of("text", "안녕", "styleId", "pretendard-bold-dark"))), 403, "PART-007");
     }
@@ -166,8 +164,8 @@ class FreeTextIntegrationTest {
         assertThat(offered.has("enabled")).isFalse();
 
         String token = activeParticipant();
-        JsonNode preview = ok(post("/api/participant/events/" + eventId + "/text-preview", token,
-                Map.of("frameVersionId", frameVersionId, "text", "민지 ♥ 준호", "styleId", "pretendard-bold-dark")));
+        Run run = run(token);
+        JsonNode preview = ok(preview(token, run, "민지 ♥ 준호", "pretendard-bold-dark"));
         assertThat(preview.path("text").asString()).isEqualTo("민지 ♥ 준호");
         assertThat(preview.path("styleId").asString()).isEqualTo("pretendard-bold-dark");
         int canvasWidth = preview.path("canvasWidth").asInt();
@@ -181,18 +179,14 @@ class FreeTextIntegrationTest {
                 java.util.Base64.getDecoder().decode(image.substring("data:image/png;base64,".length()))));
         assertThat(decoded.getWidth()).isEqualTo(preview.path("width").asInt());
 
-        JsonNode tooLong = error(post("/api/participant/events/" + eventId + "/text-preview", token,
-                Map.of("frameVersionId", frameVersionId, "text", "가".repeat(11), "styleId", "pretendard-bold-dark")), 400, "PART-008");
+        JsonNode tooLong = error(preview(token, run, "가".repeat(11), "pretendard-bold-dark"), 400, "PART-008");
         assertThat(tooLong.path("data").path("reason").asString()).isEqualTo("TOO_LONG");
         assertThat(tooLong.path("data").path("maxLength").asInt()).isEqualTo(10);
-        assertThat(error(post("/api/participant/events/" + eventId + "/text-preview", token,
-                Map.of("frameVersionId", frameVersionId, "text", "안녕", "styleId", "pretendard-regular-dark")), 400, "PART-008")
+        assertThat(error(preview(token, run, "안녕", "pretendard-regular-dark"), 400, "PART-008")
                 .path("data").path("reason").asString()).isEqualTo("STYLE_NOT_OFFERED");
-        assertThat(error(post("/api/participant/events/" + eventId + "/text-preview", token,
-                Map.of("frameVersionId", frameVersionId, "text", "축하 😀", "styleId", "pretendard-bold-dark")), 400, "PART-008")
+        assertThat(error(preview(token, run, "축하 😀", "pretendard-bold-dark"), 400, "PART-008")
                 .path("data").path("reason").asString()).isEqualTo("UNSUPPORTED_CHARACTER");
 
-        Run run = run(token);
         Map<String, Object> request = compose(run, "k-text", Map.of("text", " 민지 ♥ 준호 ", "styleId", "pretendard-bold-dark"));
         long jobId = data(post("/api/participant/events/" + eventId + "/compose-jobs", token, request), 202).path("jobId").asLong();
 
@@ -224,6 +218,28 @@ class FreeTextIntegrationTest {
         composeService.completeJob(jobId, ComposeService.resultKeyFor(job), ComposeService.thumbnailKeyFor(job));
         assertThat(jdbcTemplate.queryForObject("select count(*) from s3_deletion where s3_key = ?", Integer.class, top.source()))
                 .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("#45 Codex: 촬영 중 재게시돼도 미리보기는 회차에 고정된 발행본으로 — 합성과 같은 정책, 새 회차는 새 발행본")
+    void previewUsesRunsExperienceVersion() throws Exception {
+        patch(Map.of("freeText", FREE_TEXT));
+        eventService.publish(operator.getPublicId(), eventId);
+        String token = activeParticipant();
+        Run run = run(token);
+
+        // 촬영 중에 자유 문구를 끄고 다시 게시
+        patch(Map.of("freeText", Map.of("enabled", false)));
+        eventService.publish(operator.getPublicId(), eventId);
+
+        // 이 회차는 예전 발행본(문구 허용) 그대로 — 미리보기·합성 모두 된다
+        assertThat(ok(preview(token, run, "안녕", "pretendard-bold-dark")).path("image").asString()).startsWith("data:image/png");
+        data(post("/api/participant/events/" + eventId + "/compose-jobs", token,
+                compose(run, "k-pinned", Map.of("text", "안녕", "styleId", "pretendard-bold-dark"))), 202);
+
+        // 회차가 아니거나 남의 회차면 PART-003
+        assertCode(post("/api/participant/events/" + eventId + "/text-preview", token, Map.of("captureRunId", "nope",
+                "frameVersionId", frameVersionId, "text", "안녕", "styleId", "pretendard-bold-dark")), 409, "PART-003");
     }
 
     @Test
@@ -300,6 +316,11 @@ class FreeTextIntegrationTest {
             assetIds.add(assetId);
         }
         return new Run(runId, assetIds);
+    }
+
+    private MvcTestResult preview(String token, Run run, String text, String styleId) {
+        return post("/api/participant/events/" + eventId + "/text-preview", token, Map.of("captureRunId", run.runId(),
+                "frameVersionId", frameVersionId, "text", text, "styleId", styleId));
     }
 
     private Map<String, Object> compose(Run run, String key, Map<String, Object> freeText) {

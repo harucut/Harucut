@@ -131,7 +131,9 @@ public final class ParticipantDtos {
 
     @Schema(description = "자유 문구 미리보기 요청")
     public record TextPreviewRequest(
-            @NotNull @Schema(description = "제공된 프레임 발행본", requiredMode = Schema.RequiredMode.REQUIRED) Long frameVersionId,
+            @NotBlank @Schema(description = "지금 열린 내 촬영 회차 — 회차에 고정된 경험 발행본의 정책·프레임으로 굽는다(합성과 같게)",
+                    requiredMode = Schema.RequiredMode.REQUIRED) String captureRunId,
+            @NotNull @Schema(description = "이 회차에 제공된 프레임 발행본", requiredMode = Schema.RequiredMode.REQUIRED) Long frameVersionId,
             @NotNull @Size(max = 200) @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String text,
             @NotBlank @Size(max = 40) @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String styleId
     ) {

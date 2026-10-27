@@ -170,14 +170,16 @@ public class ParticipantComposeService {
     @Transactional(readOnly = true)
     public ParticipantDtos.TextPreviewResponse preview(ParticipantPrincipal principal, String eventPublicId,
                                                        ParticipantDtos.TextPreviewRequest request) {
-        Event event = participantService.requireOwnEvent(principal, eventPublicId);
+        participantService.requireOwnEvent(principal, eventPublicId);
         participantService.requireActive(principal);
         if (!rateLimiter.tryAcquire("free-text-preview", String.valueOf(principal.participantId()), PREVIEWS_PER_MINUTE,
                 Duration.ofMinutes(1))) {
             throw new BusinessException(GlobalErrorCode.TOO_MANY_REQUESTS);
         }
-        Long experienceVersionId = event.getCurrentExperienceVersionId();
-        if (experienceVersionId == null || !participantService.offers(experienceVersionId, request.frameVersionId())) {
+        // 회차에 고정된 경험 발행본으로 — 촬영 중 행사를 다시 게시해도 합성(submit)과 같은 정책·프레임으로 굽는다(#45 Codex)
+        CaptureRun run = participantService.activeRun(principal, request.captureRunId());
+        Long experienceVersionId = run.getExperienceVersionId();
+        if (!participantService.offers(experienceVersionId, request.frameVersionId())) {
             throw new BusinessException(ParticipantErrorCode.FRAME_NOT_OFFERED);
         }
         FrameVersion version = frameVersionRepository.findById(request.frameVersionId())

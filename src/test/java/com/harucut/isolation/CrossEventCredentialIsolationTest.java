@@ -148,8 +148,8 @@ class CrossEventCredentialIsolationTest {
         ids.put("frameVersionId", b.frameVersionId().toString());
         bodies.put("POST /api/participant/events/{eventId}/compose-jobs", json(Map.of("captureRunId", runB,
                 "frameVersionId", b.frameVersionId(), "sourceAssetIds", assetsB, "idempotencyKey", "k-intrude")));
-        bodies.put("POST /api/participant/events/{eventId}/text-preview", json(Map.of("frameVersionId", b.frameVersionId(),
-                "text", "침입", "styleId", "pretendard-bold-dark")));
+        bodies.put("POST /api/participant/events/{eventId}/text-preview", json(Map.of("captureRunId", runB,
+                "frameVersionId", b.frameVersionId(), "text", "침입", "styleId", "pretendard-bold-dark")));
         bodies.put("POST /api/participant/events/{eventId}/consents",
                 "{\"items\":[{\"code\":\"photo\",\"version\":1,\"decision\":\"AGREED\"}]}");
         bodies.put("POST /api/participant/events/{eventId}/upload-intents", json(Map.of("captureRunId", runB, "slotIndex", 1,

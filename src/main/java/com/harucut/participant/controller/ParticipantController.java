@@ -107,8 +107,10 @@ public class ParticipantController {
                     행사가 자유 문구를 허용할 때(공개 행사 조회의 `freeText`) 합성 때와 **같은 서버 렌더**로 구운 PNG 를 준다.
                     아무것도 저장하지 않는다. 응답의 `text`·`styleId` 가 지금 입력과 다르면 늦게 온 응답이니 버린다.
                     좌표는 그 프레임 캔버스 px — 프레임 미리보기 위에 겹쳐 보여 준다. 참가자당 분당 30회.
+                    `captureRunId` 는 지금 열린 내 회차 — 그 회차에 고정된 경험 발행본으로 굽는다(촬영 중 재게시돼도 합성 결과와 같다).
                     """)
-    @ApiErrors({"PART-002: 필수 동의 전", "PART-004: 제공되지 않은 프레임", "PART-007: 이 행사는 문구를 바꿀 수 없다",
+    @ApiErrors({"PART-002: 필수 동의 전", "PART-003: 회차가 활성 상태가 아니거나 내 회차가 아니다",
+            "PART-004: 제공되지 않은 프레임", "PART-007: 이 행사는 문구를 바꿀 수 없다",
             "PART-008: 문구 검증 실패(data.reason·maxLength·maxLines)", "GEN-061: 미리보기가 너무 잦다", "GEN-031: 내 행사가 아니다"})
     @PostMapping("/events/{eventId}/text-preview")
     public Response<ParticipantDtos.TextPreviewResponse> textPreview(@AuthenticationPrincipal ParticipantPrincipal principal,

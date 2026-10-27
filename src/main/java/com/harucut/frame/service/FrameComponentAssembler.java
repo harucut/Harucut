@@ -4,6 +4,7 @@ import com.harucut.asset.entity.Asset;
 import com.harucut.asset.enums.AssetPurpose;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.frame.attributes.BackgroundAttributes;
+import com.harucut.frame.cell.PhotoCells;
 import com.harucut.frame.config.FrameLimitsProperties;
 import com.harucut.frame.dto.FrameCreateRequest;
 import com.harucut.frame.dto.FrameResponse;
@@ -233,9 +234,11 @@ public class FrameComponentAssembler {
         BackgroundAttributes background = normalizeBackground(request.background(), keys, user.getId());
         List<FrameComponent> components = createComponents(request.components(), keys, user.getId());
         assertComposable(background, components);
+        PhotoCells.validate(request.cells(), request.frameType().getLayout());
         Frame frame = Frame.owned(user, request.title(), request.descriptionOrEmpty(),
                 image(request.previewKey(), keys),
                 request.frameType(), background, request.cellCutouts());
+        frame.assignPhotoCells(request.cells());
         components.forEach(frame::addComponent);
         return frame;
     }
@@ -245,9 +248,11 @@ public class FrameComponentAssembler {
         BackgroundAttributes background = normalizeBackground(request.background(), KeyCheck.NONE, null);
         List<FrameComponent> components = createComponents(request.components(), KeyCheck.NONE, null);
         assertComposable(background, components);
+        PhotoCells.validate(request.cells(), request.frameType().getLayout());
         Frame frame = Frame.system(request.title(), request.descriptionOrEmpty(),
                 frameAssetManager.normalizeImageKey(request.previewKey(), null),
                 request.frameType(), background, request.cellCutouts());
+        frame.assignPhotoCells(request.cells());
         components.forEach(frame::addComponent);
         return frame;
     }
@@ -277,8 +282,11 @@ public class FrameComponentAssembler {
         List<FrameComponent> newComponents = createComponents(request.components(), keys, editorUserId);
         assertComposable(newBackground, newComponents);
         String newPreviewKey = image(request.previewKey(), keys);
+        // 전체 교체 — cells 를 빼면 고정 레이아웃으로 돌아간다
+        PhotoCells.validate(request.cells(), frame.getFrameType().getLayout());
         frame.updateMetadata(request.title(), request.descriptionOrEmpty(), newBackground,
                 newPreviewKey, request.cellCutouts());
+        frame.assignPhotoCells(request.cells());
 
         frame.clearComponents();
         newComponents.forEach(frame::addComponent);

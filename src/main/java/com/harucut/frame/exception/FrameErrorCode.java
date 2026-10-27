@@ -20,7 +20,9 @@ public enum FrameErrorCode implements ErrorCode {
     ASSET_NOT_USABLE("FRAME-005", HttpStatus.BAD_REQUEST, "The referenced asset cannot be used in this frame."),
     // 이 프레임의 발행본을 행사가 쓰고 있다 — 행사 경험을 다시 게시해 빼거나 행사를 정리한 뒤 지운다
     VERSION_IN_USE("FRAME-006", HttpStatus.CONFLICT, "A published version of this frame is used by an event."),
-    WORKSPACE_FRAME_LIMIT("FRAME-007", HttpStatus.FORBIDDEN, "The workspace has reached its frame limit.");
+    WORKSPACE_FRAME_LIMIT("FRAME-007", HttpStatus.FORBIDDEN, "The workspace has reached its frame limit."),
+    // 자유 사진 칸 렌더가 아직 켜지지 않았다(compose.free-cells.enabled) — 저장·발행본은 되고 게시·합성만 막는다(ADR-0012)
+    FREE_CELLS_NOT_RENDERABLE("FRAME-008", HttpStatus.CONFLICT, "Frames with free photo cells cannot be composed yet.");
 
     private final String code;
     private final HttpStatus httpStatus;

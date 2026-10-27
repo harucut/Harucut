@@ -2,8 +2,10 @@ package com.harucut.frame.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.harucut.frame.attributes.BackgroundAttributes;
+import com.harucut.frame.cell.PhotoCell;
 import com.harucut.frame.enums.ComponentType;
 import com.harucut.frame.enums.FrameType;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -82,8 +84,23 @@ public record FrameCreateRequest(
                 행사에 쓸 프레임은 그 행사의 조직 공간에 만든다 — 행사는 같은 공간의 프레임과 시스템 프레임만 연결할 수 있다.
                 OWNER·ADMIN·DESIGNER 가 아니면 404.""",
                 example = "Ws1aB2cD3eF4")
-        String workspaceId
+        String workspaceId,
+
+        @ArraySchema(schema = @Schema(implementation = PhotoCell.class), arraySchema = @Schema(description = """
+                자유 사진 칸(ADR-0012). **생략하거나 null 이면 `frameType` 의 고정 레이아웃**(지금과 같다).
+                보내면 정확히 4칸 — 회전 전 사각형이 캔버스 안, 너비·높이 100px 이상, rotation -180~180, `shotIndex` 0~3 이 칸마다 한 번씩,
+                모양 `RECT`(cornerRadius 0~min/2)·`ELLIPSE`. `MASK` 는 아직 400. 위반은 400 `GEN-002` + `data.violations[{field, reason}]`.
+                ⚠️ 자유 칸 프레임은 합성 렌더가 준비될 때까지(`compose.free-cells.enabled`) 행사 게시·합성이 409 `FRAME-008` 이다 — 저장·초안·발행본은 된다."""))
+        List<PhotoCell> cells
 ) {
+    // 자유 칸이 없던 시절의 생성자 — 기존 호출부·테스트 호환
+    public FrameCreateRequest(String title, String description, String previewKey, FrameType frameType,
+                              Integer canvasWidth, Integer canvasHeight, BackgroundAttributes background,
+                              List<Boolean> cellCutouts, List<ComponentRequest> components, Long version, String workspaceId) {
+        this(title, description, previewKey, frameType, canvasWidth, canvasHeight, background,
+                cellCutouts, components, version, workspaceId, null);
+    }
+
     // version·workspaceId 가 없던 시절의 생성자 — 기존 호출부·테스트 호환
     public FrameCreateRequest(String title, String description, String previewKey, FrameType frameType,
                               Integer canvasWidth, Integer canvasHeight, BackgroundAttributes background,

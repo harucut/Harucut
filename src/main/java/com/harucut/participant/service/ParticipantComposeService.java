@@ -6,6 +6,7 @@ import com.harucut.asset.repository.AssetRepository;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.entitlement.service.EntitlementService;
 import com.harucut.event.entity.Event;
+import com.harucut.frame.cell.FreeCellsGate;
 import com.harucut.frame.entity.FrameVersion;
 import com.harucut.frame.repository.FrameVersionRepository;
 import com.harucut.frame.version.FrameSpecComposer;
@@ -47,6 +48,7 @@ public class ParticipantComposeService {
     private final AssetRepository assetRepository;
     private final FrameVersionRepository frameVersionRepository;
     private final FrameSpecComposer frameSpecComposer;
+    private final FreeCellsGate freeCellsGate;
     private final ComposeService composeService;
     private final ResultService resultService;
     private final EntitlementService entitlementService;
@@ -70,6 +72,7 @@ public class ParticipantComposeService {
         }
         FrameVersion version = frameVersionRepository.findById(request.frameVersionId())
                 .orElseThrow(() -> new BusinessException(ParticipantErrorCode.FRAME_NOT_OFFERED));
+        freeCellsGate.requireRenderable(version);   // 자유 사진 칸 — 렌더 스위치 전에는 409 FRAME-008
         List<Asset> inputs = inputs(principal, run, request.sourceAssetIds());
 
         ComposeJob job = composeService.accept(ComposeJob.forParticipant(principal.participantId(),

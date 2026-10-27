@@ -2,6 +2,7 @@ package com.harucut.media.service;
 
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.frame.cell.FreeCellsGate;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.enums.FrameType;
@@ -98,7 +99,7 @@ class ComposeServiceTest {
         // 2026-07-20T10:00 UTC 고정 — 완성본 기본 파일명(harucut_타임스탬프) 검증용
         Clock fixed = Clock.fixed(Instant.parse("2026-07-20T10:00:00Z"), ZoneOffset.UTC);
         composeService = new ComposeService(userRepository, composeJobRepository,
-                userMediaRepository, frameService, composeSpecAssembler, s3Deleter,
+                userMediaRepository, frameService, composeSpecAssembler, new FreeCellsGate(false, JsonMapper.builder().build()), s3Deleter,
                 eventPublisher, new ComposeMetrics(new SimpleMeterRegistry()), fixed, JsonMapper.builder().build(),
                 entitlementService);
         user = User.localUser("owner@harucut.com", "encoded", "소유자");

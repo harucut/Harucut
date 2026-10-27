@@ -7,6 +7,7 @@ import com.harucut.asset.service.AssetService;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.frame.attributes.BackgroundAttributes;
+import com.harucut.frame.cell.PhotoCell;
 import com.harucut.frame.dto.FrameVersionResponse;
 import com.harucut.frame.dto.PickableFrameVersion;
 import com.harucut.frame.entity.Frame;
@@ -189,19 +190,30 @@ public class FrameVersionService {
         }
 
         FrameLayout layout = frame.getFrameType().getLayout();
-        List<FrameSpecV2.Slot> slots = IntStream.range(0, layout.slots().size())
-                .mapToObj(i -> {
+        // 자유 칸이면 slots 는 각 칸의 회전 전 사각형, 입력 순서는 칸마다의 shotIndex(ADR-0012). 아니면 고정 레이아웃 그대로
+        List<PhotoCell> photoCells = frame.getPhotoCells();
+        List<FrameSpecV2.Slot> slots = photoCells != null
+                ? IntStream.range(0, photoCells.size()).mapToObj(i -> {
+                    PhotoCell cell = photoCells.get(i);
+                    return new FrameSpecV2.Slot("s" + (i + 1), cell.x(), cell.y(), cell.width(), cell.height());
+                }).toList()
+                : IntStream.range(0, layout.slots().size()).mapToObj(i -> {
                     FrameLayout.Slot slot = layout.slots().get(i);
                     return new FrameSpecV2.Slot("s" + (i + 1), slot.x(), slot.y(), slot.width(), slot.height());
-                })
-                .toList();
+                }).toList();
+        List<FrameSpecV2.Cell> cells = photoCells == null ? null : IntStream.range(0, photoCells.size()).mapToObj(i -> {
+            PhotoCell cell = photoCells.get(i);
+            return new FrameSpecV2.Cell("s" + (i + 1), cell.x(), cell.y(), cell.width(), cell.height(), cell.rotation(),
+                    cell.shape(), cell.shotIndex());
+        }).toList();
         FrameSpecV2 spec = new FrameSpecV2(
                 FrameSpecV2.SCHEMA_VERSION,
                 new FrameSpecV2.Canvas(layout.canvasWidth(), layout.canvasHeight()),
                 background,
-                new FrameSpecV2.Layout(frame.getFrameType(), slots),
+                new FrameSpecV2.Layout(frame.getFrameType(), slots, cells),
                 frame.getCellCutouts(),
-                IntStream.range(0, slots.size()).mapToObj(i -> new FrameSpecV2.SlotBinding(slots.get(i).slotId(), i)).toList(),
+                IntStream.range(0, slots.size()).mapToObj(i -> new FrameSpecV2.SlotBinding(slots.get(i).slotId(),
+                        photoCells == null ? i : photoCells.get(i).shotIndex())).toList(),
                 layers,
                 FrameSpecV2.EditPolicy.FIXED);
 

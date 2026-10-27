@@ -405,6 +405,31 @@
         },
         "type" : "object"
       },
+      "Box" : {
+        "properties" : {
+          "height" : {
+            "example" : 0.08,
+            "format" : "double",
+            "type" : "number"
+          },
+          "width" : {
+            "example" : 0.8,
+            "format" : "double",
+            "type" : "number"
+          },
+          "x" : {
+            "example" : 0.1,
+            "format" : "double",
+            "type" : "number"
+          },
+          "y" : {
+            "example" : 0.86,
+            "format" : "double",
+            "type" : "number"
+          }
+        },
+        "type" : "object"
+      },
       "BrandDefaults" : {
         "description" : "상속 가능한 행사 설정 — 공간·프로젝트 기본값과 행사의 직접 값이 같은 모양이다",
         "properties" : {
@@ -437,6 +462,10 @@
               "$ref" : "#/components/schemas/FrameRef"
             },
             "type" : "array"
+          },
+          "freeText" : {
+            "$ref" : "#/components/schemas/FreeTextPolicy",
+            "description" : "참가자 자유 문구 — 객체째 대체. {enabled:false} 는 끔, null 은 위 단계 값"
           },
           "resultRetentionDays" : {
             "description" : "결과 보관 일수",
@@ -815,6 +844,12 @@
       "ComposeJobResponse" : {
         "description" : "합성 작업 상태",
         "properties" : {
+          "failureCode" : {
+            "description" : "실패 종류. **`FAILED` 일 때만 실린다** — 화면 문구는 이 값으로 고른다.\n`SOURCE_MISSING` 원본이 저장소에 없음(만료·삭제) · `SOURCE_UNREADABLE` 원본을 읽을 수 없음(손상·형식) ·\n`ASSET_MISSING` 프레임·배경 자산 없음 · `ASSET_UNREADABLE` 자산을 읽을 수 없음 · `TIMED_OUT` 시간 초과 ·\n`RENDER_FAILED` 그 밖의 렌더 실패 · `UNKNOWN` 종류를 알리지 않는 실행기의 실패.\n이 값이 생기기 전에 실패한 작업은 키가 없다.",
+            "enum" : [ "SOURCE_MISSING", "SOURCE_UNREADABLE", "ASSET_MISSING", "ASSET_UNREADABLE", "TIMED_OUT", "RENDER_FAILED", "OUTPUT_CONFLICT", "UNKNOWN" ],
+            "example" : "SOURCE_UNREADABLE",
+            "type" : "string"
+          },
           "failureReason" : {
             "description" : "실패 사유. **`FAILED` 일 때만 실린다.** 사용자에게 그대로 보여줄 문구는 아니다",
             "example" : "원본 이미지를 읽을 수 없습니다",
@@ -1249,6 +1284,38 @@
         },
         "type" : "object"
       },
+      "DeviceRegisterRequest" : {
+        "properties" : {
+          "platform" : {
+            "description" : "기기 플랫폼 — 소문자",
+            "enum" : [ "ios", "android" ],
+            "minLength" : 1,
+            "pattern" : "ios|android",
+            "type" : "string"
+          },
+          "token" : {
+            "description" : "Expo 푸시 토큰(getExpoPushTokenAsync 결과 그대로)",
+            "example" : "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]",
+            "maxLength" : 255,
+            "minLength" : 0,
+            "pattern" : "^Expo(nent)?PushToken\\[[A-Za-z0-9_\\-]{1,200}]$",
+            "type" : "string"
+          }
+        },
+        "required" : [ "platform", "token" ],
+        "type" : "object"
+      },
+      "DeviceUnregisterRequest" : {
+        "properties" : {
+          "token" : {
+            "maxLength" : 255,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "token" ],
+        "type" : "object"
+      },
       "DisplayNameUpdateRequest" : {
         "description" : "표시 파일명 수정 요청",
         "properties" : {
@@ -1572,6 +1639,10 @@
             "format" : "int64",
             "type" : "integer"
           },
+          "freeText" : {
+            "$ref" : "#/components/schemas/FreeText",
+            "description" : "자유 문구(행사가 허용할 때만) — 없으면 프레임 그대로 합성한다"
+          },
           "idempotencyKey" : {
             "description" : "요청마다 새 UUID. 같은 키 재요청은 기존 작업을 돌려준다",
             "maxLength" : 64,
@@ -1781,6 +1852,10 @@
               "$ref" : "#/components/schemas/FrameRef"
             },
             "type" : "array"
+          },
+          "freeText" : {
+            "$ref" : "#/components/schemas/FreeTextPolicy",
+            "description" : "참가자 자유 문구(R5 D06) — {enabled:false} 는 끔, null 은 위 단계 값을 따른다(모두 비면 끔). 객체째 대체"
           },
           "kind" : {
             "description" : "행사 종류 — SCHEDULED(정해진 기간, 기본)·ALWAYS_ON(상시 캠페인: 종료 시각을 두지 않고 close-capture 로 끝낸다). 게시 전 초안에서만 바꿀 수 있다(게시 뒤 400 GEN-002). 상속하지 않는다",
@@ -2333,6 +2408,61 @@
             "type" : "integer"
           }
         },
+        "type" : "object"
+      },
+      "FreeText" : {
+        "description" : "참가자 자유 문구 — 문자열과 스타일 id 만. 서버가 구워 합성한다(R5 D06)",
+        "properties" : {
+          "styleId" : {
+            "description" : "행사가 고른 스타일 id",
+            "example" : "pretendard-bold-dark",
+            "maxLength" : 40,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "text" : {
+            "description" : "문구 — 줄바꿈(\\n)으로만 줄을 나눈다",
+            "example" : "민지 ♥ 준호",
+            "maxLength" : 200,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "styleId", "text" ],
+        "type" : "object"
+      },
+      "FreeTextPolicy" : {
+        "description" : "참가자 자유 문구 — {enabled:false} 는 끔(FIXED), null 은 위 단계 값을 따른다",
+        "properties" : {
+          "box" : {
+            "$ref" : "#/components/schemas/Box",
+            "description" : "문구 칸 — 캔버스 대비 비율 0~1. 켤 때 필수"
+          },
+          "enabled" : {
+            "description" : "켬·끔 — 필수",
+            "type" : "boolean"
+          },
+          "maxLength" : {
+            "description" : "줄바꿈 제외 글자 수 상한 1~30(기본 20)",
+            "example" : 20,
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "maxLines" : {
+            "description" : "줄 수 상한 1~3(기본 1)",
+            "example" : 1,
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "styleIds" : {
+            "description" : "고를 수 있는 스타일 id(GET /api/public/text-styles 의 부분집합). 켤 때 1개 이상",
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          }
+        },
+        "required" : [ "enabled" ],
         "type" : "object"
       },
       "HttpHeaders" : {
@@ -3431,6 +3561,35 @@
         },
         "type" : "object"
       },
+      "OfferedFreeText" : {
+        "description" : "참가자 자유 문구 정책 — 미리보기·합성은 서버가 같은 렌더로 굽는다",
+        "properties" : {
+          "box" : {
+            "$ref" : "#/components/schemas/Box",
+            "description" : "문구 칸 — 캔버스 대비 비율 0~1"
+          },
+          "maxLength" : {
+            "description" : "줄바꿈 제외 글자 수 상한",
+            "example" : 20,
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "maxLines" : {
+            "description" : "줄 수 상한",
+            "example" : 1,
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "styles" : {
+            "description" : "고를 수 있는 스타일",
+            "items" : {
+              "$ref" : "#/components/schemas/TextStyleResponse"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
       "OperatorAssignmentRequest" : {
         "description" : "행사 운영자 배정 — 빈 목록이면 운영 권한을 뺀다",
         "properties" : {
@@ -4228,6 +4387,11 @@
               "$ref" : "#/components/schemas/OfferedFrame"
             },
             "type" : "array"
+          },
+          "freeText" : {
+            "$ref" : "#/components/schemas/OfferedFreeText",
+            "description" : "참가자 자유 문구 — 이 행사가 허용할 때만, 아니면 null(프레임 문구 고정)",
+            "type" : "null"
           },
           "name" : {
             "description" : "행사명",
@@ -5736,6 +5900,34 @@
         },
         "type" : "object"
       },
+      "ResponseListTextStyleResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "description" : "응답 본문. 없으면 키 자체가 없다",
+            "items" : {
+              "$ref" : "#/components/schemas/TextStyleResponse"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseListWorkspaceResponse" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -6349,6 +6541,31 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/SubscriptionUsageResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseTextPreviewResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/TextPreviewResponse",
             "description" : "응답 본문. 없으면 키 자체가 없다"
           },
           "message" : {
@@ -7131,6 +7348,95 @@
         },
         "type" : "object"
       },
+      "TextPreviewRequest" : {
+        "description" : "자유 문구 미리보기 요청",
+        "properties" : {
+          "frameVersionId" : {
+            "description" : "제공된 프레임 발행본",
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "styleId" : {
+            "maxLength" : 40,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "text" : {
+            "maxLength" : 200,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "frameVersionId", "styleId", "text" ],
+        "type" : "object"
+      },
+      "TextPreviewResponse" : {
+        "description" : "자유 문구 미리보기 — 합성 때와 같은 서버 렌더. text·styleId 가 지금 입력과 다르면 늦은 응답이니 버린다",
+        "properties" : {
+          "canvasHeight" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "canvasWidth" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "height" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "image" : {
+            "description" : "구운 PNG — data:image/png;base64,…",
+            "type" : "string"
+          },
+          "styleId" : {
+            "description" : "요청에 보낸 스타일 id 그대로",
+            "type" : "string"
+          },
+          "text" : {
+            "description" : "요청에 보낸 문구 그대로",
+            "type" : "string"
+          },
+          "width" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "x" : {
+            "description" : "캔버스 px 좌표",
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "y" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "TextStyleResponse" : {
+        "description" : "자유 문구 스타일 — 글꼴은 Pretendard, 가운데 정렬, 크기는 서버가 칸에 맞춘다",
+        "properties" : {
+          "color" : {
+            "example" : "#111111",
+            "type" : "string"
+          },
+          "id" : {
+            "example" : "pretendard-bold-dark",
+            "type" : "string"
+          },
+          "label" : {
+            "example" : "굵게 · 검정",
+            "type" : "string"
+          },
+          "weight" : {
+            "description" : "글꼴 굵기",
+            "example" : 700,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "UpdateNoticeRequest" : {
         "description" : "공지 수정 요청",
         "properties" : {
@@ -7485,7 +7791,7 @@
     "/api/admin/audit-logs" : {
       "get" : {
         "description" : "플랫폼 ADMIN. 최신순 50개씩.",
-        "operationId" : "list_5",
+        "operationId" : "list_6",
         "parameters" : [ {
           "description" : "이전 응답의 nextCursor",
           "in" : "query",
@@ -7755,6 +8061,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -7762,7 +8076,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -7899,6 +8213,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -7906,7 +8228,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -8049,6 +8371,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -8056,7 +8386,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -8271,6 +8601,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -8278,7 +8616,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "409" : {
             "content" : {
@@ -8382,6 +8720,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -8389,7 +8735,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -8604,6 +8950,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -8611,7 +8965,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -8756,6 +9110,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -8763,7 +9125,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -8936,6 +9298,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -8943,7 +9313,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -9210,6 +9580,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -9217,7 +9595,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -9562,6 +9940,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -9569,7 +9955,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           }
         },
         "security" : [ {
@@ -9654,6 +10040,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -9661,7 +10055,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -9806,6 +10200,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -9813,7 +10215,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -9962,6 +10364,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -9969,7 +10379,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -10186,6 +10596,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -10193,7 +10611,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -10443,6 +10861,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -10450,7 +10876,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           }
         },
         "security" : [ {
@@ -10535,6 +10961,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -10542,7 +10976,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -10679,6 +11113,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -10686,7 +11128,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -10791,6 +11233,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -10798,7 +11248,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -10903,6 +11353,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -10910,7 +11368,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -11229,6 +11687,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -11236,7 +11702,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "409" : {
             "content" : {
@@ -11475,6 +11941,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -11482,7 +11956,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -11621,6 +12095,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -11628,7 +12110,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_"
+            "description" : "- `GEN-021` — ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -11874,6 +12356,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -11881,7 +12371,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -12116,6 +12606,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -12123,7 +12621,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -12310,6 +12808,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -12317,7 +12823,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `BOOTH-003` — 회수된 기기 _(The booth device is revoked, unassigned or its token is invalid.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `BOOTH-003` — 회수된 기기 _(The booth device is revoked, unassigned or its token is invalid.)_"
           },
           "404" : {
             "content" : {
@@ -12420,6 +12926,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -12427,7 +12941,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -12664,6 +13178,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -12671,7 +13193,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -12755,9 +13277,267 @@
         "tags" : [ "쿠폰" ]
       }
     },
+    "/api/auth/devices" : {
+      "post" : {
+        "description" : "앱의 Expo 푸시 토큰을 내 계정에 묶는다. **멱등**이다 — 같은 토큰을 다시 보내면 등록 시각만 갱신된다.\n다른 계정에 묶여 있던 토큰이면 내 계정으로 **옮긴다**(한 기기는 마지막으로 로그인한 계정만 받는다).\n\n계정당 10대까지. 넘으면 가장 오래 등록하지 않은 기기부터 지운다.\n\n발송 종류(`data.type`): `COMPOSE_DONE`(jobId) · `COMPOSE_FAILED`(jobId, failureCode) ·\n`PAYMENT_FAILED` · `SUBSCRIPTION_EXPIRING`. data 값은 전부 문자열이다.\n",
+        "operationId" : "register_1",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/DeviceRegisterRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — token 이 Expo 형식이 아니거나 platform 이 ios·android 가 아님 / 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-003` — token 이 Expo 형식이 아니거나 platform 이 ios·android 가 아님 / 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 탈퇴 요청·정지 상태(잠근 뒤 다시 본 상태)",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 탈퇴 요청·정지 상태(잠근 뒤 다시 본 상태) _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 토큰은 유효한데 그 계정이 사라짐",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 토큰은 유효한데 그 계정이 사라짐 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "푸시 기기 등록",
+        "tags" : [ "푸시 기기" ]
+      }
+    },
+    "/api/auth/devices/unregister" : {
+      "post" : {
+        "description" : "로그아웃 직전에 부른다. 내 계정에 묶인 그 토큰만 지우고, **없어도 200** 이다.\n탈퇴 요청·정지 상태에서도, 약관 동의가 빠져 있어도 부를 수 있다.\n",
+        "operationId" : "unregister",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/DeviceUnregisterRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — token 이 비었음 / 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-003` — token 이 비었음 / 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "푸시 기기 해제",
+        "tags" : [ "푸시 기기" ]
+      }
+    },
     "/api/auth/events/{eventId}" : {
       "get" : {
-        "operationId" : "get_1",
+        "operationId" : "get_2",
         "parameters" : [ {
           "description" : "행사 public id",
           "in" : "path",
@@ -12975,6 +13755,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -12982,7 +13770,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -13279,6 +14067,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -13286,7 +14082,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `BOOTH-006` — 기기 수 상한 _(The event has reached its booth device limit.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `BOOTH-006` — 기기 수 상한 _(The event has reached its booth device limit.)_"
           },
           "404" : {
             "content" : {
@@ -13431,6 +14227,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -13438,7 +14242,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -13561,6 +14365,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -13568,7 +14380,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -13960,6 +14772,14 @@
                       "status" : 403
                     }
                   },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  },
                   "PHOTO-001" : {
                     "summary" : "PHOTO-001 — 묶음 권한 없음",
                     "value" : {
@@ -13974,7 +14794,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `PHOTO-001` — 묶음 권한 없음 _(You do not have this photo permission for the event.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `PHOTO-001` — 묶음 권한 없음 _(You do not have this photo permission for the event.)_"
           },
           "404" : {
             "content" : {
@@ -14211,6 +15031,14 @@
                       "status" : 403
                     }
                   },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  },
                   "PHOTO-001" : {
                     "summary" : "PHOTO-001 — 묶음 권한 없음",
                     "value" : {
@@ -14225,7 +15053,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `PHOTO-001` — 묶음 권한 없음 _(You do not have this photo permission for the event.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `PHOTO-001` — 묶음 권한 없음 _(You do not have this photo permission for the event.)_"
           },
           "404" : {
             "content" : {
@@ -14487,6 +15315,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -14494,7 +15330,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 권한 밖 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 권한 밖 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -14638,6 +15474,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -14645,7 +15489,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 권한 밖 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 권한 밖 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -14782,6 +15626,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -14789,7 +15641,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / INVITE_CUSTOMERS 가 없거나 자기 사진 권한 밖 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / INVITE_CUSTOMERS 가 없거나 자기 사진 권한 밖 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -14942,6 +15794,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -14949,7 +15809,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -15052,6 +15912,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -15059,7 +15927,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -15388,6 +16256,14 @@
                       "status" : 403
                     }
                   },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  },
                   "PHOTO-001" : {
                     "summary" : "PHOTO-001 — 삭제 권한 없음",
                     "value" : {
@@ -15402,7 +16278,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `PHOTO-001` — 삭제 권한 없음 _(You do not have this photo permission for the event.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `PHOTO-001` — 삭제 권한 없음 _(You do not have this photo permission for the event.)_"
           },
           "404" : {
             "content" : {
@@ -15515,6 +16391,14 @@
                       "status" : 403
                     }
                   },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  },
                   "PHOTO-001" : {
                     "summary" : "PHOTO-001 — 다운로드 권한 없음",
                     "value" : {
@@ -15529,7 +16413,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `PHOTO-001` — 다운로드 권한 없음 _(You do not have this photo permission for the event.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `PHOTO-001` — 다운로드 권한 없음 _(You do not have this photo permission for the event.)_"
           },
           "404" : {
             "content" : {
@@ -15672,6 +16556,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -15679,7 +16571,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -15781,6 +16673,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -15788,7 +16688,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -16054,6 +16954,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -16061,7 +16969,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "409" : {
             "content" : {
@@ -16217,6 +17125,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -16224,7 +17140,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "410" : {
             "content" : {
@@ -16605,6 +17521,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -16612,7 +17536,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -16801,6 +17725,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -16808,7 +17740,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -17078,6 +18010,14 @@
                       "status" : 403
                     }
                   },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  },
                   "PHOTO-001" : {
                     "summary" : "PHOTO-001 — 묶음 권한 없는 행사가 있다",
                     "value" : {
@@ -17092,7 +18032,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `PHOTO-001` — 묶음 권한 없는 행사가 있다 _(You do not have this photo permission for the event.)_\n- `ENT-004` — 이용권에 묶음 기능이 없는 행사가 있다 _(The entitlement does not include this feature.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `PHOTO-001` — 묶음 권한 없는 행사가 있다 _(You do not have this photo permission for the event.)_\n- `ENT-004` — 이용권에 묶음 기능이 없는 행사가 있다 _(The entitlement does not include this feature.)_"
           },
           "404" : {
             "content" : {
@@ -17321,6 +18261,14 @@
                       "status" : 403
                     }
                   },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  },
                   "PHOTO-001" : {
                     "summary" : "PHOTO-001 — 묶음 권한이 빠진 행사가 있다",
                     "value" : {
@@ -17335,7 +18283,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `PHOTO-001` — 묶음 권한이 빠진 행사가 있다 _(You do not have this photo permission for the event.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `PHOTO-001` — 묶음 권한이 빠진 행사가 있다 _(You do not have this photo permission for the event.)_"
           },
           "404" : {
             "content" : {
@@ -17596,6 +18544,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -17603,7 +18559,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -17754,6 +18710,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -17761,7 +18725,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -18025,6 +18989,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -18032,7 +19004,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -18212,6 +19184,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -18219,7 +19199,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "409" : {
             "content" : {
@@ -18355,6 +19335,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -18362,7 +19350,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "409" : {
             "content" : {
@@ -18513,6 +19501,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -18520,7 +19516,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -18757,6 +19753,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -18764,7 +19768,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 남의 경로(`uploads/users/{다른 publicId}/...`)를 지정함 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 남의 경로(`uploads/users/{다른 publicId}/...`)를 지정함 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -18892,6 +19896,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -18899,7 +19911,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -19044,7 +20056,7 @@
     },
     "/api/auth/user/files/presigned-upload" : {
       "post" : {
-        "description" : "**파일은 서버를 거치지 않는다.** 순서는 셋이다.\n\n1. 이 API 로 `uploadUrl` 과 `key` 를 받는다\n2. `uploadUrl` 로 **PUT** 한다 — 본문은 파일 바이트, 헤더 `Content-Type` 은 응답의 `contentType` 을 그대로\n3. `key` 를 도메인 API 에 넘겨 등록한다 (프로필 변경 · 프레임 저장 · 합성 요청)\n\n⚠️ **3번을 안 하면 S3 에 파일만 남는 고아가 된다.** 정리해 주는 배치가 없다.\n\n⚠️ **`fileSize` 가 서명에 들어간다.** URL 을 받은 뒤 다른 파일을 올리면 크기가 달라져\nS3 가 `SignatureDoesNotMatch` 403 으로 거부한다. 이건 서버 응답이 아니라 S3 응답이라\n공통 봉투가 아니다.\n\n`contentType` 은 요청과 응답의 의미가 다르다 — 보낼 때는 enum 이름(`PNG`),\n받는 값은 실제 MIME(`image/png`)이고 PUT 헤더에는 후자를 쓴다.\n",
+        "description" : "**파일은 서버를 거치지 않는다.** 순서는 셋이다.\n\n1. 이 API 로 `uploadUrl` 과 `key` 를 받는다\n2. `uploadUrl` 로 **PUT** 한다 — 본문은 파일 바이트, 헤더 `Content-Type` 은 응답의 `contentType` 을 그대로\n3. `key` 를 도메인 API 에 넘겨 등록한다 (프로필 변경 · 프레임 저장 · 합성 요청)\n\n⚠️ **3번을 안 하면 S3 에 파일만 남는 고아가 된다.** 정리해 주는 배치가 없다 —\n단, `FOURCUT_SOURCE` 는 합성 요청에 쓰이지 않으면 **24시간 뒤 서버가 지운다**(합성이 접수되면 그 작업이 원본을 맡는다).\n\n⚠️ **`fileSize` 가 서명에 들어간다.** URL 을 받은 뒤 다른 파일을 올리면 크기가 달라져\nS3 가 `SignatureDoesNotMatch` 403 으로 거부한다. 이건 서버 응답이 아니라 S3 응답이라\n공통 봉투가 아니다.\n\n`contentType` 은 요청과 응답의 의미가 다르다 — 보낼 때는 enum 이름(`PNG`),\n받는 값은 실제 MIME(`image/png`)이고 PUT 헤더에는 후자를 쓴다.\n",
         "operationId" : "createPresignedUploadUrl",
         "requestBody" : {
           "content" : {
@@ -19146,6 +20158,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -19153,7 +20173,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "415" : {
             "content" : {
@@ -19389,6 +20409,14 @@
                       "status" : 403
                     }
                   },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  },
                   "SUBS-003" : {
                     "summary" : "SUBS-003 — 요금제의 프레임 보관 한도 초과 (BASIC 은 항상)",
                     "value" : {
@@ -19403,7 +20431,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `SUBS-003` — 요금제의 프레임 보관 한도 초과 (BASIC 은 항상) _(The number of stored frames exceeds the limit for the current plan.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `SUBS-003` — 요금제의 프레임 보관 한도 초과 (BASIC 은 항상) _(The number of stored frames exceeds the limit for the current plan.)_"
           },
           "404" : {
             "content" : {
@@ -19648,6 +20676,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -19655,7 +20691,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -19778,6 +20814,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -19785,7 +20829,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -20035,6 +21079,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -20042,7 +21094,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -20187,6 +21239,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -20194,7 +21254,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -20466,6 +21526,14 @@
                       "status" : 403
                     }
                   },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  },
                   "SUBS-002" : {
                     "summary" : "SUBS-002 — 보관 기간이 지난 프레임",
                     "value" : {
@@ -20488,7 +21556,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `SUBS-002` — 보관 기간이 지난 프레임 _(Requested history is beyond the plan's retention period.)_\n- `SUBS-003` — 보관 한도 밖으로 밀려난 프레임 _(The number of stored frames exceeds the limit for the current plan.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `SUBS-002` — 보관 기간이 지난 프레임 _(Requested history is beyond the plan's retention period.)_\n- `SUBS-003` — 보관 한도 밖으로 밀려난 프레임 _(The number of stored frames exceeds the limit for the current plan.)_"
           },
           "404" : {
             "content" : {
@@ -20747,6 +21815,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -20754,7 +21830,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -21258,6 +22334,14 @@
                       "status" : 403
                     }
                   },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  },
                   "SUBS-002" : {
                     "summary" : "SUBS-002 — 보관 기간이 지난 프레임",
                     "value" : {
@@ -21280,7 +22364,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 남의 경로의 원본 key _(Access denied.)_\n- `SUBS-002` — 보관 기간이 지난 프레임 _(Requested history is beyond the plan's retention period.)_\n- `SUBS-003` — 보관 한도 밖으로 밀려난 프레임 _(The number of stored frames exceeds the limit for the current plan.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 남의 경로의 원본 key _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `SUBS-002` — 보관 기간이 지난 프레임 _(Requested history is beyond the plan's retention period.)_\n- `SUBS-003` — 보관 한도 밖으로 밀려난 프레임 _(The number of stored frames exceeds the limit for the current plan.)_"
           },
           "404" : {
             "content" : {
@@ -21517,6 +22601,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -21524,7 +22616,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -21664,6 +22756,14 @@
                       "status" : 403
                     }
                   },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  },
                   "SUBS-002" : {
                     "summary" : "SUBS-002 — 요금제의 보관 기간이 지난 사진",
                     "value" : {
@@ -21678,7 +22778,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `SUBS-002` — 요금제의 보관 기간이 지난 사진 _(Requested history is beyond the plan's retention period.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `SUBS-002` — 요금제의 보관 기간이 지난 사진 _(Requested history is beyond the plan's retention period.)_"
           },
           "404" : {
             "content" : {
@@ -22106,6 +23206,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -22113,7 +23221,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           }
         },
         "security" : [ {
@@ -22492,6 +23600,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -22499,7 +23615,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -22752,6 +23868,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -22759,7 +23883,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -23049,6 +24173,14 @@
                       "status" : 403
                     }
                   },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  },
                   "PHOTO-001" : {
                     "summary" : "PHOTO-001 — 묶음 권한 없는 행사가 있다",
                     "value" : {
@@ -23063,7 +24195,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다 _(Access denied.)_\n- `PHOTO-001` — 묶음 권한 없는 행사가 있다 _(You do not have this photo permission for the event.)_\n- `ENT-004` — 이용권에 묶음 기능이 없는 행사가 있다 _(The entitlement does not include this feature.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `PHOTO-001` — 묶음 권한 없는 행사가 있다 _(You do not have this photo permission for the event.)_\n- `ENT-004` — 이용권에 묶음 기능이 없는 행사가 있다 _(The entitlement does not include this feature.)_"
           },
           "404" : {
             "content" : {
@@ -23292,6 +24424,14 @@
                       "status" : 403
                     }
                   },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  },
                   "PHOTO-001" : {
                     "summary" : "PHOTO-001 — 묶음 권한이 빠진 행사가 있다",
                     "value" : {
@@ -23306,7 +24446,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다 _(Access denied.)_\n- `PHOTO-001` — 묶음 권한이 빠진 행사가 있다 _(You do not have this photo permission for the event.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER·ADMIN 이 아니다 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `PHOTO-001` — 묶음 권한이 빠진 행사가 있다 _(You do not have this photo permission for the event.)_"
           },
           "404" : {
             "content" : {
@@ -23819,6 +24959,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -23826,7 +24974,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER 초대를 OWNER 가 아닌 사람이 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER 초대를 OWNER 가 아닌 사람이 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -23936,6 +25084,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -23943,7 +25099,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -24164,6 +25320,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -24171,7 +25335,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER 를 OWNER 가 아닌 사람이 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER 를 OWNER 가 아닌 사람이 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -24334,6 +25498,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -24341,7 +25513,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER 관련 변경을 OWNER 가 아닌 사람이 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / OWNER 관련 변경을 OWNER 가 아닌 사람이 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -24634,6 +25806,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -24641,7 +25821,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -25149,6 +26329,26 @@
             },
             "description" : "- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
           },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
+          },
           "409" : {
             "content" : {
               "application/json" : {
@@ -25270,6 +26470,26 @@
               }
             },
             "description" : "- `AUTH-003` — 코드가 다르거나 5분이 지나 만료됨 — 둘을 구분하지 않는다 _(Invalid or expired verification code.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           }
         },
         "summary" : "가입용 인증 코드 검증",
@@ -25388,6 +26608,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -25395,7 +26623,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -25489,6 +26717,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -25496,7 +26732,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -25605,6 +26841,26 @@
             },
             "description" : "- `AUTH-010` — 그 밖의 인증 실패 _(Authentication failed.)_"
           },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
+          },
           "404" : {
             "content" : {
               "application/json" : {
@@ -25652,6 +26908,26 @@
               }
             },
             "description" : "OK"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           }
         },
         "summary" : "로그아웃",
@@ -25802,6 +27078,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -25809,7 +27093,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -25897,6 +27181,26 @@
               }
             },
             "description" : "- `AUTH-004` — 이메일 인증을 안 했거나 인증 후 10분이 지남 _(Failed to register email.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "409" : {
             "content" : {
@@ -25993,6 +27297,26 @@
               }
             },
             "description" : "- `AUTH-012` — refresh 토큰이 만료됨(14일) — 재로그인 _(Expired access token.)_\n- `AUTH-011` — refresh 토큰이 아니거나, 서명 불일치, 저장값 불일치, 재사용 감지 — 재로그인 _(Invalid access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           }
         },
         "summary" : "토큰 재발급",
@@ -26068,6 +27392,26 @@
             },
             "description" : "- `AUTH-011` — 리셋 토큰이 없거나 만료됐거나 이미 사용됨 _(Invalid access token.)_"
           },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
+          },
           "404" : {
             "content" : {
               "application/json" : {
@@ -26141,6 +27485,26 @@
               }
             },
             "description" : "- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -26263,6 +27627,26 @@
               }
             },
             "description" : "- `AUTH-003` — 코드가 다르거나 만료됨 _(Invalid or expired verification code.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           }
         },
         "summary" : "재설정 코드 검증 → 리셋 토큰",
@@ -27025,7 +28409,7 @@
     },
     "/api/participant/events/{eventId}/compose-jobs" : {
       "post" : {
-        "description" : "202. 결과 토큰 원문은 이 응답에서만 볼 수 있다 — 결과 링크는 `/r#<token>`.\n같은 idempotencyKey 재요청은 기존 작업을 돌려주고 **새 결과 토큰을 하나 더** 발급한다(이전 것도 유효).\n같은 키에 다른 프레임·입력이면 409 `MEDIA-001`.\n",
+        "description" : "202. 결과 토큰 원문은 이 응답에서만 볼 수 있다 — 결과 링크는 `/r#<token>`.\n같은 idempotencyKey 재요청은 기존 작업을 돌려주고 **새 결과 토큰을 하나 더** 발급한다(이전 것도 유효).\n같은 키에 다른 프레임·입력·문구면 409 `MEDIA-001`.\n`freeText` 를 보내면 서버가 미리보기와 같은 렌더로 구워 맨 위에 얹는다(행사가 허용할 때만). 안 보내면 프레임 그대로.\n",
         "operationId" : "compose",
         "parameters" : [ {
           "description" : "행사 public id",
@@ -27080,6 +28464,14 @@
                       "message" : "Validation failed.",
                       "status" : 400
                     }
+                  },
+                  "PART-008" : {
+                    "summary" : "PART-008 — 문구 검증 실패(data.reason·maxLength·maxLines)",
+                    "value" : {
+                      "code" : "PART-008",
+                      "message" : "The free text cannot be used.",
+                      "status" : 400
+                    }
                   }
                 },
                 "schema" : {
@@ -27087,7 +28479,7 @@
                 }
               }
             },
-            "description" : "- `FRAME-004` — 합성 스펙 크기 초과 _(The frame is too large to compose.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+            "description" : "- `PART-008` — 문구 검증 실패(data.reason·maxLength·maxLines) _(The free text cannot be used.)_\n- `FRAME-004` — 합성 스펙 크기 초과 _(The frame is too large to compose.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
           },
           "401" : {
             "content" : {
@@ -27128,6 +28520,14 @@
                       "message" : "The frame is not offered to this capture run.",
                       "status" : 403
                     }
+                  },
+                  "PART-007" : {
+                    "summary" : "PART-007 — 이 행사는 문구를 바꿀 수 없다",
+                    "value" : {
+                      "code" : "PART-007",
+                      "message" : "Free text is not offered for this event.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -27135,7 +28535,7 @@
                 }
               }
             },
-            "description" : "- `PART-002` — 필수 동의 전 _(Required participation consent is missing.)_\n- `PART-004` — 제공되지 않은 프레임 _(The frame is not offered to this capture run.)_"
+            "description" : "- `PART-002` — 필수 동의 전 _(Required participation consent is missing.)_\n- `PART-004` — 제공되지 않은 프레임 _(The frame is not offered to this capture run.)_\n- `PART-007` — 이 행사는 문구를 바꿀 수 없다 _(Free text is not offered for this event.)_"
           },
           "404" : {
             "content" : {
@@ -27521,6 +28921,176 @@
           "participantToken" : [ ]
         } ],
         "summary" : "이 행사에서 만든 내 결과",
+        "tags" : [ "행사 참가" ]
+      }
+    },
+    "/api/participant/events/{eventId}/text-preview" : {
+      "post" : {
+        "description" : "행사가 자유 문구를 허용할 때(공개 행사 조회의 `freeText`) 합성 때와 **같은 서버 렌더**로 구운 PNG 를 준다.\n아무것도 저장하지 않는다. 응답의 `text`·`styleId` 가 지금 입력과 다르면 늦게 온 응답이니 버린다.\n좌표는 그 프레임 캔버스 px — 프레임 미리보기 위에 겹쳐 보여 준다. 참가자당 분당 30회.\n",
+        "operationId" : "textPreview",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/TextPreviewRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseTextPreviewResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  },
+                  "PART-008" : {
+                    "summary" : "PART-008 — 문구 검증 실패(data.reason·maxLength·maxLines)",
+                    "value" : {
+                      "code" : "PART-008",
+                      "message" : "The free text cannot be used.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-008` — 문구 검증 실패(data.reason·maxLength·maxLines) _(The free text cannot be used.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-001" : {
+                    "summary" : "PART-001 — 참가자 토큰이 없거나 만료·회수",
+                    "value" : {
+                      "code" : "PART-001",
+                      "message" : "The participant session is missing, expired or revoked.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-001` — 참가자 토큰이 없거나 만료·회수 _(The participant session is missing, expired or revoked.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-002" : {
+                    "summary" : "PART-002 — 필수 동의 전",
+                    "value" : {
+                      "code" : "PART-002",
+                      "message" : "Required participation consent is missing.",
+                      "status" : 403
+                    }
+                  },
+                  "PART-004" : {
+                    "summary" : "PART-004 — 제공되지 않은 프레임",
+                    "value" : {
+                      "code" : "PART-004",
+                      "message" : "The frame is not offered to this capture run.",
+                      "status" : 403
+                    }
+                  },
+                  "PART-007" : {
+                    "summary" : "PART-007 — 이 행사는 문구를 바꿀 수 없다",
+                    "value" : {
+                      "code" : "PART-007",
+                      "message" : "Free text is not offered for this event.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-002` — 필수 동의 전 _(Required participation consent is missing.)_\n- `PART-004` — 제공되지 않은 프레임 _(The frame is not offered to this capture run.)_\n- `PART-007` — 이 행사는 문구를 바꿀 수 없다 _(Free text is not offered for this event.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 내 행사가 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 내 행사가 아니다 _(Resource not found.)_"
+          },
+          "429" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-061" : {
+                    "summary" : "GEN-061 — 미리보기가 너무 잦다",
+                    "value" : {
+                      "code" : "GEN-061",
+                      "message" : "Too many requests.",
+                      "status" : 429
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-061` — 미리보기가 너무 잦다 _(Too many requests.)_"
+          }
+        },
+        "security" : [ {
+          "participantToken" : [ ]
+        } ],
+        "summary" : "자유 문구 미리보기",
         "tags" : [ "행사 참가" ]
       }
     },
@@ -28224,6 +29794,26 @@
             },
             "description" : "- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
           },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
+          },
           "429" : {
             "content" : {
               "application/json" : {
@@ -28413,6 +30003,26 @@
         } ],
         "summary" : "다운로드 URL",
         "tags" : [ "행사 결과 수령" ]
+      }
+    },
+    "/api/public/text-styles" : {
+      "get" : {
+        "description" : "참가자 자유 문구(행사 설정 `freeText.styleIds`)에 고를 수 있는 서버 스타일 전체. 로그인 없이 연다.\n글꼴은 서버에 들어 있는 Pretendard 이고, 미리보기·합성 모두 서버가 같은 렌더로 굽는다.\n",
+        "operationId" : "list_5",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseListTextStyleResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "자유 문구 스타일 목록",
+        "tags" : [ "행사 설정" ]
       }
     },
     "/api/terms" : {
@@ -28619,6 +30229,14 @@
                       "message" : "Access denied.",
                       "status" : 403
                     }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
                   }
                 },
                 "schema" : {
@@ -28626,7 +30244,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           }
         },
         "security" : [ {
@@ -28965,7 +30583,7 @@
     },
     "/fixture/plain" : {
       "get" : {
-        "operationId" : "get_2",
+        "operationId" : "get_1",
         "responses" : {
           "200" : {
             "content" : {
@@ -29032,6 +30650,91 @@
               }
             },
             "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "tags" : [ "plain-api-fixture-controller" ]
+      },
+      "post" : {
+        "operationId" : "post",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           }
         },
         "security" : [ {

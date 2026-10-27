@@ -2,6 +2,7 @@ package com.harucut.frame.version;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.harucut.frame.attributes.BackgroundAttributes;
+import com.harucut.frame.cell.PhotoCell;
 import com.harucut.frame.enums.FrameType;
 
 import java.util.List;
@@ -32,7 +33,20 @@ public record FrameSpecV2(
     public record Canvas(int width, int height) {
     }
 
-    public record Layout(FrameType frameType, List<Slot> slots) {
+    /**
+     * cells 는 자유 사진 칸 프레임일 때만(ADR-0012) — 그때 slots 는 각 칸의 회전 전 사각형이라 옛 화면도 사각 미리보기로 읽는다
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Layout(FrameType frameType, List<Slot> slots, List<Cell> cells) {
+
+        public Layout(FrameType frameType, List<Slot> slots) {
+            this(frameType, slots, null);
+        }
+    }
+
+    /** 자유 사진 칸 — slotId 는 slots 와 같은 순서(s1~s4), shotIndex 는 이 칸에 넣을 촬영 순번 */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Cell(String slotId, int x, int y, int width, int height, double rotation, PhotoCell.Shape shape, int shotIndex) {
     }
 
     public record Slot(String slotId, int x, int y, int width, int height) {

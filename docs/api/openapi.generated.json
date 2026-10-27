@@ -501,6 +501,41 @@
         "required" : [ "captureRunId", "contentType", "fileSize", "slotIndex" ],
         "type" : "object"
       },
+      "Cell" : {
+        "properties" : {
+          "height" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "rotation" : {
+            "format" : "double",
+            "type" : "number"
+          },
+          "shape" : {
+            "$ref" : "#/components/schemas/PhotoCellShape"
+          },
+          "shotIndex" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "slotId" : {
+            "type" : "string"
+          },
+          "width" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "x" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "y" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ChangePasswordRequest" : {
         "description" : "비밀번호 변경 요청 (로그인 상태)",
         "properties" : {
@@ -2040,6 +2075,13 @@
             "minItems" : 4,
             "type" : "array"
           },
+          "cells" : {
+            "description" : "자유 사진 칸(ADR-0012). **생략하거나 null 이면 `frameType` 의 고정 레이아웃**(지금과 같다).\n보내면 정확히 4칸 — 회전 전 사각형이 캔버스 안, 너비·높이 100px 이상, rotation -180~180, `shotIndex` 0~3 이 칸마다 한 번씩,\n모양 `RECT`(cornerRadius 0~min/2)·`ELLIPSE`. `MASK` 는 아직 400. 위반은 400 `GEN-002` + `data.violations[{field, reason}]`.\n⚠️ 자유 칸 프레임은 합성 렌더가 준비될 때까지(`compose.free-cells.enabled`) 행사 게시·합성이 409 `FRAME-008` 이다 — 저장·초안·발행본은 된다.",
+            "items" : {
+              "$ref" : "#/components/schemas/PhotoCell"
+            },
+            "type" : "array"
+          },
           "components" : {
             "description" : "프레임 위에 얹히는 요소들. 생략하거나 빈 배열이어도 된다",
             "items" : {
@@ -2142,6 +2184,13 @@
             "example" : [ true, false, false, true ],
             "items" : {
               "type" : "boolean"
+            },
+            "type" : "array"
+          },
+          "cells" : {
+            "description" : "자유 사진 칸 4개(ADR-0012) — **자유 칸 프레임일 때만 키가 있다.** 없으면 `frameType` 의 고정 레이아웃",
+            "items" : {
+              "$ref" : "#/components/schemas/PhotoCell"
             },
             "type" : "array"
           },
@@ -2957,6 +3006,12 @@
       },
       "Layout" : {
         "properties" : {
+          "cells" : {
+            "items" : {
+              "$ref" : "#/components/schemas/Cell"
+            },
+            "type" : "array"
+          },
           "frameType" : {
             "enum" : [ "CLASSIC", "WIDE", "GRID", "POLAROID" ],
             "type" : "string"
@@ -3809,6 +3864,72 @@
           },
           "thumbnailUrl" : {
             "description" : "DONE 일 때만 — presigned GET 5분. 깨지면 목록을 다시 받는다",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "PhotoCell" : {
+        "description" : "자유 사진 칸 — 캔버스 px, 회전 전 사각형 기준",
+        "properties" : {
+          "height" : {
+            "description" : "높이(최소 100)",
+            "example" : 1200,
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "rotation" : {
+            "description" : "칸 중심 기준 회전(도, -180~180, 시계 방향)",
+            "example" : -4.5,
+            "format" : "double",
+            "type" : "number"
+          },
+          "shape" : {
+            "$ref" : "#/components/schemas/PhotoCellShape",
+            "description" : "칸 모양"
+          },
+          "shotIndex" : {
+            "description" : "이 칸에 넣을 촬영 순번(0~3) — 네 칸에서 서로 달라야 한다",
+            "example" : 0,
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "width" : {
+            "description" : "너비(최소 100)",
+            "example" : 1700,
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "x" : {
+            "description" : "왼쪽 위 x(회전 전)",
+            "example" : 150,
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "y" : {
+            "description" : "왼쪽 위 y(회전 전)",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "PhotoCellShape" : {
+        "description" : "`RECT` 사각형(`cornerRadius` 로 둥근 모서리, 0~min(width,height)/2) · `ELLIPSE` 칸에 내접하는 타원 ·\n`MASK` 이미지 마스크(`maskAssetId`) — **아직 지원하지 않는다(400)**, 자리만 잡아 둔다",
+        "properties" : {
+          "cornerRadius" : {
+            "description" : "RECT 만 — 모서리 반지름 px",
+            "example" : 40,
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "maskAssetId" : {
+            "description" : "MASK 만 — 마스크 자산 public id(아직 400)",
+            "type" : "string"
+          },
+          "type" : {
+            "enum" : [ "RECT", "ELLIPSE", "MASK" ],
             "type" : "string"
           }
         },

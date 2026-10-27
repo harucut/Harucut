@@ -239,6 +239,10 @@
   "status" : 403,
   "message" : "The workspace has reached its frame limit."
 }, {
+  "code" : "FRAME-008",
+  "status" : 409,
+  "message" : "Frames with free photo cells cannot be composed yet."
+}, {
   "code" : "GEN-001",
   "status" : 400,
   "message" : "Bad request."

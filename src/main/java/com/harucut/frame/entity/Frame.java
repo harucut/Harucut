@@ -2,8 +2,10 @@ package com.harucut.frame.entity;
 
 import com.harucut.common.entity.BaseEntity;
 import com.harucut.frame.attributes.BackgroundAttributes;
+import com.harucut.frame.cell.PhotoCell;
 import com.harucut.frame.converter.BackgroundConverter;
 import com.harucut.frame.converter.CellCutoutsConverter;
+import com.harucut.frame.converter.PhotoCellsConverter;
 import com.harucut.frame.enums.FrameType;
 import com.harucut.user.entity.User;
 import jakarta.persistence.*;
@@ -55,6 +57,11 @@ public class Frame extends BaseEntity {
     @Convert(converter = CellCutoutsConverter.class)
     @Column(name = "cell_cutouts", length = 64)
     private List<Boolean> cellCutouts;
+
+    // 자유 사진 칸 4개(ADR-0012) — null 이면 frameType 의 고정 레이아웃. 검증은 PhotoCells 가 저장 전에 한다
+    @Convert(converter = PhotoCellsConverter.class)
+    @Column(name = "photo_cells", length = 2000)
+    private List<PhotoCell> photoCells;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
@@ -132,6 +139,14 @@ public class Frame extends BaseEntity {
         this.background = background;
         this.previewKey = previewKey;
         this.cellCutouts = normalizeCellCutouts(cellCutouts);
+    }
+
+    public void assignPhotoCells(List<PhotoCell> photoCells) {
+        this.photoCells = photoCells == null ? null : List.copyOf(photoCells);
+    }
+
+    public boolean hasFreeCells() {
+        return photoCells != null;
     }
 
     // cellCutouts 불변식의 소유자 — 어떤 입력이 와도 "정확히 4개, null 없음"으로 만든다.

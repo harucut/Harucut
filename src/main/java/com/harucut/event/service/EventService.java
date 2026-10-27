@@ -21,6 +21,7 @@ import com.harucut.event.exception.EventErrorCode;
 import com.harucut.event.repository.EventExperienceVersionRepository;
 import com.harucut.event.repository.EventFrameRepository;
 import com.harucut.event.repository.EventRepository;
+import com.harucut.frame.cell.FreeCellsGate;
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.entity.FrameVersion;
 import com.harucut.frame.enums.FrameType;
@@ -76,6 +77,7 @@ public class EventService {
     private final EventExperienceVersionRepository experienceVersionRepository;
     private final EventFrameRepository eventFrameRepository;
     private final FrameVersionRepository frameVersionRepository;
+    private final FreeCellsGate freeCellsGate;
     private final FrameRepository frameRepository;
     private final WorkspaceService workspaceService;
     private final WorkspaceRepository workspaceRepository;
@@ -220,6 +222,8 @@ public class EventService {
             throw new BusinessException(EventErrorCode.PUBLISH_INVALID, "게시 검증 실패: " + violations,
                     Map.of("violations", violations));
         }
+        // 자유 사진 칸 발행본은 렌더 스위치가 켜져야 게시할 수 있다(409 FRAME-008, ADR-0012)
+        versions.forEach(freeCellsGate::requireRenderable);
 
         EventExperienceVersion version;
         try {

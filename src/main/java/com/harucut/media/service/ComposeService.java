@@ -4,6 +4,7 @@ import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.entitlement.service.EntitlementService;
+import com.harucut.frame.cell.FreeCellsGate;
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.exception.FrameErrorCode;
 import com.harucut.frame.service.FrameService;
@@ -50,6 +51,7 @@ public class ComposeService {
     private final UserMediaRepository userMediaRepository;
     private final FrameService frameService;
     private final ComposeSpecAssembler composeSpecAssembler;
+    private final FreeCellsGate freeCellsGate;
     private final S3Deleter s3Deleter;
     private final ApplicationEventPublisher eventPublisher;
     private final ComposeMetrics composeMetrics;
@@ -80,6 +82,7 @@ public class ComposeService {
         validateSourceOwnership(publicId, sourceKeys);
 
         Frame frame = frameService.getComposableFrame(user, request.frameId());
+        freeCellsGate.requireRenderable(frame);   // 자유 사진 칸 — 렌더 스위치 전에는 409 FRAME-008
         ComposeSpec spec = composeSpecAssembler.assemble(frame, request.backgroundColor());
 
         ComposeJob job = accept(ComposeJob.create(user, frame.getId(), request.idempotencyKey(), sourceKeys, spec));

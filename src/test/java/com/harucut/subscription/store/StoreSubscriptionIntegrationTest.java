@@ -175,6 +175,8 @@ class StoreSubscriptionIntegrationTest {
         body.put("productId", productId);
         body.put("expiresAt", expiresAt.toString());
         body.putAll(extra);
+        // 서명 시각 — 만든 순간으로 고정한다(같은 증빙을 다시 내면 같은 시각이다)
+        body.putIfAbsent("signedAt", LocalDateTime.now().toString());
         return body;
     }
 

@@ -45,6 +45,7 @@ class AppleJwsVerifierTest {
         assertThat(verified.environment()).isEqualTo(StoreEnvironment.PRODUCTION);
         assertThat(verified.accountToken()).isEqualTo("4a1d6f0e-2b3c-3d4e-9f00-112233445566");
         assertThat(verified.revoked()).isFalse();
+        assertThat(verified.signedAt()).isEqualTo(LocalDateTime.of(2027, 1, 5, 0, 0));
         // x5c 에 루트가 실려 와도 된다
         assertThat(verifier(pem("root.pem"), true).verifyTransaction(sign(payload, List.of("leaf.pem", "intermediate.pem", "root.pem")))
                 .storeKey()).isEqualTo("2000001");
@@ -79,6 +80,9 @@ class AppleJwsVerifierTest {
         assertThat(verifier(pem("root.pem"), true).verifyTransaction(sign(sandbox)).environment()).isEqualTo(StoreEnvironment.SANDBOX);
         assertThatThrownBy(() -> verifier(pem("root.pem"), false).verifyTransaction(sign(sandbox))).isInstanceOf(StoreVerificationException.class);
         assertThatThrownBy(() -> verifier(pem("root.pem"), true).verifyTransaction("not-a-jws")).isInstanceOf(StoreVerificationException.class);
+        Map<String, Object> unsigned = transaction("2000007", "harucut.plus.monthly", EXPIRES);
+        unsigned.remove("signedDate");
+        assertThatThrownBy(() -> verifier(pem("root.pem"), true).verifyTransaction(sign(unsigned))).isInstanceOf(StoreVerificationException.class);
     }
 
     @Test
@@ -96,6 +100,7 @@ class AppleJwsVerifierTest {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("notificationType", "REFUND");
         payload.put("notificationUUID", "n-1");
+        payload.put("signedDate", Instant.parse("2027-01-08T00:00:00Z").toEpochMilli());
         payload.put("data", data);
 
         AppStoreNotification notification = verifier(pem("root.pem"), true).verifyNotification(sign(payload));
@@ -106,6 +111,8 @@ class AppleJwsVerifierTest {
         assertThat(notification.transaction().revoked()).isTrue();
         assertThat(notification.transaction().autoRenew()).isFalse();
         assertThat(notification.transaction().billingRetry()).isTrue();
+        // 알림이 실은 거래의 이벤트 시각은 알림의 서명 시각
+        assertThat(notification.transaction().signedAt()).isEqualTo(LocalDateTime.of(2027, 1, 8, 0, 0));
 
         // 중첩 거래가 다른 체인으로 서명됐으면 거절
         data.put("signedTransactionInfo", sign(revokedTransaction, List.of("leaf.pem", "root.pem")));

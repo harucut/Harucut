@@ -16,7 +16,6 @@ import com.harucut.subscription.exception.SubscriptionErrorCode;
 import com.harucut.subscription.repository.UserSubscriptionRepository;
 import com.harucut.subscription.store.StoreAccountTokens;
 import com.harucut.subscription.store.StorePlatform;
-import com.harucut.subscription.store.StorePurchaseStatus;
 import com.harucut.subscription.store.config.StoreProperties;
 import com.harucut.subscription.store.dto.StorePurchaseDtos;
 import com.harucut.subscription.store.entity.StorePurchase;
@@ -126,7 +125,7 @@ public class StoreSubscriptionService {
         return SubscriptionResponse.of(subscription, subscription.effectiveTier(now), userPublicId);
     }
 
-    /** App Store Server Notifications v2 — 같은 알림은 한 번만. 모르는 구매(앱이 아직 등록하지 않음)는 건너뛴다 */
+    /** App Store Server Notifications v2 — 같은 알림은 한 번만. 모르는 구매(앱이 아직 등록하지 않음)는 주인 없는 행으로 남긴다 */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void appStoreNotification(String signedPayload) {
         AppStoreNotification notification;
@@ -159,7 +158,7 @@ public class StoreSubscriptionService {
         }
         Optional<StorePurchase> known = purchaseRepository.findByPlatformAndStoreKeyHash(StorePlatform.PLAY_STORE, StorePurchase.hash(purchaseToken));
         if (known.isEmpty()) {
-            return;
+            return;   // 구글은 토큰으로 다시 읽어야 상태를 안다 — 앱이 등록하면 그때 읽는다
         }
         VerifiedPurchase verified;
         try {
@@ -172,67 +171,77 @@ public class StoreSubscriptionService {
     }
 
     /**
-     * 스토어가 알려 준 최신 상태를 구매와(그 구매가 구독의 출처면) 구독에 반영한다. 구매의 주인은 바뀌지 않으므로 트랜잭션 밖에서 읽고,
-     * 반영 트랜잭션은 구독 행 잠금으로 시작한다(그 뒤 읽기가 먼저 끝난 등록·알림을 본다). 알림 수신 기록도 같은 트랜잭션 — 실패하면 재전송이 다시 처리한다
+     * 스토어가 알려 준 상태를 구매와(그 구매가 구독의 출처면) 구독에 반영한다. 반영 규칙은 이벤트 시각 하나다(StorePurchase.applyIfNewer).
+     * 주인이 있는 구매: 주인은 바뀌지 않으므로 트랜잭션 밖에서 읽고, 반영 트랜잭션은 구독 행 잠금으로 시작한다(구독 행 → 구매 행).
+     * 주인이 없거나 처음 보는 구매(앱이 아직 등록하지 않음): 주인 없는 행으로 남긴다 — 등록할 때 이어받아 같은 규칙으로 판정한다.
+     * 알림 수신 기록도 같은 트랜잭션 — 실패하면 재전송이 다시 처리한다
      */
     private void applyFromStore(VerifiedPurchase verified, String notificationId, String type) {
-        Optional<StorePurchase> known = purchaseRepository.findByPlatformAndStoreKeyHash(verified.platform(), StorePurchase.hash(verified.storeKey()));
-        if (known.isEmpty()) {
-            log.info("[스토어] 등록되지 않은 구매의 알림 — 앱이 등록·복원할 때 반영된다");
-            if (notificationId != null) {
-                record(verified.platform().name(), notificationId, type);
+        for (int attempt = 0; attempt < 2; attempt++) {
+            Long owner = purchaseRepository.findByPlatformAndStoreKeyHash(verified.platform(), StorePurchase.hash(verified.storeKey()))
+                    .map(StorePurchase::getUserId).orElse(null);
+            Boolean done = owner != null
+                    ? transaction.execute(status -> applyOwned(verified, owner, notificationId, type))
+                    : transaction.execute(status -> applyUnowned(verified, notificationId, type));
+            if (Boolean.TRUE.equals(done)) {
+                return;
             }
-            return;
+            // 그사이 앱이 등록해 주인이 생겼다 — 주인 있는 경로로 다시(구독 행부터 잠근다)
         }
-        Long userId = known.get().getUserId();
-        transaction.executeWithoutResult(status -> apply(verified, userId, notificationId, type));
+        throw new IllegalStateException("스토어 알림 반영 경합이 계속된다: " + notificationId);
     }
 
     private void record(String provider, String notificationId, String type) {
         transaction.executeWithoutResult(status -> receiptRepository.recordOnce(now(), provider, notificationId, type));
     }
 
-    private void apply(VerifiedPurchase verified, Long userId, String notificationId, String type) {
+    private boolean applyOwned(VerifiedPurchase verified, Long userId, String notificationId, String type) {
         LocalDateTime now = now();
         UserSubscription subscription = subscriptionRepository.lockByUserId(userId)
                 .orElseThrow(() -> new BusinessException(SubscriptionErrorCode.NO_ACTIVE_SUBSCRIPTION));
         if (notificationId != null && receiptRepository.recordOnce(now, verified.platform().name(), notificationId, type) == 0) {
-            return;   // 이미 처리한 알림
+            return true;   // 이미 처리한 알림
         }
         StorePurchase purchase = purchaseRepository.lockByKey(verified.platform(), StorePurchase.hash(verified.storeKey())).orElseThrow();
-        // 환불로 기록된 구매는 저장 기한보다 늦게 끝나는 새 거래(다음 구독 기간)나 애플의 환불 취소(REFUND_REVERSED)로만 풀린다 —
-        // 처리 순서가 뒤바뀐 옛 갱신 알림이 환불을 되돌리지 못한다(증빙 경로 bind 와 같은 규칙)
-        if (purchase.getStatus() == StorePurchaseStatus.REVOKED && !verified.revoked() && !"REFUND_REVERSED".equals(type)
-                && !verified.expiresAt().isAfter(purchase.getExpiresAt())) {
-            return;
+        if (!purchase.applyIfNewer(verified, properties.products().getOrDefault(verified.productId(), purchase.getPlanTier()), now)) {
+            return true;   // 이미 반영한 것보다 오래된 소식
         }
-        // 같은 원거래의 이전 기간 거래가 환불됐다(갱신은 늘 더 늦게 끝난다) — 저장된 지금 기간은 그대로 둔다
-        if (verified.revoked() && verified.expiresAt().isBefore(purchase.getExpiresAt())) {
-            log.info("[스토어] 이전 기간 거래의 환불 알림 — 지금 기간({})은 유지", purchase.getExpiresAt());
-            return;
-        }
-        // 늦게 도착한 옛 알림이 만료를 되돌리지 않게 — 환불이 아니면 기한은 앞으로만
-        VerifiedPurchase merged = !verified.revoked() && verified.expiresAt().isBefore(purchase.getExpiresAt())
-                ? new VerifiedPurchase(verified.platform(), verified.storeKey(), purchase.getProductId(), purchase.getExpiresAt(),
-                verified.autoRenew(), false, verified.billingRetry(), verified.environment(), verified.accountToken())
-                : verified;
-        // 저장된 상품·기한을 남겼으면 등급도 저장값 — 알림 상품의 등급과 섞지 않는다(모르는 상품도 저장값)
-        PlanTier tier = merged == verified ? properties.products().getOrDefault(verified.productId(), purchase.getPlanTier())
-                : purchase.getPlanTier();
-        purchase.apply(merged, tier, now);
         // 이 스토어가 구독의 출처면 늘 맞추고(연장·강등), 지금 무료·쿠폰이면 유효한 구매로 다시 올린다. 웹·다른 스토어로 구독 중이면 구매만 갱신
         SubscriptionSource active = activeSource(subscription, now);
         boolean drivenByThis = subscription.getSource() == verified.platform().source();
         boolean free = active == null || active == SubscriptionSource.COUPON;
         if (drivenByThis || free && purchase.grantsAt(now)) {
-            sync(subscription, purchase.getUserId(), verified.platform(), now);
+            sync(subscription, userId, verified.platform(), now);
         }
+        return true;
+    }
+
+    // 주인 없는 구매 — 구독은 건드리지 않는다(sync 대상은 주인 있는 구매뿐). false 면 그사이 주인이 생겼다
+    private boolean applyUnowned(VerifiedPurchase verified, String notificationId, String type) {
+        LocalDateTime now = now();
+        String hash = StorePurchase.hash(verified.storeKey());
+        PlanTier tier = properties.products().getOrDefault(verified.productId(), PlanTier.BASIC);
+        int inserted = purchaseRepository.insertIfAbsent(null, verified.platform().name(), verified.storeKey(), hash,
+                verified.productId(), tier.name(), verified.statusAt(now).name(), verified.autoRenew(), verified.expiresAt(),
+                verified.environment().name(), verified.signedAt(), now);
+        StorePurchase purchase = purchaseRepository.lockByKey(verified.platform(), hash).orElseThrow();
+        if (purchase.getUserId() != null) {
+            return false;
+        }
+        if (notificationId != null && receiptRepository.recordOnce(now, verified.platform().name(), notificationId, type) == 0) {
+            return true;
+        }
+        if (inserted == 0) {
+            purchase.applyIfNewer(verified, properties.products().getOrDefault(verified.productId(), purchase.getPlanTier()), now);
+        }
+        log.info("[스토어] 등록되지 않은 구매의 알림 — 주인 없는 행으로 남긴다(등록할 때 이어받는다)");
+        return true;
     }
 
     /**
-     * 이 계정에 묶는다 — 이미 다른 계정 것이거나 다른 계정 표시가 실렸으면 SUBS-008.
-     * 앱이 보낸 증빙은 서명은 맞아도 옛 스냅샷일 수 있다(환불·자동갱신 끔은 거래 JWS 에 늦게 실리거나 안 실린다). 그래서 이미 있는 구매는
-     * 저장값보다 늦게 끝나는(새 갱신의) 증빙일 때만 바꾼다 — 알림이 반영한 환불(REVOKED)·자동갱신 끔을 옛 증빙이 되돌리지 못한다
+     * 이 계정에 묶는다 — 이미 다른 계정 것이거나 다른 계정 표시가 실렸으면 SUBS-008. 주인 없는 행(알림이 먼저 온 구매)은 이어받는다.
+     * 이미 있는 행에는 이벤트 시각 규칙을 그대로 적용한다 — 앱이 보낸 옛 증빙(서명 시각이 마지막 반영보다 이르다)은 알림이 반영한 환불·자동갱신 끔을
+     * 되돌리지 못한다
      */
     private StorePurchase bind(Long userId, String userPublicId, VerifiedPurchase verified, PlanTier tier, LocalDateTime now) {
         if (verified.accountToken() != null && !verified.accountToken().equalsIgnoreCase(StoreAccountTokens.of(userPublicId))) {
@@ -242,13 +251,13 @@ public class StoreSubscriptionService {
         // 넣어 보고(없는 키를 잠금 읽기하면 빈 구간 gap lock 끼리 교착한다) 그 행을 잠금 읽기로 다시 본다 — 먼저 묶은 계정이 이긴다
         int inserted = purchaseRepository.insertIfAbsent(userId, verified.platform().name(), verified.storeKey(), hash,
                 verified.productId(), tier.name(), verified.statusAt(now).name(), verified.autoRenew(), verified.expiresAt(),
-                verified.environment().name(), now);
+                verified.environment().name(), verified.signedAt(), now);
         StorePurchase purchase = purchaseRepository.lockByKey(verified.platform(), hash).orElseThrow();
-        if (!purchase.getUserId().equals(userId)) {
+        if (!purchase.claim(userId)) {
             throw new BusinessException(SubscriptionErrorCode.STORE_PURCHASE_OWNED_BY_OTHER, "다른 계정에 묶인 구매");
         }
-        if (inserted == 1 || verified.expiresAt().isAfter(purchase.getExpiresAt())) {
-            purchase.apply(verified, tier, now);
+        if (inserted == 0) {
+            purchase.applyIfNewer(verified, tier, now);
         }
         return purchase;
     }

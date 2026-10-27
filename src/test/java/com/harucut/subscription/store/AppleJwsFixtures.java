@@ -66,6 +66,7 @@ public final class AppleJwsFixtures {
         payload.put("type", "Auto-Renewable Subscription");
         payload.put("expiresDate", expiresMillis);
         payload.put("environment", "Production");
+        payload.put("signedDate", java.time.Instant.parse("2027-01-05T00:00:00Z").toEpochMilli());
         return payload;
     }
 

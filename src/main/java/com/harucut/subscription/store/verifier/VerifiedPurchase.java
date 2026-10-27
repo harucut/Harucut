@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
  * @param accountToken 구매할 때 앱이 실은 계정 표시(애플 appAccountToken · 구글 obfuscatedExternalAccountId). 없으면 null
  * @param revoked      환불·가족 공유 해제 등으로 취소됐다
  * @param billingRetry 스토어가 결제를 재시도 중이다(유예)
+ * @param signedAt     스토어가 이 정보에 서명한(또는 Play API 로 다시 읽은) 시각 — 이벤트 시각 규칙의 기준(ADR-0011 §2-4)
  */
 public record VerifiedPurchase(
         StorePlatform platform,
@@ -23,7 +24,8 @@ public record VerifiedPurchase(
         boolean revoked,
         boolean billingRetry,
         StoreEnvironment environment,
-        String accountToken
+        String accountToken,
+        LocalDateTime signedAt
 ) {
 
     public StorePurchaseStatus statusAt(LocalDateTime now) {
@@ -40,6 +42,10 @@ public record VerifiedPurchase(
     }
 
     public VerifiedPurchase withAutoRenew(boolean value) {
-        return new VerifiedPurchase(platform, storeKey, productId, expiresAt, value, revoked, billingRetry, environment, accountToken);
+        return new VerifiedPurchase(platform, storeKey, productId, expiresAt, value, revoked, billingRetry, environment, accountToken, signedAt);
+    }
+
+    public VerifiedPurchase withSignedAt(LocalDateTime value) {
+        return new VerifiedPurchase(platform, storeKey, productId, expiresAt, autoRenew, revoked, billingRetry, environment, accountToken, value);
     }
 }

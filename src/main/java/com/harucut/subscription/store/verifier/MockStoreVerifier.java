@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
 /**
  * 로컬·테스트용 검증기 — 서명을 보지 않는다. 증빙은 {@code mock:} 뒤의 JSON:
  * {@code {"storeKey":"...","productId":"...","expiresAt":"2026-12-01T00:00:00","autoRenew":true,"revoked":false,
- * "billingRetry":false,"accountToken":"..."}}. 알림은 {@code {"notificationId":"...","type":"...","transaction":{...},"autoRenew":true}}.
+ * "billingRetry":false,"accountToken":"...","signedAt":"2026-11-01T00:00:00"}} — signedAt 이 없으면 지금(검증 시각). 알림은 {@code {"notificationId":"...","type":"...","transaction":{...},"autoRenew":true}}.
  * 운영에서 켜지면 StoreMockGuard 가 기동을 막는다.
  */
 @Component
@@ -57,7 +57,8 @@ public class MockStoreVerifier implements AppStoreVerifier, PlayStoreVerifier {
         return new VerifiedPurchase(platform, storeKey, node.path("productId").asString(),
                 LocalDateTime.parse(node.path("expiresAt").asString()), node.path("autoRenew").asBoolean(true),
                 node.path("revoked").asBoolean(false), node.path("billingRetry").asBoolean(false), StoreEnvironment.SANDBOX,
-                node.path("accountToken").isMissingNode() ? null : node.path("accountToken").asString());
+                node.path("accountToken").isMissingNode() ? null : node.path("accountToken").asString(),
+                node.path("signedAt").isMissingNode() ? LocalDateTime.now() : LocalDateTime.parse(node.path("signedAt").asString()));
     }
 
     private JsonNode read(String proof) {

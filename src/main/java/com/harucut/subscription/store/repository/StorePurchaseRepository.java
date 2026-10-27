@@ -26,12 +26,13 @@ public interface StorePurchaseRepository extends JpaRepository<StorePurchase, Lo
     // 잠금 읽기(현재 읽기)로 다시 본다: RR 스냅샷은 먼저 끝난 요청이 넣은 행을 못 볼 수 있다
     @Modifying(flushAutomatically = true)
     @Query(value = "insert ignore into store_purchase (created_at, updated_at, user_id, platform, store_key, store_key_hash, product_id, "
-            + "plan_tier, status, auto_renew, expires_at, environment, last_verified_at) values (:now, :now, :userId, :platform, :storeKey, "
-            + ":storeKeyHash, :productId, :planTier, :status, :autoRenew, :expiresAt, :environment, :now)", nativeQuery = true)
+            + "plan_tier, status, auto_renew, expires_at, environment, last_verified_at, last_event_at) values (:now, :now, :userId, :platform, "
+            + ":storeKey, :storeKeyHash, :productId, :planTier, :status, :autoRenew, :expiresAt, :environment, :now, :signedAt)", nativeQuery = true)
     int insertIfAbsent(@Param("userId") Long userId, @Param("platform") String platform, @Param("storeKey") String storeKey,
                        @Param("storeKeyHash") String storeKeyHash, @Param("productId") String productId, @Param("planTier") String planTier,
                        @Param("status") String status, @Param("autoRenew") boolean autoRenew, @Param("expiresAt") LocalDateTime expiresAt,
-                       @Param("environment") String environment, @Param("now") LocalDateTime now);
+                       @Param("environment") String environment, @Param("signedAt") LocalDateTime signedAt,
+                       @Param("now") LocalDateTime now);
 
     List<StorePurchase> findAllByUserIdAndPlatform(Long userId, StorePlatform platform);
 }

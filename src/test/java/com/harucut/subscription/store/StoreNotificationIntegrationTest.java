@@ -96,6 +96,7 @@ class StoreNotificationIntegrationTest {
             jdbcTemplate.update("delete from users where user_id = ?", id);
         });
         coupons.forEach(id -> jdbcTemplate.update("delete from coupon where coupon_id = ?", id));
+        jdbcTemplate.update("delete from store_purchase where user_id is null");   // 등록 전에 알림이 남긴 주인 없는 행
         jdbcTemplate.update("delete from webhook_receipt where provider in ('APP_STORE', 'PLAY_STORE')");
     }
 
@@ -225,14 +226,16 @@ class StoreNotificationIntegrationTest {
     @DisplayName("#43 재리뷰 P1: 환불 알림을 먼저 처리한 뒤 처리 순서가 뒤바뀐 옛 갱신 알림(같은 기한·더 이른 기한)은 환불을 되돌리지 못한다 — 애플의 환불 취소(REFUND_REVERSED)·더 늦게 끝나는 새 거래만 푼다")
     void staleRenewalAfterRefundKeepsRevoked() {
         assertThat(purchase(user, "APP_STORE", PLUS, proof("tx-30", PLUS, later, Map.of()))).hasStatusOk();
+        String beforeRefund = LocalDateTime.now().toString();   // 이 시각에 서명됐지만 늦게 도착하는 옛 갱신 알림
         notify("n-30", "REFUND", transaction("tx-30", later, Map.of("revoked", true)));
 
-        notify("n-31", "DID_RENEW", transaction("tx-30", later, Map.of()));
-        notify("n-32", "DID_RENEW", transaction("tx-30", later.minusDays(5), Map.of()));
+        notify("n-31", "DID_RENEW", transaction("tx-30", later, Map.of("signedAt", beforeRefund)));
+        notify("n-32", "DID_RENEW", transaction("tx-30", later.minusDays(5), Map.of("signedAt", beforeRefund)));
         assertThat(subscription(user).getPlanTier()).isEqualTo(PlanTier.BASIC);
         assertThat(purchaseRepository.findAllByUserIdAndPlatform(user.getId(), StorePlatform.APP_STORE)).singleElement()
                 .satisfies(row -> assertThat(row.getStatus()).isEqualTo(StorePurchaseStatus.REVOKED));
 
+        // 환불 뒤에 서명된 소식(환불 취소)은 반영된다
         notify("n-33", "REFUND_REVERSED", transaction("tx-30", later, Map.of()));
         assertThat(subscription(user).getPlanTier()).isEqualTo(PlanTier.PLUS);
     }
@@ -285,6 +288,41 @@ class StoreNotificationIntegrationTest {
         assertThat(subscription(other).getPlanTier()).isEqualTo(PlanTier.PLUS);
     }
 
+    @Test
+    @DisplayName("#43 재리뷰3 P1: 앱이 등록하기 전에 온 환불 — 주인 없는 행으로 남고, 그보다 먼저 서명된 원래 증빙으로 등록하면 SUBS-007·복원은 건너뜀, 더 나중의 새 거래만 열린다")
+    void refundBeforeRegistration() {
+        String original = proof("tx-70", PLUS, later, Map.of());   // 환불 전에 서명된 원래 증빙
+        notify("n-70", "REFUND", transaction("tx-70", later, Map.of("revoked", true)));
+        assertThat(purchaseRepository.findByPlatformAndStoreKeyHash(StorePlatform.APP_STORE, com.harucut.subscription.store.entity.StorePurchase.hash("tx-70")))
+                .hasValueSatisfying(row -> {
+                    assertThat(row.getUserId()).isNull();
+                    assertThat(row.getStatus()).isEqualTo(StorePurchaseStatus.REVOKED);
+                });
+
+        assertThat(purchase(user, "APP_STORE", PLUS, original)).hasStatus(400).bodyJson()
+                .hasPathSatisfying("$.code", v -> assertThat(v).isEqualTo("SUBS-007"));
+        assertThat(restore(user, "APP_STORE", List.of(Map.of("productId", PLUS, "proof", original)))).hasStatusOk().bodyJson()
+                .hasPathSatisfying("$.data.planTier", v -> assertThat(v).isEqualTo("BASIC"));
+
+        assertThat(purchase(user, "APP_STORE", PLUS, proof("tx-70", PLUS, later.plusMonths(1), Map.of()))).hasStatusOk().bodyJson()
+                .hasPathSatisfying("$.data.planTier", v -> assertThat(v).isEqualTo("PLUS"));
+        assertThat(purchaseRepository.findAllByUserIdAndPlatform(user.getId(), StorePlatform.APP_STORE)).singleElement()
+                .satisfies(row -> assertThat(row.getStatus()).isEqualTo(StorePurchaseStatus.ACTIVE));
+    }
+
+    @Test
+    @DisplayName("#43 재리뷰3 P2: 자동갱신 끔(나중 서명) 뒤에 늦게 온 옛 갱신 알림(먼저 서명, 같은 기한)은 갱신 설정을 되돌리지 못한다")
+    void staleRenewalCannotReenableAutoRenew() {
+        assertThat(purchase(user, "APP_STORE", PLUS, proof("tx-71", PLUS, later, Map.of()))).hasStatusOk();
+        String older = LocalDateTime.now().toString();
+        notify("n-71", "DID_CHANGE_RENEWAL_STATUS", transaction("tx-71", later, Map.of("autoRenew", false)));
+
+        notify("n-72", "DID_RENEW", transaction("tx-71", later, Map.of("autoRenew", true, "signedAt", older)));
+
+        assertThat(subscription(user).getSubscriptionStatus()).isEqualTo(SubscriptionStatus.CANCELED);
+        assertThat(subscription(user).isAutoRenew()).isFalse();
+    }
+
     private String proof(String storeKey, String productId, LocalDateTime expiresAt, Map<String, Object> extra) {
         return "mock:" + objectMapper.writeValueAsString(transaction(storeKey, expiresAt, extra, productId));
     }
@@ -307,6 +345,8 @@ class StoreNotificationIntegrationTest {
         body.put("productId", productId);
         body.put("expiresAt", expiresAt.toString());
         body.putAll(extra);
+        // 서명 시각 — 만든 순간으로 고정한다(같은 증빙을 다시 내면 같은 시각이다)
+        body.putIfAbsent("signedAt", LocalDateTime.now().toString());
         return body;
     }
 

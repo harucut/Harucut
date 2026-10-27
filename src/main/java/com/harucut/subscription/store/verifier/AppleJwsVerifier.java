@@ -78,8 +78,10 @@ public class AppleJwsVerifier implements AppStoreVerifier {
             autoRenew = renewal.path("autoRenewStatus").asInt(1) == 1;
             billingRetry = renewal.path("isInBillingRetryPeriod").asBoolean(false);
         }
+        // 알림이 실은 거래·갱신 정보의 이벤트 시각은 알림의 서명 시각이다 — 애플이 그 순간 알고 있던 상태다
         VerifiedPurchase transaction = data.path("signedTransactionInfo").isMissingNode() ? null
-                : transaction(verified(data.path("signedTransactionInfo").asString()), autoRenew == null || autoRenew, billingRetry);
+                : transaction(verified(data.path("signedTransactionInfo").asString()), autoRenew == null || autoRenew, billingRetry)
+                        .withSignedAt(signedAt(payload));
         return new AppStoreNotification(payload.path("notificationUUID").asString(), payload.path("notificationType").asString(),
                 payload.path("subtype").isMissingNode() ? null : payload.path("subtype").asString(), transaction, autoRenew);
     }
@@ -102,7 +104,8 @@ public class AppleJwsVerifier implements AppStoreVerifier {
         return new VerifiedPurchase(StorePlatform.APP_STORE, payload.path("originalTransactionId").asString(),
                 payload.path("productId").asString(), time(payload.path("expiresDate").asLong()), autoRenew,
                 !payload.path("revocationDate").isMissingNode(), billingRetry, environment,
-                payload.path("appAccountToken").isMissingNode() ? null : payload.path("appAccountToken").asString());
+                payload.path("appAccountToken").isMissingNode() ? null : payload.path("appAccountToken").asString(),
+                signedAt(payload));
     }
 
     // 서명·체인을 확인한 JWS 의 본문
@@ -158,6 +161,13 @@ public class AppleJwsVerifier implements AppStoreVerifier {
         parameters.setRevocationEnabled(false);
         parameters.setDate(Date.from(clock.instant()));
         CertPathValidator.getInstance("PKIX").validate(certPath, parameters);
+    }
+
+    private LocalDateTime signedAt(JsonNode payload) {
+        if (payload.path("signedDate").isMissingNode()) {
+            throw new StoreVerificationException("서명 시각(signedDate)이 없다");
+        }
+        return time(payload.path("signedDate").asLong());
     }
 
     private LocalDateTime time(long epochMillis) {

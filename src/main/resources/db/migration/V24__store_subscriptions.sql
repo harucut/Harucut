@@ -10,12 +10,13 @@ UPDATE `user_subscription` SET `source` = 'WEB'
   WHERE `plan_tier` <> 'BASIC' AND `subscription_status` IN ('ACTIVE','CANCELED','PAST_DUE');
 UPDATE `user_subscription` SET `source` = 'COUPON' WHERE `subscription_status` = 'GRANTED';
 
--- 스토어 구매 — 한 구매(애플 원거래·구글 구매 토큰)는 한 계정에만 묶인다
+-- 스토어 구매 — 한 구매(애플 원거래·구글 구매 토큰)는 한 계정에만 묶인다.
+-- 주인 없음(user_id NULL) = 앱이 등록하기 전에 스토어 알림이 먼저 온 구매 — 등록할 때 그 행을 이어받는다
 CREATE TABLE `store_purchase` (
   `store_purchase_id` bigint NOT NULL AUTO_INCREMENT,
   `created_at` datetime(6) NOT NULL,
   `updated_at` datetime(6) NOT NULL,
-  `user_id` bigint NOT NULL,
+  `user_id` bigint DEFAULT NULL,
   `platform` enum('APP_STORE','PLAY_STORE') COLLATE utf8mb4_unicode_ci NOT NULL,
   -- 애플 originalTransactionId · 구글 purchaseToken(재검증에 쓴다)
   `store_key` varchar(512) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -27,6 +28,8 @@ CREATE TABLE `store_purchase` (
   `expires_at` datetime(6) NOT NULL,
   `environment` enum('SANDBOX','PRODUCTION') COLLATE utf8mb4_unicode_ci NOT NULL,
   `last_verified_at` datetime(6) NOT NULL,
+  -- 마지막으로 반영한 입력의 서명 시각 — 이보다 오래된 입력은 상태·기한·자동갱신을 바꾸지 않는다
+  `last_event_at` datetime(6) NOT NULL,
   PRIMARY KEY (`store_purchase_id`),
   UNIQUE KEY `uk_store_purchase_key` (`platform`, `store_key_hash`),
   KEY `idx_store_purchase_user` (`user_id`),

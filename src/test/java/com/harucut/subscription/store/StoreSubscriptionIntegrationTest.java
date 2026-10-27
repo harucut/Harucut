@@ -1,6 +1,8 @@
 package com.harucut.subscription.store;
 
 import com.harucut.auth.service.JwtTokenService;
+import com.harucut.payment.entity.PaymentOrder;
+import com.harucut.payment.repository.PaymentOrderRepository;
 import com.harucut.subscription.entity.UserSubscription;
 import com.harucut.subscription.enums.PlanTier;
 import com.harucut.subscription.enums.SubscriptionSource;
@@ -49,6 +51,7 @@ class StoreSubscriptionIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private UserSubscriptionRepository subscriptionRepository;
     @Autowired private StorePurchaseRepository purchaseRepository;
+    @Autowired private PaymentOrderRepository paymentOrderRepository;
 
     private User user;
     private User other;
@@ -140,6 +143,22 @@ class StoreSubscriptionIntegrationTest {
                 .hasPathSatisfying("$.data.planTier", v -> assertThat(v).isEqualTo("BASIC"));
         assertCode(restore(other, "APP_STORE", List.of(Map.of("productId", PLUS, "proof", proof("tx-8", PLUS, later, Map.of())))),
                 409, "SUBS-008");
+    }
+
+    @Test
+    @DisplayName("#43 재리뷰 P1: 웹 기간이 끝나 갱신 주문(CREATED)이 준비된 뒤 스토어로 등록하면 그 주문을 지운다 — 청구 단계가 집지 못한다")
+    void storeSwitchDropsPendingWebRenewal() {
+        UserSubscription subscription = subscriptionRepository.findByUserId(user.getId()).orElseThrow();
+        subscription.activatePaid(PlanTier.PLUS, LocalDateTime.now().minusMonths(1), LocalDateTime.now().minusHours(1));
+        PaymentOrder pending = paymentOrderRepository.save(PaymentOrder.createRenewal(user.getId(), PlanTier.PLUS, 3900, "renewal:switch:1"));
+        PaymentOrder paid = PaymentOrder.createRenewal(user.getId(), PlanTier.PLUS, 3900, "renewal:switch:0");
+        paid.markPaid();
+        paymentOrderRepository.save(paid);
+
+        assertThat(purchase(user, "APP_STORE", PLUS, proof("tx-40", PLUS, later, Map.of()))).hasStatusOk();
+
+        assertThat(paymentOrderRepository.findById(pending.getId())).isEmpty();
+        assertThat(paymentOrderRepository.findById(paid.getId())).isPresent();   // 끝난 주문은 그대로
     }
 
     private String proof(String storeKey, String productId, LocalDateTime expiresAt, Map<String, Object> extra) {

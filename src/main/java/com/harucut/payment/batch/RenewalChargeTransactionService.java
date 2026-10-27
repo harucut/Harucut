@@ -11,16 +11,20 @@ import com.harucut.payment.repository.PaymentOrderRepository;
 import com.harucut.payment.repository.PaymentRepository;
 import com.harucut.subscription.entity.UserSubscription;
 import com.harucut.subscription.enums.PlanTier;
+import com.harucut.subscription.enums.SubscriptionSource;
 import com.harucut.subscription.repository.UserSubscriptionRepository;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RenewalChargeTransactionService {
@@ -41,8 +45,19 @@ public class RenewalChargeTransactionService {
     // "긁는 중" 도장을 찍고 커밋한다 — PG 호출은 반드시 이 커밋 이후여야 한다
     @Transactional
     public ChargeTarget markCharging(Long orderId) {
-        PaymentOrder order = paymentOrderRepository.findById(orderId).orElse(null);
+        PaymentOrder seen = paymentOrderRepository.findById(orderId).orElse(null);
+        if (seen == null) {
+            return null;
+        }
+        // 준비 커밋 뒤 스토어 구독으로 바뀌었을 수 있다 — 구독 행 → 주문 행 순서로 잠그고 출처를 다시 본다(ADR-0011 §2).
+        // 스토어로 바뀌었으면 청구하지 않고 주문을 지운다(아직 청구 전이라 결제 이력이 없다)
+        Optional<UserSubscription> subscription = userSubscriptionRepository.lockByUserId(seen.getUserId());
+        PaymentOrder order = paymentOrderRepository.lockById(orderId).orElse(null);
         if (order == null || order.getStatus() != OrderStatus.CREATED) {
+            return null;
+        }
+        if (subscription.map(UserSubscription::getSource).filter(RenewalChargeTransactionService::isStore).isPresent()) {
+            paymentOrderRepository.delete(order);
             return null;
         }
 
@@ -52,8 +67,7 @@ public class RenewalChargeTransactionService {
         if (billingKeys.isEmpty() || user == null) {
             // 준비 커밋과 청구 사이에 카드·사용자가 사라진 드문 경우 — 시도 없이 실패 확정
             order.markFailed();
-            userSubscriptionRepository.findByUserId(order.getUserId())
-                    .ifPresent(UserSubscription::markPastDue);
+            subscription.ifPresent(UserSubscription::markPastDue);
             return null;
         }
 
@@ -65,22 +79,31 @@ public class RenewalChargeTransactionService {
     // 성공이든 실패든 이 트랜잭션은 커밋된다 — 결제 이력은 어느 쪽이든 반드시 남는다
     @Transactional
     public void applyResult(Long orderId, PaymentResult result, LocalDateTime baseTime) {
-        PaymentOrder order = paymentOrderRepository.findById(orderId).orElseThrow();
+        PaymentOrder seen = paymentOrderRepository.findById(orderId).orElseThrow();
+        // 구독 행 → 주문 행 순서. 청구하는 사이 스토어 구독으로 바뀌었으면 스토어 기간을 덮지 않는다
+        Optional<UserSubscription> subscription = userSubscriptionRepository.lockByUserId(seen.getUserId());
+        PaymentOrder order = paymentOrderRepository.lockById(orderId).orElseThrow();
+        Optional<UserSubscription> web = subscription.filter(s -> !isStore(s.getSource()));
         Payment payment = Payment.request(order, order.getAmount());
 
         if (result.success() && result.pgTransactionId() != null) {
             payment.approve(result.pgTransactionId(), result.approvedAt() != null ? result.approvedAt() : baseTime);
             order.markPaid();
             paymentRepository.save(payment);
-            userSubscriptionRepository.findByUserId(order.getUserId())
-                    .ifPresent(subscription -> subscription.renew(baseTime, baseTime.plusMonths(1)));
+            web.ifPresent(s -> s.renew(baseTime, baseTime.plusMonths(1)));
+            if (web.isEmpty() && subscription.isPresent()) {
+                log.error("[갱신 배치] orderId={} 웹 갱신 청구는 성공했지만 그사이 스토어 구독으로 바뀌었다 — 구독은 그대로, 환불 확인 필요", orderId);
+            }
             return;
         }
 
         payment.fail(result.failureCode(), result.failureMessage());
         order.markFailed();
         paymentRepository.save(payment);
-        userSubscriptionRepository.findByUserId(order.getUserId())
-                .ifPresent(UserSubscription::markPastDue);
+        web.ifPresent(UserSubscription::markPastDue);
+    }
+
+    private static boolean isStore(SubscriptionSource source) {
+        return source == SubscriptionSource.APP_STORE || source == SubscriptionSource.PLAY_STORE;
     }
 }

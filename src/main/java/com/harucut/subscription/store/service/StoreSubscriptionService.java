@@ -2,7 +2,10 @@ package com.harucut.subscription.store.service;
 
 import com.harucut.common.exception.BusinessException;
 import com.harucut.coupon.service.GrantActivationService;
+import com.harucut.payment.enums.OrderStatus;
+import com.harucut.payment.enums.OrderType;
 import com.harucut.payment.exception.PaymentErrorCode;
+import com.harucut.payment.repository.PaymentOrderRepository;
 import com.harucut.payment.webhook.WebhookReceiptRepository;
 import com.harucut.subscription.dto.SubscriptionResponse;
 import com.harucut.subscription.entity.UserSubscription;
@@ -13,6 +16,7 @@ import com.harucut.subscription.exception.SubscriptionErrorCode;
 import com.harucut.subscription.repository.UserSubscriptionRepository;
 import com.harucut.subscription.store.StoreAccountTokens;
 import com.harucut.subscription.store.StorePlatform;
+import com.harucut.subscription.store.StorePurchaseStatus;
 import com.harucut.subscription.store.config.StoreProperties;
 import com.harucut.subscription.store.dto.StorePurchaseDtos;
 import com.harucut.subscription.store.entity.StorePurchase;
@@ -57,6 +61,7 @@ public class StoreSubscriptionService {
     private final StoreProperties properties;
     private final WebhookReceiptRepository receiptRepository;
     private final GrantActivationService grantActivationService;
+    private final PaymentOrderRepository paymentOrderRepository;
     private final Clock clock;
     private final TransactionTemplate transaction;
 
@@ -76,6 +81,7 @@ public class StoreSubscriptionService {
             throw new BusinessException(SubscriptionErrorCode.STORE_VERIFICATION_FAILED, "환불·만료로 기록된 구매의 옛 증빙");
         }
         sync(subscription, subscription.getUserId(), request.platform(), now);
+        cancelPendingWebRenewals(subscription.getUserId());
         return SubscriptionResponse.of(subscription, subscription.effectiveTier(now), userPublicId);
     }
 
@@ -115,6 +121,7 @@ public class StoreSubscriptionService {
         }
         if (restored > 0) {
             sync(subscription, subscription.getUserId(), request.platform(), now);
+            cancelPendingWebRenewals(subscription.getUserId());
         }
         return SubscriptionResponse.of(subscription, subscription.effectiveTier(now), userPublicId);
     }
@@ -193,6 +200,12 @@ public class StoreSubscriptionService {
             return;   // 이미 처리한 알림
         }
         StorePurchase purchase = purchaseRepository.lockByKey(verified.platform(), StorePurchase.hash(verified.storeKey())).orElseThrow();
+        // 환불로 기록된 구매는 저장 기한보다 늦게 끝나는 새 거래(다음 구독 기간)나 애플의 환불 취소(REFUND_REVERSED)로만 풀린다 —
+        // 처리 순서가 뒤바뀐 옛 갱신 알림이 환불을 되돌리지 못한다(증빙 경로 bind 와 같은 규칙)
+        if (purchase.getStatus() == StorePurchaseStatus.REVOKED && !verified.revoked() && !"REFUND_REVERSED".equals(type)
+                && !verified.expiresAt().isAfter(purchase.getExpiresAt())) {
+            return;
+        }
         // 늦게 도착한 옛 알림이 만료를 되돌리지 않게 — 환불이 아니면 기한은 앞으로만
         VerifiedPurchase merged = !verified.revoked() && verified.expiresAt().isBefore(purchase.getExpiresAt())
                 ? new VerifiedPurchase(verified.platform(), verified.storeKey(), purchase.getProductId(), purchase.getExpiresAt(),
@@ -233,6 +246,15 @@ public class StoreSubscriptionService {
             purchase.apply(verified, tier, now);
         }
         return purchase;
+    }
+
+    // 스토어로 옮겼으면 아직 청구하지 않은 웹 갱신 주문(CREATED)을 지운다 — 구독 행을 잡은 채 주문 행을 잠근다(구독 행 → 주문 행).
+    // 이미 청구 중(IN_PROGRESS)인 것은 결과 반영 때 스토어 기간을 덮지 않는다(RenewalChargeTransactionService)
+    private void cancelPendingWebRenewals(Long userId) {
+        paymentOrderRepository.findIdsByUserIdAndOrderTypeAndStatus(userId, OrderType.RENEWAL, OrderStatus.CREATED)
+                .forEach(id -> paymentOrderRepository.lockById(id)
+                        .filter(order -> order.getStatus() == OrderStatus.CREATED)
+                        .ifPresent(paymentOrderRepository::delete));
     }
 
     // 이 플랫폼에서 이 계정이 가진 구매 중 지금 등급을 주는 것(가장 늦게 끝나는 것)으로 구독을 맞춘다. 없으면 이 플랫폼이 출처였을 때만 강등

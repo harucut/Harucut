@@ -14,6 +14,7 @@ import com.harucut.payment.repository.PaymentOrderRepository;
 import com.harucut.payment.repository.PaymentRepository;
 import com.harucut.subscription.entity.UserSubscription;
 import com.harucut.subscription.enums.PlanTier;
+import com.harucut.subscription.enums.SubscriptionSource;
 import com.harucut.subscription.enums.SubscriptionStatus;
 import com.harucut.subscription.repository.UserSubscriptionRepository;
 import com.harucut.support.UserFixtures;
@@ -77,6 +78,7 @@ class RenewalChargeTransactionServiceTest {
             PaymentOrder order = renewalOrder();
             User user = UserFixtures.localUser("renewal@harucut.com", "encoded");
             given(paymentOrderRepository.findById(ORDER_ID)).willReturn(Optional.of(order));
+            given(paymentOrderRepository.lockById(ORDER_ID)).willReturn(Optional.of(order));
             given(billingKeyRepository.findAllByUserIdAndStatus(USER_ID, BillingKeyStatus.ACTIVE))
                     .willReturn(List.of(BillingKey.issue(USER_ID, PgProvider.MOCK, "bk-1", "1234-****")));
             given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
@@ -107,6 +109,7 @@ class RenewalChargeTransactionServiceTest {
             PaymentOrder order = renewalOrder();
             order.markPaid();
             given(paymentOrderRepository.findById(ORDER_ID)).willReturn(Optional.of(order));
+            given(paymentOrderRepository.lockById(ORDER_ID)).willReturn(Optional.of(order));
 
             assertThat(service.markCharging(ORDER_ID)).isNull();
 
@@ -120,11 +123,12 @@ class RenewalChargeTransactionServiceTest {
             PaymentOrder order = renewalOrder();
             UserSubscription subscription = activeSubscription();
             given(paymentOrderRepository.findById(ORDER_ID)).willReturn(Optional.of(order));
+            given(paymentOrderRepository.lockById(ORDER_ID)).willReturn(Optional.of(order));
             given(billingKeyRepository.findAllByUserIdAndStatus(USER_ID, BillingKeyStatus.ACTIVE))
                     .willReturn(List.of());
             given(userRepository.findById(USER_ID))
                     .willReturn(Optional.of(UserFixtures.localUser("renewal@harucut.com", "encoded")));
-            given(userSubscriptionRepository.findByUserId(USER_ID)).willReturn(Optional.of(subscription));
+            given(userSubscriptionRepository.lockByUserId(USER_ID)).willReturn(Optional.of(subscription));
 
             assertThat(service.markCharging(ORDER_ID)).isNull();
 
@@ -138,15 +142,60 @@ class RenewalChargeTransactionServiceTest {
             PaymentOrder order = renewalOrder();
             UserSubscription subscription = activeSubscription();
             given(paymentOrderRepository.findById(ORDER_ID)).willReturn(Optional.of(order));
+            given(paymentOrderRepository.lockById(ORDER_ID)).willReturn(Optional.of(order));
             given(billingKeyRepository.findAllByUserIdAndStatus(USER_ID, BillingKeyStatus.ACTIVE))
                     .willReturn(List.of(BillingKey.issue(USER_ID, PgProvider.MOCK, "bk-1", "1234-****")));
             given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
-            given(userSubscriptionRepository.findByUserId(USER_ID)).willReturn(Optional.of(subscription));
+            given(userSubscriptionRepository.lockByUserId(USER_ID)).willReturn(Optional.of(subscription));
 
             assertThat(service.markCharging(ORDER_ID)).isNull();
 
             assertThat(order.getStatus()).isEqualTo(OrderStatus.FAILED);
             assertThat(subscription.getSubscriptionStatus()).isEqualTo(SubscriptionStatus.PAST_DUE);
+        }
+    }
+
+    @Nested
+    @DisplayName("#43 — 준비 뒤 스토어 구독으로 바뀐 경우")
+    class SwitchedToStore {
+
+        @Test
+        @DisplayName("청구 직전 구독 행 → 주문 행을 잠그고 출처를 다시 본다 — 스토어면 청구하지 않고 주문을 지운다")
+        void markChargingDropsOrder() {
+            PaymentOrder order = renewalOrder();
+            given(paymentOrderRepository.findById(ORDER_ID)).willReturn(Optional.of(order));
+            given(userSubscriptionRepository.lockByUserId(USER_ID)).willReturn(Optional.of(storeSubscription()));
+            given(paymentOrderRepository.lockById(ORDER_ID)).willReturn(Optional.of(order));
+
+            assertThat(service.markCharging(ORDER_ID)).isNull();
+
+            then(paymentOrderRepository).should().delete(order);
+            assertThat(order.getStatus()).isEqualTo(OrderStatus.CREATED);
+            org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(userSubscriptionRepository, paymentOrderRepository);
+            inOrder.verify(userSubscriptionRepository).lockByUserId(USER_ID);
+            inOrder.verify(paymentOrderRepository).lockById(ORDER_ID);
+        }
+
+        @Test
+        @DisplayName("청구하는 사이 스토어로 바뀌었으면 성공해도 스토어 기간을 덮지 않는다(주문 PAID·결제 기록은 남김), 실패해도 스토어 구독을 PAST_DUE 로 만들지 않는다")
+        void applyResultKeepsStorePeriod() {
+            PaymentOrder order = renewalOrder();
+            UserSubscription store = storeSubscription();
+            LocalDateTime storeEnd = store.getCurrentPeriodEnd();
+            given(paymentOrderRepository.findById(ORDER_ID)).willReturn(Optional.of(order));
+            given(paymentOrderRepository.lockById(ORDER_ID)).willReturn(Optional.of(order));
+            given(userSubscriptionRepository.lockByUserId(USER_ID)).willReturn(Optional.of(store));
+
+            service.applyResult(ORDER_ID, PaymentResult.success("tx-store", BASE_TIME), BASE_TIME);
+
+            assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
+            assertThat(store.getCurrentPeriodEnd()).isEqualTo(storeEnd);
+            assertThat(store.getSource()).isEqualTo(SubscriptionSource.APP_STORE);
+
+            PaymentOrder failing = renewalOrder();
+            given(paymentOrderRepository.lockById(ORDER_ID)).willReturn(Optional.of(failing));
+            service.applyResult(ORDER_ID, PaymentResult.failure("DECLINED", "거절"), BASE_TIME);
+            assertThat(store.getSubscriptionStatus()).isEqualTo(SubscriptionStatus.ACTIVE);
         }
     }
 
@@ -162,7 +211,8 @@ class RenewalChargeTransactionServiceTest {
             subscription.markPastDue();   // 어제 실패했던 구독이 오늘 재시도로 성공하는 경우
             LocalDateTime approvedAt = BASE_TIME.plusHours(2);
             given(paymentOrderRepository.findById(ORDER_ID)).willReturn(Optional.of(order));
-            given(userSubscriptionRepository.findByUserId(USER_ID)).willReturn(Optional.of(subscription));
+            given(paymentOrderRepository.lockById(ORDER_ID)).willReturn(Optional.of(order));
+            given(userSubscriptionRepository.lockByUserId(USER_ID)).willReturn(Optional.of(subscription));
 
             service.applyResult(ORDER_ID, PaymentResult.success("tx-9", approvedAt), BASE_TIME);
 
@@ -182,7 +232,8 @@ class RenewalChargeTransactionServiceTest {
         void missingApprovedAtFallsBackToBaseTime() {
             PaymentOrder order = renewalOrder();
             given(paymentOrderRepository.findById(ORDER_ID)).willReturn(Optional.of(order));
-            given(userSubscriptionRepository.findByUserId(USER_ID))
+            given(paymentOrderRepository.lockById(ORDER_ID)).willReturn(Optional.of(order));
+            given(userSubscriptionRepository.lockByUserId(USER_ID))
                     .willReturn(Optional.of(activeSubscription()));
 
             service.applyResult(ORDER_ID, PaymentResult.success("tx-9", null), BASE_TIME);
@@ -197,7 +248,8 @@ class RenewalChargeTransactionServiceTest {
             UserSubscription subscription = activeSubscription();
             LocalDateTime originalPeriodEnd = subscription.getCurrentPeriodEnd();
             given(paymentOrderRepository.findById(ORDER_ID)).willReturn(Optional.of(order));
-            given(userSubscriptionRepository.findByUserId(USER_ID)).willReturn(Optional.of(subscription));
+            given(paymentOrderRepository.lockById(ORDER_ID)).willReturn(Optional.of(order));
+            given(userSubscriptionRepository.lockByUserId(USER_ID)).willReturn(Optional.of(subscription));
 
             service.applyResult(ORDER_ID, PaymentResult.failure("CARD_DECLINED", "한도 초과"), BASE_TIME);
 
@@ -217,7 +269,8 @@ class RenewalChargeTransactionServiceTest {
             PaymentOrder order = renewalOrder();
             UserSubscription subscription = activeSubscription();
             given(paymentOrderRepository.findById(ORDER_ID)).willReturn(Optional.of(order));
-            given(userSubscriptionRepository.findByUserId(USER_ID)).willReturn(Optional.of(subscription));
+            given(paymentOrderRepository.lockById(ORDER_ID)).willReturn(Optional.of(order));
+            given(userSubscriptionRepository.lockByUserId(USER_ID)).willReturn(Optional.of(subscription));
 
             service.applyResult(ORDER_ID, new PaymentResult(true, null, BASE_TIME, null, null), BASE_TIME);
 
@@ -236,6 +289,13 @@ class RenewalChargeTransactionServiceTest {
     private UserSubscription activeSubscription() {
         UserSubscription subscription = UserSubscription.createBasic(USER_ID);
         subscription.activatePaid(PlanTier.PLUS, BASE_TIME.minusMonths(1), BASE_TIME.minusDays(1));
+        return subscription;
+    }
+
+    private UserSubscription storeSubscription() {
+        UserSubscription subscription = UserSubscription.createBasic(USER_ID);
+        subscription.activateStore(SubscriptionSource.APP_STORE, PlanTier.PLUS, SubscriptionStatus.ACTIVE, BASE_TIME,
+                BASE_TIME.plusMonths(1), true);
         return subscription;
     }
 

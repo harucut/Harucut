@@ -207,6 +207,22 @@ class StoreNotificationIntegrationTest {
         assertThat(userCouponRepository.findById(reserved.getId()).orElseThrow().getStatus()).isEqualTo(UserCouponStatus.REDEEMED);
     }
 
+    @Test
+    @DisplayName("#43 재리뷰 P1: 환불 알림을 먼저 처리한 뒤 처리 순서가 뒤바뀐 옛 갱신 알림(같은 기한·더 이른 기한)은 환불을 되돌리지 못한다 — 애플의 환불 취소(REFUND_REVERSED)·더 늦게 끝나는 새 거래만 푼다")
+    void staleRenewalAfterRefundKeepsRevoked() {
+        assertThat(purchase(user, "APP_STORE", PLUS, proof("tx-30", PLUS, later, Map.of()))).hasStatusOk();
+        notify("n-30", "REFUND", transaction("tx-30", later, Map.of("revoked", true)));
+
+        notify("n-31", "DID_RENEW", transaction("tx-30", later, Map.of()));
+        notify("n-32", "DID_RENEW", transaction("tx-30", later.minusDays(5), Map.of()));
+        assertThat(subscription(user).getPlanTier()).isEqualTo(PlanTier.BASIC);
+        assertThat(purchaseRepository.findAllByUserIdAndPlatform(user.getId(), StorePlatform.APP_STORE)).singleElement()
+                .satisfies(row -> assertThat(row.getStatus()).isEqualTo(StorePurchaseStatus.REVOKED));
+
+        notify("n-33", "REFUND_REVERSED", transaction("tx-30", later, Map.of()));
+        assertThat(subscription(user).getPlanTier()).isEqualTo(PlanTier.PLUS);
+    }
+
     private String proof(String storeKey, String productId, LocalDateTime expiresAt, Map<String, Object> extra) {
         return "mock:" + objectMapper.writeValueAsString(transaction(storeKey, expiresAt, extra, productId));
     }

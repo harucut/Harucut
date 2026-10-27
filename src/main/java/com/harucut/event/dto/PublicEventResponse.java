@@ -20,8 +20,23 @@ public record PublicEventResponse(
         @Schema(description = "허용 레이아웃") List<FrameType> allowedLayouts,
         @Schema(description = "고를 수 있는 프레임 — 이 목록만 보여 준다") List<OfferedFrame> frames,
         @Schema(description = "동의 항목") List<EventSettings.ConsentItem> consentItems,
-        @Schema(description = "페이지 테마 — 기본값이 채워지고 자산은 URL") ResolvedPageTheme theme
+        @Schema(description = "페이지 테마 — 기본값이 채워지고 자산은 URL") ResolvedPageTheme theme,
+        @JsonInclude(JsonInclude.Include.ALWAYS)
+        @Schema(description = "참가자 자유 문구 — 이 행사가 허용할 때만, 아니면 null(프레임 문구 고정)", nullable = true) OfferedFreeText freeText
 ) {
+
+    @Schema(description = "참가자 자유 문구 정책 — 미리보기·합성은 서버가 같은 렌더로 굽는다")
+    public record OfferedFreeText(
+            @Schema(description = "문구 칸 — 캔버스 대비 비율 0~1") FreeTextPolicy.Box box,
+            @Schema(description = "줄바꿈 제외 글자 수 상한", example = "20") int maxLength,
+            @Schema(description = "줄 수 상한", example = "1") int maxLines,
+            @Schema(description = "고를 수 있는 스타일") List<TextStyleResponse> styles
+    ) {
+        public static OfferedFreeText of(FreeTextPolicy policy) {
+            return new OfferedFreeText(policy.box(), policy.maxLengthOrDefault(), policy.maxLinesOrDefault(),
+                    policy.styles().stream().map(TextStyleResponse::of).toList());
+        }
+    }
 
     @Schema(description = "제공 프레임")
     @JsonInclude(JsonInclude.Include.NON_NULL)

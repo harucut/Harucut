@@ -53,8 +53,18 @@ public record EventSettings(
                 + "PATCH 에서 null 이면 프로젝트에서 뺀다", example = "Pj3kL9mN2qRs") String projectId,
 
         @Schema(description = "행사 종류 — SCHEDULED(정해진 기간, 기본)·ALWAYS_ON(상시 캠페인: 종료 시각을 두지 않고 close-capture 로 끝낸다). "
-                + "게시 전 초안에서만 바꿀 수 있다(게시 뒤 400 GEN-002). 상속하지 않는다", example = "SCHEDULED") EventKind kind
+                + "게시 전 초안에서만 바꿀 수 있다(게시 뒤 400 GEN-002). 상속하지 않는다", example = "SCHEDULED") EventKind kind,
+
+        @Schema(description = "참가자 자유 문구(R5 D06) — {enabled:false} 는 끔, null 은 위 단계 값을 따른다(모두 비면 끔). 객체째 대체") FreeTextPolicy freeText
 ) {
+
+    public EventSettings(String name, String slug, OffsetDateTime captureStartsAt, OffsetDateTime captureEndsAt,
+                         String timezone, Boolean byodEnabled, Boolean boothEnabled, Integer resultRetentionDays,
+                         List<FrameType> allowedLayouts, List<FrameRef> frames, List<ConsentItem> consentItems,
+                         PageTheme theme, String projectId, EventKind kind) {
+        this(name, slug, captureStartsAt, captureEndsAt, timezone, byodEnabled, boothEnabled, resultRetentionDays,
+                allowedLayouts, frames, consentItems, theme, projectId, kind, null);
+    }
 
     @Schema(description = "제공 프레임 발행본")
     public record FrameRef(

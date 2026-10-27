@@ -21,9 +21,16 @@ public record InheritableSettings(
         @Schema(description = "허용 레이아웃 — 목록은 통째로 대체된다") List<FrameType> allowedLayouts,
         @Schema(description = "제공 프레임 — 목록은 통째로 대체된다") List<EventSettings.FrameRef> frames,
         @Schema(description = "동의 항목 — 목록은 통째로 대체된다") List<EventSettings.ConsentItem> consentItems,
-        @Schema(description = "페이지 테마 — 객체째 바꾸고, 그 안에서 빠진 키는 위 단계 값을 쓴다") PageTheme theme
+        @Schema(description = "페이지 테마 — 객체째 바꾸고, 그 안에서 빠진 키는 위 단계 값을 쓴다") PageTheme theme,
+        @Schema(description = "참가자 자유 문구 — 객체째 대체. {enabled:false} 는 끔, null 은 위 단계 값") FreeTextPolicy freeText
 ) {
+    public InheritableSettings(String timezone, Boolean byodEnabled, Boolean boothEnabled, Integer resultRetentionDays,
+                               List<FrameType> allowedLayouts, List<EventSettings.FrameRef> frames,
+                               List<EventSettings.ConsentItem> consentItems, PageTheme theme) {
+        this(timezone, byodEnabled, boothEnabled, resultRetentionDays, allowedLayouts, frames, consentItems, theme, null);
+    }
+
     public static InheritableSettings empty() {
-        return new InheritableSettings(null, null, null, null, null, null, null, null);
+        return new InheritableSettings(null, null, null, null, null, null, null, null, null);
     }
 }

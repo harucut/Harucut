@@ -90,6 +90,13 @@ public class Asset extends BaseEntity {
     @Column(name = "bound_compose_job_id")
     private Long boundComposeJobId;
 
+    // ── 서버 생성 TEXT_RENDER(참가자 자유 문구, R5 D06) 전용 — 어떤 문구·스타일로 구웠는지의 스냅샷 ──
+    @Column(name = "text_snapshot", length = 200)
+    private String textSnapshot;
+
+    @Column(name = "text_style_id", length = 40)
+    private String textStyleId;
+
     private Asset(String publicId, Long workspaceId, AssetPurpose purpose, AssetOrigin origin, String s3Key,
                   String contentType, long declaredSize, Long uploadedByUserId) {
         this.publicId = publicId;
@@ -122,6 +129,22 @@ public class Asset extends BaseEntity {
         asset.participantId = participantId;
         asset.captureRunId = captureRunId;
         asset.slotIndex = slotIndex;
+        return asset;
+    }
+
+    /**
+     * 서버가 참가자 자유 문구로 구운 PNG(출처 SERVER). 서버가 직접 올렸으므로 만들 때 이미 검증 상태다.
+     * 행사·참가자·회차와 문구 스냅샷을 남기고, 같은 트랜잭션에서 그 작업에 묶는다 — 촬영 입력으로 재사용하지 않는다
+     */
+    public static Asset serverTextRender(String publicId, Long eventId, Long participantId, Long captureRunId, String s3Key,
+                                         long size, int width, int height, String text, String styleId, LocalDateTime now) {
+        Asset asset = new Asset(publicId, null, AssetPurpose.TEXT_RENDER, AssetOrigin.SERVER, s3Key, "image/png", size, null);
+        asset.eventId = eventId;
+        asset.participantId = participantId;
+        asset.captureRunId = captureRunId;
+        asset.textSnapshot = text;
+        asset.textStyleId = styleId;
+        asset.verify(size, width, height, now);
         return asset;
     }
 

@@ -209,7 +209,7 @@ public class ComposeService {
         }
         // 원본은 성공 시 삭제 — 결과만 보관함에 남는다.
         // 원본은 합성 재료일 뿐 사용자의 보관 대상이 아니라 저장 비용만 먹는다
-        s3Deleter.deleteAfterCommit(job.sourceKeys());
+        s3Deleter.deleteAfterCommit(job.inputKeys());
         return true;
     }
 
@@ -237,7 +237,7 @@ public class ComposeService {
             eventPublisher.publishEvent(new PushRequestedEvent(job.get().getUser().getId(),
                     PushMessage.composeFailed(jobId, code.name())));
         }
-        s3Deleter.deleteAfterCommit(job.get().sourceKeys());
+        s3Deleter.deleteAfterCommit(job.get().inputKeys());
         return true;
     }
 

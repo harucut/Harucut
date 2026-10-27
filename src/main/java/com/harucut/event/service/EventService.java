@@ -586,13 +586,13 @@ public class EventService {
                 effective.byodEnabled(), effective.boothEnabled(), effective.resultRetentionDays(),
                 effective.orEmpty(values.allowedLayouts()), effective.orEmpty(values.frames()),
                 effective.orEmpty(values.consentItems()), values.theme(),
-                resolved.project() == null ? null : resolved.project().getPublicId(), event.getKind());
+                resolved.project() == null ? null : resolved.project().getPublicId(), event.getKind(), values.freeText());
     }
 
     private static EventExperienceDocument document(EffectiveSettingsResolver.Effective effective) {
         InheritableSettings values = effective.values();
         return new EventExperienceDocument(effective.orEmpty(values.allowedLayouts()), effective.orEmpty(values.frames()),
-                effective.orEmpty(values.consentItems()), values.theme(), null);
+                effective.orEmpty(values.consentItems()), values.theme(), null, values.freeText());
     }
 
     private String write(EventExperienceDocument document) {

@@ -202,6 +202,24 @@ public class ComposeJob extends BaseEntity {
         return List.of(sourceKey1, sourceKey2, sourceKey3, sourceKey4);
     }
 
+    /** 이 작업만 쓰는 서버 생성 레이어(참가자 자유 문구 PNG)가 놓이는 폴더 — 작업 저장 위치 아래 */
+    public static final String PRIVATE_TEXT_DIR = "text/";
+
+    /**
+     * 합성이 확정(성공·최종 실패)되면 지울 입력 — 원본 네 장과, 저장 위치 아래 text/ 의 서버 생성 레이어(R5 D06).
+     * 프레임 자산은 저장 위치 밖이라 여기 끼지 않는다(발행본이 계속 쓴다)
+     */
+    public List<String> inputKeys() {
+        List<String> keys = new java.util.ArrayList<>(sourceKeys());
+        if (spec != null && spec.layers() != null && storageRoot != null) {
+            String privateDir = storageRoot + PRIVATE_TEXT_DIR;
+            spec.layers().stream().map(ComposeSpec.Layer::source)
+                    .filter(source -> source != null && source.startsWith(privateDir))
+                    .forEach(keys::add);
+        }
+        return List.copyOf(keys);
+    }
+
     // 사진함·묶음·결과 링크에서 더는 보이지 않는가 — 삭제 요청이나 보관 종료
     public boolean isDeleted() {
         return deletedAt != null || purgedAt != null;

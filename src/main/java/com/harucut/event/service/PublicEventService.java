@@ -60,7 +60,8 @@ public class PublicEventService {
                 .toList();
         return new PublicEventResponse(event.getPublicId(), event.getName(), event.getStatus(),
                 event.captureOpen(LocalDateTime.now(clock)), event.isByodEnabled(), event.isBoothEnabled(),
-                version.getVersionNo(), document.allowedLayouts(), frames, document.consentItems(), themeResolver.resolve(document.theme()));
+                version.getVersionNo(), document.allowedLayouts(), frames, document.consentItems(), themeResolver.resolve(document.theme()),
+                document.offeredFreeText().map(PublicEventResponse.OfferedFreeText::of).orElse(null));
     }
 
     // 발행본의 원본 프레임 미리보기 — 프레임이 나중에 바뀌어도 발행본 자체는 그대로다(미리보기는 참고용)

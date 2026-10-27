@@ -112,7 +112,42 @@ public final class ParticipantDtos {
             @NotNull @Size(min = 4, max = 4) @Schema(description = "칸 순서대로 촬영 입력 4개", requiredMode = Schema.RequiredMode.REQUIRED)
             List<@NotBlank String> sourceAssetIds,
             @NotBlank @Size(max = 64) @Schema(description = "요청마다 새 UUID. 같은 키 재요청은 기존 작업을 돌려준다", requiredMode = Schema.RequiredMode.REQUIRED)
-            String idempotencyKey
+            String idempotencyKey,
+            @Valid @Schema(description = "자유 문구(행사가 허용할 때만) — 없으면 프레임 그대로 합성한다") FreeText freeText
+    ) {
+        public ComposeRequest(String captureRunId, Long frameVersionId, List<String> sourceAssetIds, String idempotencyKey) {
+            this(captureRunId, frameVersionId, sourceAssetIds, idempotencyKey, null);
+        }
+    }
+
+    @Schema(description = "참가자 자유 문구 — 문자열과 스타일 id 만. 서버가 구워 합성한다(R5 D06)")
+    public record FreeText(
+            @NotNull @Size(max = 200) @Schema(description = "문구 — 줄바꿈(\\n)으로만 줄을 나눈다", example = "민지 ♥ 준호",
+                    requiredMode = Schema.RequiredMode.REQUIRED) String text,
+            @NotBlank @Size(max = 40) @Schema(description = "행사가 고른 스타일 id", example = "pretendard-bold-dark",
+                    requiredMode = Schema.RequiredMode.REQUIRED) String styleId
+    ) {
+    }
+
+    @Schema(description = "자유 문구 미리보기 요청")
+    public record TextPreviewRequest(
+            @NotNull @Schema(description = "제공된 프레임 발행본", requiredMode = Schema.RequiredMode.REQUIRED) Long frameVersionId,
+            @NotNull @Size(max = 200) @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String text,
+            @NotBlank @Size(max = 40) @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String styleId
+    ) {
+    }
+
+    @Schema(description = "자유 문구 미리보기 — 합성 때와 같은 서버 렌더. text·styleId 가 지금 입력과 다르면 늦은 응답이니 버린다")
+    public record TextPreviewResponse(
+            @Schema(description = "요청에 보낸 문구 그대로") String text,
+            @Schema(description = "요청에 보낸 스타일 id 그대로") String styleId,
+            @Schema(description = "구운 PNG — data:image/png;base64,…") String image,
+            @Schema(description = "캔버스 px 좌표") int x,
+            int y,
+            int width,
+            int height,
+            int canvasWidth,
+            int canvasHeight
     ) {
     }
 

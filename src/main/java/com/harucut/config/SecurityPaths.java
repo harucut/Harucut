@@ -44,6 +44,8 @@ public final class SecurityPaths {
             "/api/payments/webhooks/app-store",
             "/api/payments/webhooks/google-play",
             "/api/public/inquiries",
+            // 자유 문구 스타일 목록(정적 카탈로그)
+            "/api/public/text-styles",
             "/swagger-ui/**",
             "/swagger-ui.html",
             "/v3/api-docs/**",

@@ -66,6 +66,7 @@ public class ParticipantComposeService {
     private final ResultService resultService;
     private final EntitlementService entitlementService;
     private final ParticipantFreeTextService freeTextService;
+    private final OutputLogoPlacer outputLogoPlacer;
     private final FileStorageService fileStorageService;
     private final RateLimiter rateLimiter;
     private final Clock clock;
@@ -107,6 +108,8 @@ public class ParticipantComposeService {
             bound.add(rendered.getId());
             spec = withTopLayer(text, rendered.getS3Key());
         }
+        // 출력 로고 — 경험 발행본이 ORGANIZER_LOGO 면 주최자 로고를 맨 위에(문구보다 위)
+        spec = outputLogoPlacer.apply(run.getExperienceVersionId(), spec);
 
         ComposeJob job = composeService.accept(ComposeJob.forParticipant(principal.participantId(), storageRoot,
                 version.getFrameId(), request.idempotencyKey(), inputs.stream().map(Asset::getS3Key).toList(),

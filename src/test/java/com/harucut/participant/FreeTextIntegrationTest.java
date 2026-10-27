@@ -96,6 +96,7 @@ class FreeTextIntegrationTest {
     @MockitoBean private RateLimiter rateLimiter;
 
     private User operator;
+    private Long workspaceId;
     private String slug;
     private String eventId;
     private Long frameVersionId;
@@ -114,7 +115,8 @@ class FreeTextIntegrationTest {
 
         operator = userRepository.save(User.localUser("free@harucut.com", "encoded", "운영자"));
         WorkspaceResponse org = workspaceService.createOrganization(operator.getPublicId(), "문구팀");
-        TestEntitlements.grant(entitlementRepository, workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId());
+        workspaceId = workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId();
+        TestEntitlements.grant(entitlementRepository, workspaceId);
         Long frameId = frameService.createFrame(operator.getPublicId(), new FrameCreateRequest("프레임", null,
                 S3Keys.userRoot(operator.getPublicId()) + "frames/p.png", FrameType.CLASSIC, null, null,
                 new BackgroundAttributes.Color("#FFFFFF"), null, List.of(), null, org.workspaceId())).frameId();
@@ -238,6 +240,41 @@ class FreeTextIntegrationTest {
         assertThat(assetRepository.findServerTextRenderByJob(jobId)).isEmpty();
         var job = composeJobRepository.findById(jobId).orElseThrow();
         assertThat(job.getSpec().layers()).noneMatch(l -> l.source().startsWith(job.getStorageRoot()));
+    }
+
+    @Test
+    @DisplayName("출력 로고(ORGANIZER_LOGO): 주최자 로고를 오른쪽 아래 고정 자리에 맨 위로(문구보다 위) 얹는다, 로고 없이 켜면 게시 위반")
+    void outputLogo() throws Exception {
+        com.harucut.asset.entity.Asset logo = com.harucut.asset.entity.Asset.pendingUpload(
+                com.harucut.asset.entity.Asset.newPublicId(), workspaceId, com.harucut.asset.enums.AssetPurpose.PAGE_THEME_ASSET,
+                "uploads/workspaces/w/theme/logo.png", "image/png", 100, operator.getId());
+        logo.verify(100, 200, 100, java.time.LocalDateTime.now());
+        assetRepository.save(logo);
+
+        patch(Map.of("theme", Map.of("branding", Map.of("outputLogo", "ORGANIZER_LOGO"))));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> eventService.publish(operator.getPublicId(), eventId))
+                .isInstanceOf(com.harucut.common.exception.BusinessException.class);
+
+        patch(Map.of("freeText", FREE_TEXT,
+                "theme", Map.of("logoAssetId", logo.getPublicId(), "branding", Map.of("outputLogo", "ORGANIZER_LOGO"))));
+        eventService.publish(operator.getPublicId(), eventId);
+        String token = activeParticipant();
+        Run run = run(token);
+
+        long jobId = data(post("/api/participant/events/" + eventId + "/compose-jobs", token,
+                compose(run, "k-logo", Map.of("text", "안녕", "styleId", "pretendard-bold-dark"))), 202).path("jobId").asLong();
+
+        var spec = composeJobRepository.findById(jobId).orElseThrow().getSpec();
+        var layers = spec.layers().stream().sorted(java.util.Comparator.comparingInt(l -> l.zIndex())).toList();
+        var top = layers.get(layers.size() - 1);
+        assertThat(top.source()).isEqualTo(logo.getS3Key());
+        assertThat(layers.get(layers.size() - 2).source()).contains("/text/");
+        int width = (int) Math.round(spec.canvasWidth() * 0.18);
+        int margin = (int) Math.round(spec.canvasWidth() * 0.03);
+        assertThat(top.width()).isEqualTo(width);
+        assertThat(top.height()).isEqualTo(Math.round(width * 0.5));
+        assertThat(top.x()).isEqualTo(spec.canvasWidth() - margin - width);
+        assertThat(top.y()).isEqualTo(spec.canvasHeight() - margin - top.height());
     }
 
     // ── helpers ──────────────────────────────

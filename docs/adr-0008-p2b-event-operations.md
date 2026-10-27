@@ -132,7 +132,7 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
   `purpose: PAGE_THEME_ASSET` + `workspaceId` (OWNER·ADMIN·DESIGNER) — P1 자산 흐름 그대로.
 - copy: 화면별 문구, 각 200자 이내, 일반 텍스트(HTML 아님). 빠지면 FE 기본 문구.
 - branding.hideHarucutBranding: 하루컷 UI 표시 숨김. **이용권 기능 `WHITE_LABEL` 이 있어야 게시된다**(없으면 게시 위반).
-  branding.outputLogo: `NONE · ORGANIZER_LOGO` — 완성 이미지에 로고를 넣는 정책. P2B 는 값만 저장·발행하고 합성 반영은 P5 렌더 계약과 함께.
+  branding.outputLogo: `NONE · ORGANIZER_LOGO` — 완성 이미지에 로고를 넣는 정책. P2B 는 값만 저장·발행했고, 합성 반영은 2026-10-27(OutputLogoPlacer): 회차의 경험 발행본이 ORGANIZER_LOGO 면 `theme.logoAssetId` 를 맨 위 레이어로 — 오른쪽 아래, 여백 = 캔버스 너비 3%, 너비 = 캔버스 너비 18%(원본 비율, 높이가 캔버스 12% 를 넘으면 높이 12%). 미리보기도 같은 규칙. ORGANIZER_LOGO 인데 로고가 없으면 게시 위반. 기존 레이어로 그리므로 Lambda 변경 없음.
 - 게시 검사(EVENT-003 위반 목록에 추가): 색 형식, 허용 폰트, 문구 길이, 자산이 이 공간의 VERIFIED PAGE_THEME_ASSET, WHITE_LABEL 기능.
 - 공개 행사 응답·부스 me 의 `theme` 은 발행본 값에 기본값을 채우고 자산 id 대신 **URL**(`logoUrl`·`backgroundUrl`, presigned GET 24시간)을 싣는다.
   결과 API(`GET /api/public/results`)의 `theme` 도 같은 모양(그 job 에 고정된 경험 버전 기준).

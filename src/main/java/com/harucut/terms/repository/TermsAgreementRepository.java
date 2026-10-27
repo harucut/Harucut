@@ -20,7 +20,7 @@ public interface TermsAgreementRepository extends JpaRepository<TermsAgreement, 
     List<TermsAgreement> findAllByUserId(@Param("userId") Long userId);
 
     // 동의 강제 검사용: 요청마다 불린다. 인증 주체에는 publicId 만 있어서 users 와 이어 한 번에 읽는다.
-    // terms_agreement.user_id 는 FK 가 아닌 스칼라라 연관 대신 세타 조인이다
+    // terms_agreement.user_id 는 연관이 아닌 스칼라 필드라(DB FK 는 V27) 세타 조인이다
     @Query("""
             SELECT a FROM TermsAgreement a, User u
             WHERE u.publicId = :publicId AND a.userId = u.id

@@ -126,6 +126,11 @@ class FreeCellsIntegrationTest {
         fixed.put("version", created.path("version").asLong());
         JsonNode updated = data(put("/api/auth/user/frame/" + frameId, fixed), 200);
         assertThat(updated.has("cells")).isFalse();
+        // 수정 시각(app-shell §6) — 저장할 때마다 나가고 뒤로 가지 않는다
+        assertThat(created.path("updatedAt").isMissingNode()).isFalse();
+        assertThat(java.time.LocalDateTime.parse(updated.path("updatedAt").asString()))
+                .isAfterOrEqualTo(java.time.LocalDateTime.parse(created.path("updatedAt").asString()));
+        assertThat(updated.path("version").asLong()).isGreaterThan(created.path("version").asLong());
         FrameSpecV2 fixedSpec = frameVersionService.publish(designer.getPublicId(), frameId).spec();
         assertThat(fixedSpec.layout().cells()).isNull();
         assertThat(fixedSpec.slotBindings()).extracting(FrameSpecV2.SlotBinding::sourceIndex).containsExactly(0, 1, 2, 3);

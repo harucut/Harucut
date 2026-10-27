@@ -2233,6 +2233,12 @@
             "example" : "봄 여행 4컷",
             "type" : "string"
           },
+          "updatedAt" : {
+            "description" : "마지막으로 저장한 시각(서버 시간). 촬영 화면이 들고 있던 프레임이 그사이 바뀌었는지 볼 때 쓴다 —\n같은 판단은 `version` 으로도 할 수 있다(저장할 때마다 오른다).",
+            "example" : "2026-10-27T10:15:30",
+            "format" : "date-time",
+            "type" : "string"
+          },
           "version" : {
             "description" : "낙관적 잠금 값. 다음 PUT 의 `version` 에 그대로 보낸다 — 그사이 다른 저장이 있었으면 409 `FRAME-002`.",
             "example" : 3,

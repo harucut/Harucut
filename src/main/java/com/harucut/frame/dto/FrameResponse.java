@@ -8,6 +8,7 @@ import com.harucut.frame.enums.ComponentType;
 import com.harucut.frame.enums.FrameType;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -70,14 +71,20 @@ public record FrameResponse(
         String workspaceId,
 
         @Schema(description = "자유 사진 칸 4개(ADR-0012) — **자유 칸 프레임일 때만 키가 있다.** 없으면 `frameType` 의 고정 레이아웃")
-        List<PhotoCell> cells
+        List<PhotoCell> cells,
+
+        @Schema(description = """
+                마지막으로 저장한 시각(서버 시간). 촬영 화면이 들고 있던 프레임이 그사이 바뀌었는지 볼 때 쓴다 —
+                같은 판단은 `version` 으로도 할 수 있다(저장할 때마다 오른다).""",
+                example = "2026-10-27T10:15:30")
+        LocalDateTime updatedAt
 ) {
     // 자유 칸이 없던 시절의 생성자 — 기존 테스트 호환
     public FrameResponse(Long frameId, String title, String description, String previewUrl, FrameType frameType,
                          int canvasWidth, int canvasHeight, BackgroundAttributes background, List<Boolean> cellCutouts,
                          List<ComponentResponse> components, boolean isSystem, Long version, String workspaceId) {
         this(frameId, title, description, previewUrl, frameType, canvasWidth, canvasHeight, background, cellCutouts,
-                components, isSystem, version, workspaceId, null);
+                components, isSystem, version, workspaceId, null, null);
     }
 
     // presign이 필요한 조립은 어셈블러 몫이고, 이 팩토리는 캔버스 파생만 강제한다 —
@@ -91,7 +98,7 @@ public record FrameResponse(
                 frame.getFrameType().getLayout().canvasWidth(),
                 frame.getFrameType().getLayout().canvasHeight(),
                 resolvedBackground, frame.getCellCutouts(), components, frame.isSystem(), frame.getVersion(),
-                workspacePublicId, frame.getPhotoCells());
+                workspacePublicId, frame.getPhotoCells(), frame.getUpdatedAt());
     }
 
     @Schema(description = "프레임 컴포넌트")

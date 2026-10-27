@@ -32,8 +32,16 @@ public interface S3DeletionRepository extends JpaRepository<S3Deletion, Long> {
     @Transactional
     @Modifying
     @Query("update S3Deletion d set d.nextAttemptAt = d.redeleteAt, d.redeleteAt = null, d.attempts = 0, d.lastError = null, "
-            + "d.updatedAt = :now where d.keyHash = :keyHash and d.redeleteAt is not null")
-    int rearmForRedelete(@Param("keyHash") String keyHash, @Param("now") LocalDateTime now);
+            + "d.updatedAt = :now where d.keyHash = :keyHash and d.redeleteAt is not null "
+            + "and (:seen is null or d.nextAttemptAt = :seen)")
+    int rearmForRedelete(@Param("keyHash") String keyHash, @Param("seen") LocalDateTime seen, @Param("now") LocalDateTime now);
+
+    // 지운 key 의 행 정리 — 고를 때 본 일정 그대로이고 재삭제가 걸려 있지 않을 때만. 다른 시도가 재무장했으면 0 행(남긴다)
+    @Transactional
+    @Modifying
+    @Query("delete from S3Deletion d where d.keyHash = :keyHash and d.redeleteAt is null "
+            + "and (:seen is null or d.nextAttemptAt = :seen)")
+    int deleteIfSchedule(@Param("keyHash") String keyHash, @Param("seen") LocalDateTime seen);
 
     // 업로드 책임으로 미뤄 둔 예약을 지금 지울 차례로 당긴다(횟수는 그대로). 행이 없으면 0
     @Transactional
@@ -48,10 +56,11 @@ public interface S3DeletionRepository extends JpaRepository<S3Deletion, Long> {
 
     @Transactional
     @Modifying
-    // 실패 기록 — 읽은 횟수(previous)일 때만 +1. 그사이 다른 시도가 기록했으면 0 행(덮어쓰지 않는다)
+    // 실패 기록 — 읽은 횟수(previous)·고른 일정(seen)일 때만 +1. 그사이 다른 시도가 기록·재무장했으면 0 행(덮어쓰지 않는다)
     @Query("update S3Deletion d set d.attempts = d.attempts + 1, d.nextAttemptAt = :nextAttemptAt, d.lastError = :lastError, "
-            + "d.updatedAt = :now where d.keyHash = :keyHash and d.attempts = :previous")
-    int recordFailure(@Param("keyHash") String keyHash, @Param("previous") int previous,
+            + "d.updatedAt = :now where d.keyHash = :keyHash and d.attempts = :previous "
+            + "and (:seen is null or d.nextAttemptAt = :seen)")
+    int recordFailure(@Param("keyHash") String keyHash, @Param("previous") int previous, @Param("seen") LocalDateTime seen,
                       @Param("nextAttemptAt") LocalDateTime nextAttemptAt, @Param("lastError") String lastError,
                       @Param("now") LocalDateTime now);
 

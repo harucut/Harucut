@@ -56,7 +56,7 @@ public class S3DeletionRetrier {
                 LocalDateTime.now(clock));
         int deleted = 0;
         for (S3Deletion deletion : due) {
-            if (deletionAttempt.attempt(deletion.getS3Key(), deletion.getAttempts())) {
+            if (deletionAttempt.attempt(deletion.getS3Key(), deletion.getAttempts(), deletion.getNextAttemptAt())) {
                 deleted++;
             }
         }

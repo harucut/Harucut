@@ -13,6 +13,7 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.ChecksumMode;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
@@ -186,6 +187,22 @@ public class S3FileStorageService implements FileStorageService {
                         .getObjectRequest(GetObjectRequest.builder().bucket(bucket).key(key).build())
                         .build())
                 .url().toString();
+    }
+
+    @Override
+    public Optional<String> sha256Checksum(String key) {
+        try {
+            HeadObjectResponse response = s3Client.headObject(HeadObjectRequest.builder()
+                    .bucket(bucket).key(key).checksumMode(ChecksumMode.ENABLED).build());
+            return Optional.ofNullable(response.checksumSHA256());
+        } catch (NoSuchKeyException e) {
+            return Optional.empty();
+        } catch (S3Exception e) {
+            if (e.statusCode() == 404) {
+                return Optional.empty();
+            }
+            throw e;
+        }
     }
 
     @Override

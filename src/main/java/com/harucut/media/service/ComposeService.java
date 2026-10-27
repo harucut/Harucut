@@ -9,6 +9,7 @@ import com.harucut.frame.entity.Frame;
 import com.harucut.frame.exception.FrameErrorCode;
 import com.harucut.frame.service.FrameService;
 import com.harucut.media.compose.ComposeMetrics;
+import com.harucut.media.compose.ComposeOutputPolicy;
 import com.harucut.media.compose.ComposeRequestedEvent;
 import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeSpec;
@@ -61,6 +62,11 @@ public class ComposeService {
     private final Clock clock;
     private final ObjectMapper objectMapper;
     private final EntitlementService entitlementService;
+    private final ComposeOutputPolicy outputPolicy;
+
+    // 최종 실패한 작업의 결과·썸네일 자리를 다시 지우기까지 — 늦게 도착한 실행(AWS 비동기 큐 최대 6시간 + 실행 시간)이
+    // 그 자리에 쓸 수 있는 동안. 실패 확정 때 한 번, 이 시간 뒤 한 번 더 지운다(R5 D09 지연 재삭제)
+    public static final Duration LATE_WRITE_WINDOW = Duration.ofHours(6).plusMinutes(30);
 
     // ComposeJob.spec_json 컬럼 길이와 같아야 한다
     private static final int SPEC_JSON_MAX_CHARS = 8000;
@@ -100,14 +106,13 @@ public class ComposeService {
      */
     public ComposeJob accept(ComposeJob prepared) {
         assertSpecFits(prepared.getSpec());
+        // 출력 계약은 접수 때 고정한다 — 같은 작업의 재시도가 다른 계약으로 실행되지 않게
+        prepared.fixRenderContract(outputPolicy.contractForNewJobs());
         ComposeJob job = composeJobRepository.save(prepared);
 
         // 실행은 커밋 후에 시작된다(AFTER_COMMIT 리스너) — 커밋 전에 실행 스레드가 뜨면
         // 아직 안 보이는 Job을 상대로 결과를 기록하려다 실패한다
-        eventPublisher.publishEvent(new ComposeRequestedEvent(
-                job.getId(), job.getSpec(), job.sourceKeys(),
-                resultKeyFor(job), thumbnailKeyFor(job),
-                RESULT_FORMAT));
+        eventPublisher.publishEvent(requested(job));
         composeMetrics.requestAccepted();
         return job;
     }
@@ -181,12 +186,23 @@ public class ComposeService {
     // 전이를 이긴 호출만 true 다 — 미디어 생성과 원본 삭제가 그 안에서만 일어난다.
     // 재실행 경합·SQS 재배달로 같은 Job 의 통지가 두 번 와도 두 번째는 false 로 끝난다
     public boolean completeJob(Long jobId, String resultKey, String thumbnailKey) {
+        return completeJob(jobId, resultKey, thumbnailKey, null, null);
+    }
+
+    /**
+     * 계약 2 는 호출자(소비자)가 저장된 한 쌍의 체크섬을 확인한 뒤 그 값과 함께 부른다 — 확정한 쌍이 작업에 남는다.
+     * 이전 시도의 성공도 받는다(PENDING 이면). 이미 끝난 작업을 늦은 성공으로 되살리지 않는다
+     */
+    public boolean completeJob(Long jobId, String resultKey, String thumbnailKey, String resultSha256, String thumbnailSha256) {
         ComposeJob job = composeJobRepository.findById(jobId)
                 .orElseThrow(() -> new IllegalStateException("합성 Job이 사라졌다: " + jobId));
         if (job.getStatus() != ComposeStatus.PENDING) {
             return false;   // 재실행 경합 — 먼저 끝난 쪽이 이미 기록했다
         }
-        if (composeJobRepository.markDone(jobId, resultKey,
+        if (job.verifiedPairContract() && (resultSha256 == null || thumbnailSha256 == null)) {
+            throw new IllegalStateException("출력 계약 2 작업은 검증한 체크섬 쌍으로만 완료한다: " + jobId);
+        }
+        if (composeJobRepository.markDone(jobId, resultKey, resultSha256, thumbnailSha256,
                 ComposeStatus.PENDING, ComposeStatus.DONE) == 0) {
             return false;   // 읽은 뒤 다른 통지가 먼저 전이했다
         }
@@ -204,7 +220,7 @@ public class ComposeService {
             // 합성 중에 사진함에서 삭제 요청됐다 — 방금 만든 결과·썸네일을 남기지 않는다.
             // 잠금 읽기(FOR UPDATE)라 엇갈려 커밋된 삭제 요청을 놓치지 않는다(삭제 쪽도 잠금 읽기로 결과 key 를 다시 본다)
             if (composeJobRepository.lockDeletedAt(jobId).stream().anyMatch(Objects::nonNull)) {
-                s3Deleter.deleteAfterCommit(List.of(resultKey, thumbnailKey));
+                s3Deleter.deleteAfterCommit(List.of(resultKey, thumbnailKey), LATE_WRITE_WINDOW);
             }
         }
         // 원본은 성공 시 삭제 — 결과만 보관함에 남는다.
@@ -221,11 +237,19 @@ public class ComposeService {
     }
 
     public boolean failJob(Long jobId, String reason, ComposeFailureCode code) {
+        return failJob(jobId, reason, code, null);
+    }
+
+    /**
+     * @param attemptNo 실패를 알린 실행의 시도 번호 — 있으면 지금 번호와 같을 때만 반영한다. 1차 실행의 늦은 실패가
+     *                  2차 접수 뒤 도착해 PENDING 을 FAILED 로 바꾸면 2차 성공이 버려진다(R5 D09). 다르면 PENDING 그대로(재실행이 이어 간다)
+     */
+    public boolean failJob(Long jobId, String reason, ComposeFailureCode code, Integer attemptNo) {
         Optional<ComposeJob> job = composeJobRepository.findById(jobId);
         if (job.isEmpty()) {
             return false;
         }
-        if (composeJobRepository.markFailed(jobId, ComposeJob.truncateFailureReason(reason), code,
+        if (composeJobRepository.markFailed(jobId, ComposeJob.truncateFailureReason(reason), code, attemptNo,
                 ComposeStatus.PENDING, ComposeStatus.FAILED) == 0) {
             return false;
         }
@@ -238,6 +262,8 @@ public class ComposeService {
                     PushMessage.composeFailed(jobId, code.name())));
         }
         s3Deleter.deleteAfterCommit(job.get().inputKeys());
+        // 실패한 작업의 결과·썸네일 자리 — 비공개지만 실행이 일부라도 썼을 수 있다. 지금 한 번, 늦은 실행이 쓸 수 있는 기간 뒤 한 번 더
+        s3Deleter.deleteAfterCommit(List.of(resultKeyFor(job.get()), thumbnailKeyFor(job.get())), LATE_WRITE_WINDOW);
         return true;
     }
 
@@ -249,10 +275,14 @@ public class ComposeService {
     // 그 예외는 TransactionSynchronizationUtils 가 삼켜서 202 는 그대로 나가고 지표에도 안 잡힌다.
     // 결과는 "즉시 접수가 통째로 죽고 모든 합성이 30초 재실행 배치로만 도는" 상태였다.
     // 회귀 방지: ComposeClaimTransactionTest
+    // 이기면 방금 올린 시도 번호, 지면 null — 번호는 payload 에 실려 실패 통지 대조에 쓰인다(R5 D09)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean claim(Long jobId, Duration staleAfter) {
+    public Integer claim(Long jobId, Duration staleAfter) {
         LocalDateTime now = LocalDateTime.now(clock);
-        return composeJobRepository.claim(jobId, now, now.minus(staleAfter)) == 1;
+        if (composeJobRepository.claim(jobId, now, now.minus(staleAfter)) != 1) {
+            return null;
+        }
+        return composeJobRepository.findAttemptNo(jobId);
     }
 
     // 재실행 대상을 실행 payload 로 바꿔 내보낸다. 엔티티를 밖으로 내보내지 않는 이유는
@@ -261,9 +291,13 @@ public class ComposeService {
     public List<ComposeRequestedEvent> findStalled(Duration staleAfter, int limit) {
         LocalDateTime staleBefore = LocalDateTime.now(clock).minus(staleAfter);
         return composeJobRepository.findStalled(staleBefore, PageRequest.of(0, limit)).stream()
-                .map(job -> new ComposeRequestedEvent(job.getId(), job.getSpec(), job.sourceKeys(),
-                        resultKeyFor(job), thumbnailKeyFor(job), RESULT_FORMAT))
+                .map(ComposeService::requested)
                 .toList();
+    }
+
+    private static ComposeRequestedEvent requested(ComposeJob job) {
+        return new ComposeRequestedEvent(job.getId(), job.getSpec(), job.sourceKeys(),
+                resultKeyFor(job), thumbnailKeyFor(job), RESULT_FORMAT, job.getRenderContract(), null);
     }
 
     // 결과물 저장 포맷의 유일한 출처. 키 확장자와 Lambda로 보내는 지시가 **둘 다 여기서** 나온다.

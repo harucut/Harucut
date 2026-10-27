@@ -17,6 +17,11 @@ public enum ComposeFailureCode {
     TIMED_OUT,
     /** 그 밖의 렌더 실패 */
     RENDER_FAILED,
+    /**
+     * 결과·썸네일 자리에 이 실행이 만든 것과 다른 바이트가 이미 있거나, 저장된 한 쌍을 검증할 수 없다(R5 D09) —
+     * 덮어써 복구하지 않고 공개하지 않는다
+     */
+    OUTPUT_CONFLICT,
     /** 실패 종류를 알리지 않는 실행기(코드 도입 전 Lambda 등) */
     UNKNOWN;
 

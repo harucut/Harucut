@@ -43,14 +43,15 @@ public class ComposeWorker {
     }
 
     private void execute(ComposeRequestedEvent event) {
-        if (!composeService.claim(event.jobId(), staleAfter)) {
+        Integer attemptNo = composeService.claim(event.jobId(), staleAfter);
+        if (attemptNo == null) {
             metrics.dispatchSkipped();
             log.debug("이미 실행 중이거나 끝난 Job — 건너뛴다: jobId={}", event.jobId());
             return;
         }
         long startedAt = System.nanoTime();
         try {
-            composeExecutor.execute(event);
+            composeExecutor.execute(event.withAttempt(attemptNo));
             metrics.dispatchClaimed();
         } catch (Exception e) {
             metrics.dispatchFailed();

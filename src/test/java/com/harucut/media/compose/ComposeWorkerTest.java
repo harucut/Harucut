@@ -60,14 +60,15 @@ class ComposeWorkerTest {
     @Test
     @DisplayName("선점한 뒤 실행기에 넘기고 끝난다 — 결과는 기록하지 않는다")
     void claimsThenHandsOffToExecutor() {
-        given(composeService.claim(JOB_ID, STALE_AFTER)).willReturn(true);
+        given(composeService.claim(JOB_ID, STALE_AFTER)).willReturn(1);
 
         worker.handle(event());
 
         InOrder order = inOrder(composeExecutor, composeService);
         // 선점이 먼저다. 반대면 통지가 먼저 돌아와 아직 도장 안 찍힌 Job을 만난다
         order.verify(composeService).claim(JOB_ID, STALE_AFTER);
-        order.verify(composeExecutor).execute(event());
+        // 선점에서 받은 시도 번호를 실어 넘긴다 — 실패 통지가 지금 시도인지 서버가 대조한다(R5 D09)
+        order.verify(composeExecutor).execute(event().withAttempt(1));
         // 여기서 completeJob을 부르면 아직 그리지도 않은 Job이 DONE이 된다 —
         // 비동기 invoke는 "접수했다"는 뜻일 뿐이다
         then(composeService).should(never()).completeJob(any(), any(), any());
@@ -77,7 +78,7 @@ class ComposeWorkerTest {
     @Test
     @DisplayName("접수가 실패해도 FAILED로 적지 않는다 — PENDING으로 둬야 재실행이 줍는다")
     void acceptanceFailureLeavesJobPending() {
-        given(composeService.claim(JOB_ID, STALE_AFTER)).willReturn(true);
+        given(composeService.claim(JOB_ID, STALE_AFTER)).willReturn(1);
         willThrow(new IllegalStateException("Lambda 접수 실패 (status=500)"))
                 .given(composeExecutor).execute(any());
 
@@ -91,7 +92,7 @@ class ComposeWorkerTest {
     @Test
     @DisplayName("선점에 실패하면 아무것도 하지 않는다 — 이벤트와 재실행이 같은 Job을 밀어 넣어도 한 번만 돈다")
     void skipsWhenAlreadyClaimed() {
-        given(composeService.claim(JOB_ID, STALE_AFTER)).willReturn(false);
+        given(composeService.claim(JOB_ID, STALE_AFTER)).willReturn(null);
 
         worker.handle(event());
 
@@ -103,13 +104,13 @@ class ComposeWorkerTest {
     @Test
     @DisplayName("재실행도 이벤트와 같은 문을 지난다 — 선점을 거쳐 접수한다")
     void rerunTakesSamePath() {
-        given(composeService.claim(JOB_ID, STALE_AFTER)).willReturn(true);
+        given(composeService.claim(JOB_ID, STALE_AFTER)).willReturn(1);
 
         worker.rerun(event());
 
         InOrder order = inOrder(composeExecutor, composeService);
         order.verify(composeService).claim(JOB_ID, STALE_AFTER);
-        order.verify(composeExecutor).execute(event());
+        order.verify(composeExecutor).execute(event().withAttempt(1));
     }
 
     // 지표가 있었다면 이번 사고(즉시 접수가 통째로 죽음)를 첫날 봤다.
@@ -117,7 +118,7 @@ class ComposeWorkerTest {
     @Test
     @DisplayName("접수 성공·건너뜀·실패가 각각 세어진다 — 이 지표가 조기 경보다")
     void countsEachDispatchOutcome() {
-        given(composeService.claim(JOB_ID, STALE_AFTER)).willReturn(true, false, true);
+        given(composeService.claim(JOB_ID, STALE_AFTER)).willReturn(1, null, 2);
         willThrow(new IllegalStateException("접수 실패"))
                 .given(composeExecutor).execute(any());
 

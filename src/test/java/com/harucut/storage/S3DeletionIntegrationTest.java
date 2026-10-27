@@ -97,6 +97,25 @@ class S3DeletionIntegrationTest {
     }
 
     @Test
+    @DisplayName("재삭제(R5 D09): 커밋 뒤 지운 key 는 행을 남겨 재삭제 시각을 다음 차례로 옮기고, 그때 다시 지우면 행이 사라진다")
+    void redeleteAfterWindow() {
+        transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(KEY), Duration.ofHours(6)));
+
+        then(fileStorageService).should().delete(KEY);
+        assertThat(repository.findAll()).singleElement().satisfies(row -> {
+            assertThat(row.getRedeleteAt()).isNull();
+            assertThat(row.getAttempts()).isZero();
+            assertThat(row.getNextAttemptAt()).isCloseTo(LocalDateTime.now().plusHours(6), within(Duration.ofMinutes(1)));
+        });
+
+        // 재삭제 시각이 됐다 — 늦게 도착한 실행이 다시 쓴 객체를 지우고 행을 정리한다
+        jdbcTemplate.update("update s3_deletion set next_attempt_at = ?", LocalDateTime.now().minusMinutes(1));
+        retrier.retryDue();
+        then(fileStorageService).should(org.mockito.Mockito.times(2)).delete(KEY);
+        assertThat(repository.findAll()).isEmpty();
+    }
+
+    @Test
     @DisplayName("같은 key 를 여러 번 예약해도 행은 하나다(같은 트랜잭션·다른 트랜잭션)")
     void sameKeyScheduledOnce() {
         willThrow(new IllegalStateException("S3 장애")).given(fileStorageService).delete(KEY);

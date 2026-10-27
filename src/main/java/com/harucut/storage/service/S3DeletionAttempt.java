@@ -62,7 +62,13 @@ public class S3DeletionAttempt {
             }
             return false;
         }
-        update(() -> repository.deleteByKeyHash(keyHash));
+        // 재삭제가 걸린 key 는 행을 남겨 그 시각에 한 번 더 지운다 — 늦게 도착한 실행이 다시 만든 객체를 치운다(R5 D09)
+        LocalDateTime now = LocalDateTime.now(clock);
+        update(() -> {
+            if (repository.rearmForRedelete(keyHash, now) == 0) {
+                repository.deleteByKeyHash(keyHash);
+            }
+        });
         return true;
     }
 

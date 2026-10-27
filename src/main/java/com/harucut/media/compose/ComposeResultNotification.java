@@ -15,8 +15,20 @@ public record ComposeResultNotification(
     public record RequestContext(String condition) {
     }
 
-    // 성공 통지는 {"ok":true}라 두 필드가 다 null이다. 실패일 때만 채워진다
-    public record ResponsePayload(String errorType, String errorMessage) {
+    // 실패면 errorType·errorMessage, 성공이면 Lambda 응답 — 예전 계약은 {"ok":true}, 계약 2 는 두 체크섬·시도 번호(ComposeLambdaResult)
+    public record ResponsePayload(String errorType, String errorMessage,
+                                  String resultSha256, String thumbnailSha256, Integer attemptNo) {
+
+        public ResponsePayload(String errorType, String errorMessage) {
+            this(errorType, errorMessage, null, null, null);
+        }
+    }
+
+    /** 성공 응답으로 읽은 값 — 계약 2 의 체크섬 쌍 */
+    public ComposeLambdaResult result() {
+        return responsePayload == null ? null : new ComposeLambdaResult(true, responsePayload.resultSha256(),
+                responsePayload.thumbnailSha256(), responsePayload.attemptNo(),
+                requestPayload == null ? null : requestPayload.contract());
     }
 
     public String condition() {

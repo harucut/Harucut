@@ -36,4 +36,8 @@ public class S3Deletion extends BaseEntity {
 
     @Column(name = "last_error", length = 500)
     private String lastError;
+
+    // 지운 뒤 이 시각에 한 번 더 지운다(늦게 도착한 실행이 다시 쓴 객체 — R5 D09). 첫 삭제에 성공하면 다음 시각으로 옮겨지고 비워진다
+    @Column(name = "redelete_at")
+    private LocalDateTime redeleteAt;
 }

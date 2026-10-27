@@ -9,6 +9,7 @@ import com.harucut.frame.enums.FrameType;
 import com.harucut.entitlement.service.EntitlementService;
 import com.harucut.frame.service.FrameService;
 import com.harucut.media.compose.ComposeMetrics;
+import com.harucut.media.compose.ComposeOutputPolicy;
 import com.harucut.media.compose.ComposeRequestedEvent;
 import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeSpec;
@@ -104,7 +105,7 @@ class ComposeServiceTest {
         composeService = new ComposeService(userRepository, composeJobRepository,
                 userMediaRepository, frameService, composeSpecAssembler, new FreeCellsGate(false, JsonMapper.builder().build()), s3Deleter,
                 eventPublisher, new ComposeMetrics(new SimpleMeterRegistry()), fixed, JsonMapper.builder().build(),
-                entitlementService);
+                entitlementService, new ComposeOutputPolicy(1));
         user = User.localUser("owner@harucut.com", "encoded", "소유자");
         ReflectionTestUtils.setField(user, "id", 1L);
         // 결과 key 는 작업이 생성 때 고정한 storage_root(= 사용자 폴더)에서 나온다
@@ -328,7 +329,7 @@ class ComposeServiceTest {
         void completeCreatesMediaAndDeletesSources() {
             ComposeJob job = job();
             given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job));
-            given(composeJobRepository.markDone(JOB_ID, RESULT_KEY,
+            given(composeJobRepository.markDone(JOB_ID, RESULT_KEY, null, null,
                     ComposeStatus.PENDING, ComposeStatus.DONE)).willReturn(1);
             given(userMediaRepository.save(any())).willAnswer(invocation -> {
                 UserMedia media = invocation.getArgument(0);
@@ -354,7 +355,7 @@ class ComposeServiceTest {
         @DisplayName("읽은 뒤 다른 통지가 먼저 전이했으면(UPDATE 0행) 미디어도 삭제도 없다")
         void completeLosesRace() {
             given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job()));
-            given(composeJobRepository.markDone(JOB_ID, RESULT_KEY,
+            given(composeJobRepository.markDone(JOB_ID, RESULT_KEY, null, null,
                     ComposeStatus.PENDING, ComposeStatus.DONE)).willReturn(0);
 
             assertThat(composeService.completeJob(JOB_ID, RESULT_KEY, THUMB_KEY)).isFalse();
@@ -375,19 +376,21 @@ class ComposeServiceTest {
             then(userMediaRepository).shouldHaveNoInteractions();
             then(s3Deleter).shouldHaveNoInteractions();
             then(composeJobRepository).should(org.mockito.Mockito.never())
-                    .markDone(any(), any(), any(), any());
+                    .markDone(any(), any(), any(), any(), any(), any());
         }
 
         @Test
         @DisplayName("실패 기록: FAILED 로 전이하고 원본 삭제를 예약한다. 없는 Job이면 조용히 지나간다")
         void failRecordsReasonAndDeletesSources() {
             given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job()));
-            given(composeJobRepository.markFailed(JOB_ID, "원본을 읽을 수 없다", ComposeFailureCode.UNKNOWN,
+            given(composeJobRepository.markFailed(JOB_ID, "원본을 읽을 수 없다", ComposeFailureCode.UNKNOWN, null,
                     ComposeStatus.PENDING, ComposeStatus.FAILED)).willReturn(1);
             given(composeJobRepository.findById(999L)).willReturn(Optional.empty());
 
             assertThat(composeService.failJob(JOB_ID, "원본을 읽을 수 없다")).isTrue();
             then(s3Deleter).should().deleteAfterCommit(SOURCE_KEYS);
+            // 실패한 작업의 결과·썸네일 자리는 지금 한 번, 늦은 실행이 쓸 수 있는 기간 뒤 한 번 더 지운다(R5 D09)
+            then(s3Deleter).should().deleteAfterCommit(List.of(RESULT_KEY, THUMB_KEY), ComposeService.LATE_WRITE_WINDOW);
             then(eventPublisher).should().publishEvent(
                     new PushRequestedEvent(1L, PushMessage.composeFailed(JOB_ID, "UNKNOWN")));
 
@@ -395,14 +398,38 @@ class ComposeServiceTest {
         }
 
         @Test
+        @DisplayName("지난 시도의 실패(시도 번호 불일치 → UPDATE 0행)는 반영하지 않는다 — 원본도 결과 자리도 건드리지 않는다")
+        void staleAttemptFailureIgnored() {
+            given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job()));
+            given(composeJobRepository.markFailed(JOB_ID, "늦은 1차 실패", ComposeFailureCode.RENDER_FAILED, 1,
+                    ComposeStatus.PENDING, ComposeStatus.FAILED)).willReturn(0);
+
+            assertThat(composeService.failJob(JOB_ID, "늦은 1차 실패", ComposeFailureCode.RENDER_FAILED, 1)).isFalse();
+            then(s3Deleter).shouldHaveNoInteractions();
+            then(eventPublisher).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("출력 계약 2 작업은 검증한 체크섬 쌍 없이 완료하지 않는다")
+        void verifiedContractRequiresChecksums() {
+            ComposeJob job = job();
+            job.fixRenderContract(2);
+            given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job));
+
+            assertThatThrownBy(() -> composeService.completeJob(JOB_ID, RESULT_KEY, THUMB_KEY))
+                    .isInstanceOf(IllegalStateException.class);
+            then(composeJobRepository).should(org.mockito.Mockito.never()).markDone(any(), any(), any(), any(), any(), any());
+        }
+
+        @Test
         @DisplayName("긴 사유는 255자로 잘려 UPDATE 된다")
         void failTruncatesReason() {
             given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job()));
-            given(composeJobRepository.markFailed(any(), any(), any(), any(), any())).willReturn(1);
+            given(composeJobRepository.markFailed(any(), any(), any(), any(), any(), any())).willReturn(1);
 
             composeService.failJob(JOB_ID, "x".repeat(300));
 
-            then(composeJobRepository).should().markFailed(JOB_ID, "x".repeat(255), ComposeFailureCode.UNKNOWN,
+            then(composeJobRepository).should().markFailed(JOB_ID, "x".repeat(255), ComposeFailureCode.UNKNOWN, null,
                     ComposeStatus.PENDING, ComposeStatus.FAILED);
         }
 
@@ -410,7 +437,7 @@ class ComposeServiceTest {
         @DisplayName("이미 끝난 Job 의 실패(UPDATE 0행)는 원본을 지우지 않는다 — 늦은 실패가 성공 뒤를 건드리지 않는다")
         void failLosesRace() {
             given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job()));
-            given(composeJobRepository.markFailed(any(), any(), any(), any(), any())).willReturn(0);
+            given(composeJobRepository.markFailed(any(), any(), any(), any(), any(), any())).willReturn(0);
 
             assertThat(composeService.failJob(JOB_ID, "뒤늦은 실패")).isFalse();
             then(s3Deleter).shouldHaveNoInteractions();

@@ -5,6 +5,8 @@ import com.harucut.frame.layout.FrameLayout.Slot;
 import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeFailureException;
 import com.harucut.media.compose.ComposeLambdaPayload;
+import com.harucut.media.compose.ComposeLambdaResult;
+import com.harucut.media.compose.ComposeOutputContract;
 import com.harucut.media.compose.ComposeSpec;
 import com.harucut.media.compose.ImageFormat;
 import org.junit.jupiter.api.DisplayName;
@@ -16,7 +18,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
+import software.amazon.awssdk.services.s3.model.ChecksumMode;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -251,7 +259,104 @@ class ComposeHandlerTest {
                 .allMatch(BUCKET::equals);
     }
 
+    @Test
+    @DisplayName("출력 계약 2: 두 출력을 If-None-Match:* 와 SHA-256 체크섬으로 올리고, 응답에 두 체크섬·시도 번호를 싣는다")
+    void verifiedPairWritesConditionally() throws IOException {
+        givenSourcesExist();
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        new ComposeHandler(s3Client).handleRequest(verifiedPayload(3), output, null);
+
+        ArgumentCaptor<PutObjectRequest> requests = ArgumentCaptor.captor();
+        ArgumentCaptor<RequestBody> bodies = ArgumentCaptor.captor();
+        then(s3Client).should(times(2)).putObject(requests.capture(), bodies.capture());
+        for (int i = 0; i < 2; i++) {
+            PutObjectRequest request = requests.getAllValues().get(i);
+            assertThat(request.overrideConfiguration().orElseThrow().headers()).containsEntry("If-None-Match", List.of("*"));
+            assertThat(request.checksumAlgorithm()).isEqualTo(ChecksumAlgorithm.SHA256);
+            assertThat(request.checksumSHA256()).isEqualTo(ComposeHandler.sha256(bytes(bodies.getAllValues().get(i))));
+        }
+        ComposeLambdaResult result = MAPPER.readValue(output.toByteArray(), ComposeLambdaResult.class);
+        assertThat(result.ok()).isTrue();
+        assertThat(result.resultSha256()).isEqualTo(requests.getAllValues().get(0).checksumSHA256());
+        assertThat(result.thumbnailSha256()).isEqualTo(requests.getAllValues().get(1).checksumSHA256());
+        assertThat(result.attemptNo()).isEqualTo(3);
+        assertThat(result.contract()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("출력 계약 2: 412 면 저장된 체크섬을 다시 읽어 같은 바이트면 성공, 다르거나 없으면 OUTPUT_CONFLICT(덮어쓰지 않는다)")
+    void verifiedPairOn412() throws IOException {
+        givenSourcesExist();
+        java.util.concurrent.atomic.AtomicReference<String> expected = new java.util.concurrent.atomic.AtomicReference<>();
+        given(s3Client.putObject(any(PutObjectRequest.class), any(RequestBody.class))).willAnswer(invocation -> {
+            PutObjectRequest request = invocation.getArgument(0);
+            if (request.key().equals(RESULT_KEY)) {
+                expected.set(request.checksumSHA256());
+                throw S3Exception.builder().statusCode(412).message("PreconditionFailed").build();
+            }
+            return PutObjectResponse.builder().build();
+        });
+        given(s3Client.headObject(any(HeadObjectRequest.class)))
+                .willAnswer(invocation -> HeadObjectResponse.builder().checksumSHA256(expected.get()).build());
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        new ComposeHandler(s3Client).handleRequest(verifiedPayload(1), output, null);
+        assertThat(MAPPER.readValue(output.toByteArray(), ComposeLambdaResult.class).resultSha256()).isEqualTo(expected.get());
+        ArgumentCaptor<HeadObjectRequest> head = ArgumentCaptor.captor();
+        then(s3Client).should().headObject(head.capture());
+        assertThat(head.getValue().checksumMode()).isEqualTo(ChecksumMode.ENABLED);
+
+        given(s3Client.headObject(any(HeadObjectRequest.class)))
+                .willReturn(HeadObjectResponse.builder().checksumSHA256("b3RoZXI=").build());
+        assertThatThrownBy(() -> new ComposeHandler(s3Client).handleRequest(verifiedPayload(2), new ByteArrayOutputStream(), null))
+                .isInstanceOfSatisfying(ComposeFailureException.class,
+                        e -> assertThat(e.code()).isEqualTo(ComposeFailureCode.OUTPUT_CONFLICT));
+        // 412 를 성공으로 바꾸거나 지우고 다시 쓰지 않는다
+        then(s3Client).should(org.mockito.Mockito.never()).deleteObject(any(software.amazon.awssdk.services.s3.model.DeleteObjectRequest.class));
+    }
+
+    @Test
+    @DisplayName("예전 계약(contract 없음)은 그대로 — 조건 없는 PUT 두 번, 응답 {\"ok\":true}")
+    void legacyUnchanged() throws IOException {
+        givenSourcesExist();
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ComposeSpec spec = new ComposeSpec(40, 40, new BackgroundAttributes.Color("#FFFFFF"), fourSlots(),
+                List.of(false, false, false, false), List.of());
+
+        new ComposeHandler(s3Client).handleRequest(payloadStream(spec, ImageFormat.PNG), output, null);
+
+        ArgumentCaptor<PutObjectRequest> requests = ArgumentCaptor.captor();
+        then(s3Client).should(times(2)).putObject(requests.capture(), any(RequestBody.class));
+        assertThat(requests.getAllValues()).allSatisfy(r -> {
+            assertThat(r.overrideConfiguration()).isEmpty();
+            assertThat(r.checksumSHA256()).isNull();
+        });
+        assertThat(output.toString(StandardCharsets.UTF_8)).isEqualTo("{\"ok\":true}");
+    }
+
     // ── fixtures ──────────────────────────────
+
+    private void givenSourcesExist() {
+        given(s3Client.getObjectAsBytes(any(GetObjectRequest.class)))
+                .willReturn(ResponseBytes.fromByteArray(GetObjectResponse.builder().build(), solidPng(10, 10, Color.RED)));
+    }
+
+    private static ByteArrayInputStream verifiedPayload(int attemptNo) {
+        ComposeSpec spec = new ComposeSpec(40, 40, new BackgroundAttributes.Color("#FFFFFF"), fourSlots(),
+                List.of(false, false, false, false), List.of());
+        String json = MAPPER.writeValueAsString(new ComposeLambdaPayload(BUCKET, JOB_ID, spec, SOURCE_KEYS, RESULT_KEY,
+                THUMB_KEY, ImageFormat.JPEG, attemptNo, ComposeOutputContract.VERIFIED_PAIR));
+        return new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static byte[] bytes(RequestBody body) {
+        try (var in = body.contentStreamProvider().newStream()) {
+            return in.readAllBytes();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
 
     private static ByteArrayInputStream payloadStream(ComposeSpec spec, ImageFormat format) {
         String json = MAPPER.writeValueAsString(new ComposeLambdaPayload(

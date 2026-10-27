@@ -125,6 +125,21 @@ public class ComposeJob extends BaseEntity {
     @Column(name = "started_at")
     private LocalDateTime startedAt;
 
+    // 앱이 이 작업을 실행기에 넘긴 횟수 — claim 마다 +1, payload 에 실려 간다. 실패 통지는 지금 번호와 같을 때만 반영한다(R5 D09)
+    @Column(name = "attempt_no", nullable = false)
+    private int attemptNo;
+
+    // 출력 계약(ComposeOutputContract) — 접수 때 고정, 재시도가 바꾸지 않는다. null = 도입 전 작업(예전 계약)
+    @Column(name = "render_contract")
+    private Integer renderContract;
+
+    // 계약 2 에서 완료를 확정할 때 검증한 결과·썸네일의 SHA-256(base64) — 확정한 한 쌍의 기록
+    @Column(name = "result_sha256", length = 44)
+    private String resultSha256;
+
+    @Column(name = "thumbnail_sha256", length = 44)
+    private String thumbnailSha256;
+
     // 행사 사진함의 삭제 요청 — 목록·ZIP·결과 링크에서 빠진다(ADR-0008 §3)
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
@@ -198,6 +213,18 @@ public class ComposeJob extends BaseEntity {
     }
 
     // Lambda 페이로드 조립용 — 슬롯 순서 그대로
+    /** 접수 때 출력 계약을 정한다 — 저장 전에 한 번만(accept) */
+    public void fixRenderContract(int contract) {
+        if (this.renderContract != null) {
+            throw new IllegalStateException("출력 계약은 접수 때 한 번만 정한다: " + id);
+        }
+        this.renderContract = contract;
+    }
+
+    public boolean verifiedPairContract() {
+        return renderContract != null && renderContract >= com.harucut.media.compose.ComposeOutputContract.VERIFIED_PAIR;
+    }
+
     public List<String> sourceKeys() {
         return List.of(sourceKey1, sourceKey2, sourceKey3, sourceKey4);
     }

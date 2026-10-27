@@ -105,7 +105,7 @@ class ComposeClaimTransactionTest {
     void claimsOutsideTransaction() {
         Long jobId = transactionTemplate.execute(status -> saveJob("claim-outside@harucut.com"));
 
-        assertThat(composeService.claim(jobId, Duration.ofMinutes(10))).isTrue();
+        assertThat(composeService.claim(jobId, Duration.ofMinutes(10))).isEqualTo(1);
         assertThat(composeJobRepository.findById(jobId).orElseThrow().getStartedAt()).isNotNull();
     }
 
@@ -114,9 +114,11 @@ class ComposeClaimTransactionTest {
     void secondClaimIsRejectedWithinStaleWindow() {
         Long jobId = transactionTemplate.execute(status -> saveJob("claim-twice@harucut.com"));
 
-        assertThat(composeService.claim(jobId, Duration.ofMinutes(10))).isTrue();
+        assertThat(composeService.claim(jobId, Duration.ofMinutes(10))).isEqualTo(1);
         assertThat(composeService.claim(jobId, Duration.ofMinutes(10)))
                 .as("유예 시간 안에서는 뒤늦은 재실행이 같은 Job 을 다시 집으면 안 된다")
-                .isFalse();
+                .isNull();
+        // 유예가 지나 다시 집으면 시도 번호가 오른다
+        assertThat(composeService.claim(jobId, Duration.ZERO)).isEqualTo(2);
     }
 }

@@ -25,6 +25,23 @@ public record ComposeLambdaPayload(
         // null = 포맷 필드 도입 전 서버가 보낸 payload → 옛 동작(PNG)으로 떨어진다.
         // 이 관용 덕에 Lambda를 서버보다 먼저 배포해도 안전하다 — 반대로 서버가 먼저 나가면
         // .jpg 키에 PNG 바이트가 들어간다. 썸네일 도입 때 쓴 것과 같은 패턴이다
-        ImageFormat outputFormat
+        ImageFormat outputFormat,
+
+        // 앱이 이 접수에 매긴 시도 번호(claim 마다 +1). AWS 내부 재시도는 같은 번호다. 실패 통지는 지금 번호와 같을 때만 반영된다(R5 D09)
+        Integer attemptNo,
+
+        // 출력 계약 — null·1 = 예전(무조건 PUT, 체크섬 없음), 2 = 두 출력을 조건부 생성하고 SHA-256 쌍을 검증해 응답에 싣는다.
+        // 작업마다 접수 때 고정된다(재시도가 계약을 바꾸지 않는다). ComposeOutputContract 참고
+        Integer contract
 ) {
+
+    // 시도 번호·계약 도입 전 호출부 — 예전 계약으로 간다
+    public ComposeLambdaPayload(String bucket, Long jobId, ComposeSpec spec, List<String> sourceKeys, String resultKey,
+                                String thumbnailKey, ImageFormat outputFormat) {
+        this(bucket, jobId, spec, sourceKeys, resultKey, thumbnailKey, outputFormat, null, null);
+    }
+
+    public boolean verifiedPair() {
+        return contract != null && contract >= ComposeOutputContract.VERIFIED_PAIR;
+    }
 }

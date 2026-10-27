@@ -79,6 +79,19 @@ public final class SecurityPaths {
             "/api/public/booth-pairings/**", "/api/public/results/**"
     };
 
+    /**
+     * 쿠키 인증 변경 요청의 출처 검사(OriginCheckFilter)에서 빼는 경로. 다른 사이트(결제사·스토어·소셜 제공자)가
+     * 보내는 게 정상인 콜백·웹훅과, 자격을 본문으로 받는 앱 코드 교환이다. 행사 경로는 체인이 따로라 여기 없어도 대상이 아니다.
+     */
+    public static final String[] ORIGIN_CHECK_EXEMPT = {
+            "/api/payments/webhook",
+            "/api/payments/webhooks/**",
+            "/oauth2/**",
+            "/login/oauth2/**",
+            "/api/oauth2/unlink/naver",
+            "/api/harucut/oauth2/exchange"
+    };
+
     /** 행사 체인 안에서 자격 없이 여는 경로(행사 조회·BYOD 세션 발급·부스 페어링 교환). */
     public static final String[] EVENT_OPEN = {"/api/public/events/**", "/api/public/booth-pairings/**"};
 
@@ -86,6 +99,7 @@ public final class SecurityPaths {
     private static final List<PathPattern> PARSED_EVENT = parse(EVENT);
     private static final List<PathPattern> PARSED_EVENT_OPEN = parse(EVENT_OPEN);
     private static final List<PathPattern> PARSED_AUTHENTICATED_ONLY = parse(AUTHENTICATED_ONLY);
+    private static final List<PathPattern> PARSED_ORIGIN_CHECK_EXEMPT = parse(ORIGIN_CHECK_EXEMPT);
 
     private SecurityPaths() {
     }
@@ -94,6 +108,14 @@ public final class SecurityPaths {
     public static RequestMatcher publicMatcher() {
         return new OrRequestMatcher(
                 Arrays.stream(PUBLIC)
+                        .map(PathPatternRequestMatcher::pathPattern)
+                        .toArray(RequestMatcher[]::new));
+    }
+
+    /** 출처 검사 제외 경로 매처. */
+    public static RequestMatcher originCheckExemptMatcher() {
+        return new OrRequestMatcher(
+                Arrays.stream(ORIGIN_CHECK_EXEMPT)
                         .map(PathPatternRequestMatcher::pathPattern)
                         .toArray(RequestMatcher[]::new));
     }
@@ -112,6 +134,10 @@ public final class SecurityPaths {
 
     public static boolean isAuthenticatedOnly(String pathTemplate) {
         return matches(PARSED_AUTHENTICATED_ONLY, pathTemplate);
+    }
+
+    public static boolean isOriginCheckExempt(String pathTemplate) {
+        return matches(PARSED_ORIGIN_CHECK_EXEMPT, pathTemplate);
     }
 
     private static List<PathPattern> parse(String[] patterns) {

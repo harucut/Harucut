@@ -8,6 +8,7 @@ import com.harucut.participant.exception.ParticipantErrorCode;
 import com.harucut.result.exception.ResultErrorCode;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
+import io.swagger.v3.oas.models.PathItem;
 import io.swagger.v3.oas.models.media.Content;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.Schema;
@@ -21,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
@@ -46,6 +48,8 @@ public class ApiErrorDocumentationCustomizer implements GlobalOpenApiCustomizer 
 
     private static final String JSON = "application/json";
     private static final String ADMIN_PREFIX = "/api/admin/";
+    private static final Set<PathItem.HttpMethod> ORIGIN_CHECKED_METHODS = Set.of(
+            PathItem.HttpMethod.POST, PathItem.HttpMethod.PUT, PathItem.HttpMethod.PATCH, PathItem.HttpMethod.DELETE);
 
     /** 인증이 필요한 모든 경로에 공통으로 붙는 401. 인증 필터가 실제로 내는 코드들이다. */
     private static final List<DocumentedError> UNAUTHORIZED = List.of(
@@ -62,10 +66,10 @@ public class ApiErrorDocumentationCustomizer implements GlobalOpenApiCustomizer 
         }
 
         openApi.getPaths().forEach((path, pathItem) ->
-                pathItem.readOperations().forEach(operation -> customise(path, operation)));
+                pathItem.readOperationsMap().forEach((method, operation) -> customise(path, method, operation)));
     }
 
-    private void customise(String path, Operation operation) {
+    private void customise(String path, PathItem.HttpMethod method, Operation operation) {
         if (operation.getResponses() == null) {
             operation.setResponses(new ApiResponses());
         }
@@ -82,6 +86,11 @@ public class ApiErrorDocumentationCustomizer implements GlobalOpenApiCustomizer 
             if (canBeForbidden(path, operation)) {
                 errors.put(GlobalErrorCode.FORBIDDEN.getCode(), forbidden(path));
             }
+        }
+
+        if (originChecked(path, method)) {
+            errors.put(GlobalErrorCode.CROSS_ORIGIN_REJECTED.getCode(), DocumentedError.of(
+                    GlobalErrorCode.CROSS_ORIGIN_REJECTED, "쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님"));
         }
 
         ApiErrorCollector.declaredOn(operation).stream()
@@ -150,6 +159,13 @@ public class ApiErrorDocumentationCustomizer implements GlobalOpenApiCustomizer 
      */
     private boolean canBeForbidden(String path, Operation operation) {
         return !SecurityPaths.isAuthenticatedOnly(path) || ApiErrorCollector.roleRequired(operation);
+    }
+
+    /** 회원 체인의 변경 요청은 쿠키가 실리면 출처 검사(OriginCheckFilter)를 받는다. 행사 체인·웹훅·콜백은 아니다. */
+    private boolean originChecked(String path, PathItem.HttpMethod method) {
+        return ORIGIN_CHECKED_METHODS.contains(method)
+                && !SecurityPaths.isEvent(path)
+                && !SecurityPaths.isOriginCheckExempt(path);
     }
 
     private DocumentedError forbidden(String path) {

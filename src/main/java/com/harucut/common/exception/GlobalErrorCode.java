@@ -19,6 +19,8 @@ public enum GlobalErrorCode implements ErrorCode {
     // 401 / 403 / 404 / 405 / 415
     UNAUTHORIZED("GEN-011", HttpStatus.UNAUTHORIZED, "Unauthorized access."),
     FORBIDDEN("GEN-021", HttpStatus.FORBIDDEN, "Access denied."),
+    // 쿠키 인증 변경 요청의 Origin(없으면 Referer)이 허용 출처가 아니다 — CSRF 방어(OriginCheckFilter)
+    CROSS_ORIGIN_REJECTED("GEN-022", HttpStatus.FORBIDDEN, "Request origin is not allowed."),
     NOT_FOUND("GEN-031", HttpStatus.NOT_FOUND, "Resource not found."),
     METHOD_NOT_ALLOWED("GEN-041", HttpStatus.METHOD_NOT_ALLOWED, "Method not allowed."),
     UNSUPPORTED_MEDIA_TYPE("GEN-051", HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported media type."),

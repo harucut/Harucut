@@ -206,6 +206,11 @@ public class StoreSubscriptionService {
                 && !verified.expiresAt().isAfter(purchase.getExpiresAt())) {
             return;
         }
+        // 같은 원거래의 이전 기간 거래가 환불됐다(갱신은 늘 더 늦게 끝난다) — 저장된 지금 기간은 그대로 둔다
+        if (verified.revoked() && verified.expiresAt().isBefore(purchase.getExpiresAt())) {
+            log.info("[스토어] 이전 기간 거래의 환불 알림 — 지금 기간({})은 유지", purchase.getExpiresAt());
+            return;
+        }
         // 늦게 도착한 옛 알림이 만료를 되돌리지 않게 — 환불이 아니면 기한은 앞으로만
         VerifiedPurchase merged = !verified.revoked() && verified.expiresAt().isBefore(purchase.getExpiresAt())
                 ? new VerifiedPurchase(verified.platform(), verified.storeKey(), purchase.getProductId(), purchase.getExpiresAt(),

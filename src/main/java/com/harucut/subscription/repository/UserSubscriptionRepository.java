@@ -21,6 +21,11 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
     @Query("select s from UserSubscription s where s.userId = :userId")
     Optional<UserSubscription> lockByUserId(@Param("userId") Long userId);
 
+    // 만료 배치가 고른 행을 처리 직전에 다시 본다
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from UserSubscription s where s.id = :id")
+    Optional<UserSubscription> lockById(@Param("id") Long id);
+
     // 같은 잠금을 public id 로 — 트랜잭션의 첫 문장으로 쓴다(RR 스냅샷이 잠금을 얻은 뒤에 잡히게)
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from UserSubscription s where s.userId = (select u.id from User u where u.publicId = :publicId)")

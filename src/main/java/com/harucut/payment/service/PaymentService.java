@@ -92,6 +92,11 @@ public class PaymentService {
         if (!applied.success()) {
             throw new BusinessException(PaymentErrorCode.PAYMENT_FAILED);
         }
+        if (applied.supersededBy() != null) {
+            // 청구하는 사이 스토어로 구독했다 — 결제는 기록됐고(환불 확인 대상) 구독은 스토어 그대로
+            throw new BusinessException(SubscriptionErrorCode.SUBSCRIBED_ELSEWHERE, "청구 중 스토어로 구독",
+                    Map.of("source", applied.supersededBy()));
+        }
 
         return toResponse(applied.subscription(), publicId);
     }

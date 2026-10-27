@@ -1,6 +1,14 @@
 package com.harucut.subscription.store;
 
 import com.harucut.auth.service.JwtTokenService;
+import com.harucut.common.exception.BusinessException;
+import com.harucut.payment.enums.OrderStatus;
+import com.harucut.payment.gateway.PgProvider;
+import com.harucut.payment.gateway.dto.BillingKeyResult;
+import com.harucut.payment.gateway.dto.PaymentResult;
+import com.harucut.payment.repository.PaymentOrderRepository;
+import com.harucut.payment.service.PaymentTransactionService;
+import com.harucut.subscription.exception.SubscriptionErrorCode;
 import com.harucut.coupon.entity.Coupon;
 import com.harucut.coupon.entity.UserCoupon;
 import com.harucut.coupon.enums.UserCouponStatus;
@@ -38,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /*
  * 스토어 알림 (ADR-0011 §2) — 웹훅은 바깥 트랜잭션 없이 오고, 반영 트랜잭션은 구독 행 잠금으로 시작한다. 그래서 이 클래스는
@@ -61,6 +70,8 @@ class StoreNotificationIntegrationTest {
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private CouponRepository couponRepository;
     @Autowired private UserCouponRepository userCouponRepository;
+    @Autowired private PaymentTransactionService paymentTransactionService;
+    @Autowired private PaymentOrderRepository paymentOrderRepository;
 
     private final List<Long> users = new ArrayList<>();
     private final List<Long> coupons = new ArrayList<>();
@@ -77,6 +88,9 @@ class StoreNotificationIntegrationTest {
     void cleanUp() {
         users.forEach(id -> {
             jdbcTemplate.update("delete from user_coupon where user_id = ?", id);
+            jdbcTemplate.update("delete from payment where payment_order_id in (select payment_order_id from payment_order where user_id = ?)", id);
+            jdbcTemplate.update("delete from payment_order where user_id = ?", id);
+            jdbcTemplate.update("delete from billing_key where user_id = ?", id);
             jdbcTemplate.update("delete from store_purchase where user_id = ?", id);
             jdbcTemplate.update("delete from user_subscription where user_id = ?", id);
             jdbcTemplate.update("delete from users where user_id = ?", id);
@@ -221,6 +235,54 @@ class StoreNotificationIntegrationTest {
 
         notify("n-33", "REFUND_REVERSED", transaction("tx-30", later, Map.of()));
         assertThat(subscription(user).getPlanTier()).isEqualTo(PlanTier.PLUS);
+    }
+
+    @Test
+    @DisplayName("#43 재리뷰2 P2: 다음 기간 갱신이 저장된 뒤 이전 기간 거래의 환불 알림 — 지금 기간은 그대로 유지")
+    void refundOfEarlierPeriodKeepsCurrent() {
+        assertThat(purchase(user, "APP_STORE", PLUS, proof("tx-50", PLUS, later, Map.of()))).hasStatusOk();
+        LocalDateTime next = later.plusMonths(1);
+        notify("n-50", "DID_RENEW", transaction("tx-50", next, Map.of()));
+
+        notify("n-51", "REFUND", transaction("tx-50", later, Map.of("revoked", true)));   // 이전 기간 거래
+
+        assertThat(subscription(user).getPlanTier()).isEqualTo(PlanTier.PLUS);
+        assertThat(subscription(user).getCurrentPeriodEnd()).isEqualTo(next);
+        assertThat(purchaseRepository.findAllByUserIdAndPlatform(user.getId(), StorePlatform.APP_STORE)).singleElement()
+                .satisfies(row -> assertThat(row.getStatus()).isEqualTo(StorePurchaseStatus.ACTIVE));
+        // 지금 기간의 환불은 그대로 반영
+        notify("n-52", "REFUND", transaction("tx-50", next, Map.of("revoked", true)));
+        assertThat(subscription(user).getPlanTier()).isEqualTo(PlanTier.BASIC);
+    }
+
+    @Test
+    @DisplayName("#43 재리뷰2 P1: 첫 웹 결제 — 출처 검사 뒤 스토어로 등록됐으면 주문을 만들지 않고 SUBS-009, 주문을 만든 뒤 등록됐으면 청구 성공해도 스토어 구독을 웹으로 덮지 않는다")
+    void initialWebChargeVersusStore() {
+        // 1) 주문 만들기 전에 스토어 등록
+        assertThat(purchase(user, "APP_STORE", PLUS, proof("tx-60", PLUS, later, Map.of()))).hasStatusOk();
+        assertThatThrownBy(() -> paymentTransactionService.createInitialOrder(user.getId(), PlanTier.PRO, 9900, "init-60",
+                PgProvider.MOCK, BillingKeyResult.success("bk-60", "1234-****")))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(SubscriptionErrorCode.SUBSCRIBED_ELSEWHERE);
+                    assertThat(e.getData()).isEqualTo(Map.of("source", SubscriptionSource.APP_STORE));
+                });
+        assertThat(paymentOrderRepository.findByIdempotencyKey("init-60")).isEmpty();
+
+        // 2) 주문을 만든 뒤(청구 중) 스토어 등록 — 주문은 지워지지 않고, 청구 성공은 기록만 하고 스토어 구독 유지
+        User other = save("notify-init-" + System.nanoTime() + "@harucut.com");
+        PaymentTransactionService.CreatedOrder created = paymentTransactionService.createInitialOrder(other.getId(), PlanTier.PRO, 9900,
+                "init-61", PgProvider.MOCK, BillingKeyResult.success("bk-61", "1234-****"));
+        assertThat(paymentOrderRepository.findById(created.orderId()).orElseThrow().getStatus()).isEqualTo(OrderStatus.IN_PROGRESS);
+        assertThat(purchase(other, "APP_STORE", PLUS, proof("tx-61", PLUS, later, Map.of()))).hasStatusOk();
+        assertThat(paymentOrderRepository.findById(created.orderId())).isPresent();
+
+        PaymentTransactionService.ChargeApplyResult applied = paymentTransactionService.applyInitialChargeResult(other.getId(),
+                created.orderId(), PaymentResult.success("pg-61", LocalDateTime.now()), LocalDateTime.now());
+
+        assertThat(applied.supersededBy()).isEqualTo(SubscriptionSource.APP_STORE);
+        assertThat(paymentOrderRepository.findById(created.orderId()).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(subscription(other).getSource()).isEqualTo(SubscriptionSource.APP_STORE);
+        assertThat(subscription(other).getPlanTier()).isEqualTo(PlanTier.PLUS);
     }
 
     private String proof(String storeKey, String productId, LocalDateTime expiresAt, Map<String, Object> extra) {

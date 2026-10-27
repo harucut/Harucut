@@ -6,8 +6,10 @@ import com.harucut.payment.entity.BillingKey;
 import com.harucut.payment.entity.PaymentOrder;
 import com.harucut.payment.enums.OrderStatus;
 import com.harucut.payment.gateway.PgProvider;
+import com.harucut.payment.gateway.dto.BillingKeyResult;
 import com.harucut.payment.repository.BillingKeyRepository;
 import com.harucut.payment.repository.PaymentOrderRepository;
+import com.harucut.payment.service.PaymentTransactionService;
 import com.harucut.subscription.entity.UserSubscription;
 import com.harucut.subscription.enums.PlanTier;
 import com.harucut.subscription.enums.SubscriptionSource;
@@ -64,6 +66,7 @@ class StorePurchaseRaceMysqlTest {
     @Autowired private RenewalChargeTransactionService chargeService;
     @Autowired private PaymentOrderRepository paymentOrderRepository;
     @Autowired private BillingKeyRepository billingKeyRepository;
+    @Autowired private PaymentTransactionService paymentTransactionService;
 
     @Test
     @DisplayName("두 계정이 같은 구매를 동시에 → 하나만 묶이고 다른 쪽 SUBS-008, 같은 계정의 동시 두 번 → 둘 다 성공·한 행")
@@ -80,7 +83,9 @@ class StorePurchaseRaceMysqlTest {
                 .singleElement().satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(SubscriptionErrorCode.STORE_PURCHASE_OWNED_BY_OTHER));
         assertThat(results).filteredOn(r -> !(r instanceof Throwable)).hasSize(1);
-        assertThat(purchaseRepository.findAll()).singleElement();
+        // 같은 클래스의 다른 테스트도 커밋한다 — 이 사용자들 것만 센다
+        assertThat(owned(a)).hasSize(owned(b).isEmpty() ? 1 : 0);
+        assertThat(owned(a).size() + owned(b).size()).isEqualTo(1);
 
         String mine = "mock:{\"storeKey\":\"race-2\",\"productId\":\"harucut.plus.monthly\",\"expiresAt\":\""
                 + LocalDateTime.now().plusDays(30) + "\"}";
@@ -88,7 +93,7 @@ class StorePurchaseRaceMysqlTest {
         StorePurchaseDtos.PurchaseRequest twice = new StorePurchaseDtos.PurchaseRequest(StorePlatform.APP_STORE, "harucut.plus.monthly", mine);
         List<Object> same = concurrently(() -> service.purchase(c.getPublicId(), twice), () -> service.purchase(c.getPublicId(), twice));
         assertThat(same).noneMatch(Throwable.class::isInstance);
-        assertThat(purchaseRepository.findAll()).hasSize(2);
+        assertThat(owned(c)).hasSize(1);
     }
 
     @Test
@@ -120,6 +125,37 @@ class StorePurchaseRaceMysqlTest {
         }
     }
 
+    @Test
+    @DisplayName("#43 재리뷰2 P1: 첫 웹 결제 주문 만들기와 스토어 등록이 동시에 — 교착 없이, 스토어가 먼저면 SUBS-009·주문 없음, 주문이 먼저면 주문은 청구 중(IN_PROGRESS)으로 남는다")
+    void initialOrderVersusStore() throws Exception {
+        for (int round = 0; round < 6; round++) {
+            User user = user("init-race-" + round + "@harucut.com");
+            String key = "init-race-" + round;
+            String billingKey = "bk-init-" + round;
+            String proof = "mock:{\"storeKey\":\"init-" + round + "\",\"productId\":\"harucut.plus.monthly\",\"expiresAt\":\""
+                    + LocalDateTime.now().plusDays(30) + "\"}";
+            StorePurchaseDtos.PurchaseRequest request = new StorePurchaseDtos.PurchaseRequest(StorePlatform.APP_STORE, "harucut.plus.monthly", proof);
+            java.util.function.Supplier<Object> order = () -> paymentTransactionService.createInitialOrder(user.getId(), PlanTier.PRO, 9900, key,
+                    PgProvider.MOCK, BillingKeyResult.success(billingKey, "1234-****"));
+
+            List<Object> results = round % 2 == 0
+                    ? concurrently(() -> service.purchase(user.getPublicId(), request), order)
+                    : concurrently(order, () -> service.purchase(user.getPublicId(), request));
+
+            Object store = round % 2 == 0 ? results.get(0) : results.get(1);
+            Object created = round % 2 == 0 ? results.get(1) : results.get(0);
+            assertThat(store).isNotInstanceOf(Throwable.class);
+            if (created instanceof BusinessException e) {
+                assertThat(e.getErrorCode()).isEqualTo(SubscriptionErrorCode.SUBSCRIBED_ELSEWHERE);
+                assertThat(paymentOrderRepository.findByIdempotencyKey(key)).isEmpty();
+            } else {
+                assertThat(created).isNotInstanceOf(Throwable.class);
+                assertThat(paymentOrderRepository.findByIdempotencyKey(key).orElseThrow().getStatus()).isEqualTo(OrderStatus.IN_PROGRESS);
+            }
+            assertThat(subscriptionRepository.findByUserId(user.getId()).orElseThrow().getSource()).isEqualTo(SubscriptionSource.APP_STORE);
+        }
+    }
+
     private static List<Object> concurrently(java.util.function.Supplier<Object> first, java.util.function.Supplier<Object> second)
             throws Exception {
         CountDownLatch start = new CountDownLatch(1);
@@ -141,8 +177,12 @@ class StorePurchaseRaceMysqlTest {
         }
     }
 
+    private List<com.harucut.subscription.store.entity.StorePurchase> owned(User user) {
+        return purchaseRepository.findAllByUserIdAndPlatform(user.getId(), StorePlatform.APP_STORE);
+    }
+
     private User user(String email) {
-        User saved = userRepository.save(User.localUser(email, "e", email));
+        User saved = userRepository.save(User.localUser(email, "e", "경쟁"));
         subscriptionRepository.save(UserSubscription.createBasic(saved.getId()));
         return saved;
     }

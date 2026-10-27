@@ -7,6 +7,7 @@ import com.harucut.auth.service.JwtTokenService;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.config.SecurityConfig;
+import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.dto.ComposeJobResponse;
 import com.harucut.media.enums.ComposeStatus;
 import com.harucut.media.exception.MediaErrorCode;
@@ -210,6 +211,18 @@ class ComposeControllerTest extends SecurityBeansMockSupport {
                 .bodyJson()
                 .hasPathSatisfying("$.data.status", s -> assertThat(s).isEqualTo("DONE"))
                 .hasPathSatisfying("$.data.mediaId", id -> assertThat(id).isEqualTo(42));
+    }
+
+    @Test
+    @DisplayName("폴링에서 FAILED 면 failureCode 가 실린다 — 화면 문구는 이 값으로 고른다")
+    void pollFailedCarriesCode() {
+        given(composeService.getJob(PUBLIC_ID, 5L))
+                .willReturn(new ComposeJobResponse(5L, ComposeStatus.FAILED, null, "진단용 문구", ComposeFailureCode.SOURCE_MISSING));
+
+        assertThat(mockMvc.get().uri(BASE_URI + "/5").cookie(accessCookie()))
+                .hasStatusOk()
+                .bodyJson()
+                .hasPathSatisfying("$.data.failureCode", c -> assertThat(c).isEqualTo("SOURCE_MISSING"));
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.harucut.media.repository;
 import com.harucut.config.JpaAuditingConfig;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.enums.FrameType;
+import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeSpec;
 import com.harucut.media.converter.ComposeSpecConverter;
 import com.harucut.media.entity.ComposeJob;
@@ -402,6 +403,16 @@ class ComposeJobRepositoryTest {
             assertThat(markFailed(jobId, "뒤늦은 실패")).isZero();
             assertThat(reload(jobId).getStatus()).isEqualTo(ComposeStatus.DONE);
             assertThat(reload(jobId).getFailureReason()).isNull();
+        }
+
+        @Test
+        @DisplayName("실패 종류도 같은 조건부 UPDATE 로 남는다(V26)")
+        void failureCodeStored() {
+            Long jobId = persistJob("idem-failure-code");
+            assertThat(composeJobRepository.markFailed(jobId, "원본 없음", ComposeFailureCode.SOURCE_MISSING,
+                    ComposeStatus.PENDING, ComposeStatus.FAILED)).isEqualTo(1);
+            em.clear();
+            assertThat(composeJobRepository.findById(jobId).orElseThrow().getFailureCode()).isEqualTo(ComposeFailureCode.SOURCE_MISSING);
         }
 
         @Test

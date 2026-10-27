@@ -10,6 +10,7 @@ import com.harucut.frame.exception.FrameErrorCode;
 import com.harucut.frame.service.FrameService;
 import com.harucut.media.compose.ComposeMetrics;
 import com.harucut.media.compose.ComposeRequestedEvent;
+import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeSpec;
 import com.harucut.media.compose.ComposeSpecAssembler;
 import com.harucut.media.compose.ImageFormat;
@@ -211,11 +212,15 @@ public class ComposeService {
     // 원본도 지운다: 같은 멱등키의 재요청은 이 FAILED Job 을 재생할 뿐 원본을 다시 읽지 않고,
     // 다시 시도하려면 새 키로 원본을 새로 올려야 한다. 남겨 두면 아무도 안 쓰는 4장이 버킷에 쌓인다
     public boolean failJob(Long jobId, String reason) {
+        return failJob(jobId, reason, ComposeFailureCode.UNKNOWN);
+    }
+
+    public boolean failJob(Long jobId, String reason, ComposeFailureCode code) {
         Optional<ComposeJob> job = composeJobRepository.findById(jobId);
         if (job.isEmpty()) {
             return false;
         }
-        if (composeJobRepository.markFailed(jobId, ComposeJob.truncateFailureReason(reason),
+        if (composeJobRepository.markFailed(jobId, ComposeJob.truncateFailureReason(reason), code,
                 ComposeStatus.PENDING, ComposeStatus.FAILED) == 0) {
             return false;
         }

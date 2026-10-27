@@ -273,6 +273,28 @@ class FourcutRendererTest {
     }
 
     @Nested
+    @DisplayName("실패 종류 — 원본·자산을 구분한다")
+    class FailureCodes {
+
+        @Test
+        @DisplayName("원본을 읽지 못하면 SOURCE_UNREADABLE, 자산이 없으면 ASSET_MISSING, 자산을 읽지 못하면 ASSET_UNREADABLE")
+        void codes() {
+            ComposeSpec onePhoto = spec(whiteBackground(), List.of(new Slot(0, 0, 10, 10)), List.of(), List.of());
+            assertThatThrownBy(() -> render(onePhoto, List.of(new byte[]{1, 2, 3}), Map.of()))
+                    .isInstanceOfSatisfying(ComposeFailureException.class,
+                            e -> assertThat(e.code()).isEqualTo(ComposeFailureCode.SOURCE_UNREADABLE));
+
+            ComposeSpec sticker = spec(whiteBackground(), List.of(), List.of(), List.of(layer("sticker", 0, 0, 10, 10, 0, 1, 1.0)));
+            assertThatThrownBy(() -> render(sticker, List.of(), Map.of()))
+                    .isInstanceOfSatisfying(ComposeFailureException.class,
+                            e -> assertThat(e.code()).isEqualTo(ComposeFailureCode.ASSET_MISSING));
+            assertThatThrownBy(() -> render(sticker, List.of(), Map.of("sticker", new byte[]{9})))
+                    .isInstanceOfSatisfying(ComposeFailureException.class,
+                            e -> assertThat(e.code()).isEqualTo(ComposeFailureCode.ASSET_UNREADABLE));
+        }
+    }
+
+    @Nested
     @DisplayName("레이어 — 스티커·구운 텍스트")
     class Layers {
 

@@ -1,5 +1,6 @@
 package com.harucut.media.repository;
 
+import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.entity.ComposeJob;
 import com.harucut.media.enums.ComposeStatus;
 import com.harucut.participant.enums.ParticipantChannel;
@@ -125,10 +126,15 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
     @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE ComposeJob j
-            SET j.status = :failed, j.failureReason = :reason
+            SET j.status = :failed, j.failureReason = :reason, j.failureCode = :code
             WHERE j.id = :jobId AND j.status = :pending
             """)
-    int markFailed(Long jobId, String reason, ComposeStatus pending, ComposeStatus failed);
+    int markFailed(Long jobId, String reason, ComposeFailureCode code, ComposeStatus pending, ComposeStatus failed);
+
+    // 실패 종류가 없던 시절의 호출 — 테스트 픽스처 호환(종류는 비운다)
+    default int markFailed(Long jobId, String reason, ComposeStatus pending, ComposeStatus failed) {
+        return markFailed(jobId, reason, null, pending, failed);
+    }
 
     @Query("""
             SELECT j FROM ComposeJob j

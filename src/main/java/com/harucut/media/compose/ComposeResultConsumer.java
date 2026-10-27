@@ -184,7 +184,7 @@ public class ComposeResultConsumer implements SmartLifecycle {
 
         if ("RetriesExhausted".equals(condition)) {
             // 함수가 최초 1회 + 재시도 2회를 모두 예외로 끝냈다 — 영구 실패로 본다
-            composeService.failJob(jobId, notification.failureReason());
+            composeService.failJob(jobId, notification.failureReason(), notification.failureCode());
             metrics.notifiedFailed();
             log.warn("[합성 통지] 영구 실패: jobId={} reason={}", jobId, notification.failureReason());
             return;

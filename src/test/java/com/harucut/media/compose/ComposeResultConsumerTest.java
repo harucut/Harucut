@@ -104,8 +104,21 @@ class ComposeResultConsumerTest {
                     }"""));
 
             assertThat(deleted.await(5, TimeUnit.SECONDS)).isTrue();
-            then(composeService).should().failJob(eq(JOB_ID), anyString());
+            then(composeService).should().failJob(eq(JOB_ID), anyString(), any());
             then(composeService).should(never()).completeJob(anyLong(), anyString(), anyString());
+        }
+
+        @Test
+        @DisplayName("실패 종류: 실행기가 문구 머리말로 실은 코드를 그대로 남긴다 — 코드 없는 옛 실행기의 실패는 UNKNOWN(다른 종류로 꾸미지 않는다)")
+        void failureCodeFromNotification() throws Exception {
+            CountDownLatch deleted = runWith(notification("RetriesExhausted", """
+                    "responsePayload": {
+                      "errorMessage": "[SOURCE_UNREADABLE] 이미지 형식을 인식할 수 없다",
+                      "errorType": "com.harucut.media.compose.ComposeFailureException"
+                    }"""));
+
+            assertThat(deleted.await(5, TimeUnit.SECONDS)).isTrue();
+            then(composeService).should().failJob(eq(JOB_ID), anyString(), eq(ComposeFailureCode.SOURCE_UNREADABLE));
         }
 
         // 이 분기가 개선 전 30% 유실의 재발 방지선이다.

@@ -2,6 +2,8 @@ package com.harucut.compose.lambda;
 
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.layout.FrameLayout.Slot;
+import com.harucut.media.compose.ComposeFailureCode;
+import com.harucut.media.compose.ComposeFailureException;
 import com.harucut.media.compose.ComposeLambdaPayload;
 import com.harucut.media.compose.ComposeSpec;
 import com.harucut.media.compose.ImageFormat;
@@ -16,6 +18,7 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
@@ -33,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -110,6 +114,22 @@ class ComposeHandlerTest {
         BufferedImage result = ImageIO.read(bodyCaptor.getAllValues().get(0).contentStreamProvider().newStream());
         assertThat(new Color(result.getRGB(20, 20))).isEqualTo(Color.RED);
         assertThat(new Color(result.getRGB(39, 39))).isEqualTo(Color.WHITE);
+    }
+
+    @Test
+    @DisplayName("원본이 저장소에 없으면 [SOURCE_MISSING] 머리말을 단 실패로 끝난다 — 실패 통지의 errorMessage 로 종류가 서버에 간다")
+    void missingSourceIsCoded() {
+        ComposeSpec spec = new ComposeSpec(40, 40, new BackgroundAttributes.Color("#FFFFFF"), fourSlots(),
+                List.of(false, false, false, false), List.of());
+        given(s3Client.getObjectAsBytes(any(GetObjectRequest.class)))
+                .willThrow(NoSuchKeyException.builder().message("The specified key does not exist.").build());
+
+        assertThatThrownBy(() -> new ComposeHandler(s3Client).handleRequest(payloadStream(spec, ImageFormat.PNG),
+                new ByteArrayOutputStream(), null))
+                .isInstanceOfSatisfying(ComposeFailureException.class, e -> {
+                    assertThat(e.code()).isEqualTo(ComposeFailureCode.SOURCE_MISSING);
+                    assertThat(e.getMessage()).startsWith("[SOURCE_MISSING] ");
+                });
     }
 
     @Test

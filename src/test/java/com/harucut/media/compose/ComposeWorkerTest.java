@@ -71,7 +71,7 @@ class ComposeWorkerTest {
         // 여기서 completeJob을 부르면 아직 그리지도 않은 Job이 DONE이 된다 —
         // 비동기 invoke는 "접수했다"는 뜻일 뿐이다
         then(composeService).should(never()).completeJob(any(), any(), any());
-        then(composeService).should(never()).failJob(any(), anyString());
+        then(composeService).should(never()).failJob(any(), anyString(), any());
     }
 
     @Test
@@ -84,7 +84,7 @@ class ComposeWorkerTest {
         // 예외가 밖으로 새면 @Async 스레드나 스케줄러 루프가 그걸 뒤집어쓴다
         assertThatCode(() -> worker.handle(event())).doesNotThrowAnyException();
 
-        then(composeService).should(never()).failJob(any(), anyString());
+        then(composeService).should(never()).failJob(any(), anyString(), any());
         then(composeService).should(never()).completeJob(any(), any(), any());
     }
 
@@ -97,7 +97,7 @@ class ComposeWorkerTest {
 
         then(composeExecutor).shouldHaveNoInteractions();
         then(composeService).should(never()).completeJob(any(), any(), any());
-        then(composeService).should(never()).failJob(any(), anyString());
+        then(composeService).should(never()).failJob(any(), anyString(), any());
     }
 
     @Test

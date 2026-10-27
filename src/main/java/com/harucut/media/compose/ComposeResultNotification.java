@@ -29,6 +29,12 @@ public record ComposeResultNotification(
 
     // stackTrace는 일부러 빼고 조립한다 — failureReason은 255자에서 잘린다(ComposeJob.fail).
     // 스택을 넣으면 정작 원인 문구가 잘려 나간다
+    /** 실패 종류 — 실행기가 문구 머리말로 실은 코드, 시간 초과, 그 밖은 UNKNOWN */
+    public ComposeFailureCode failureCode() {
+        return responsePayload == null ? ComposeFailureCode.UNKNOWN
+                : ComposeFailureCode.from(responsePayload.errorType(), responsePayload.errorMessage());
+    }
+
     public String failureReason() {
         if (responsePayload == null || responsePayload.errorMessage() == null) {
             return condition();

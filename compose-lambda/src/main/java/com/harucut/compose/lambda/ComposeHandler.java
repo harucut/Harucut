@@ -2,6 +2,8 @@ package com.harucut.compose.lambda;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestStreamHandler;
+import com.harucut.media.compose.ComposeFailureCode;
+import com.harucut.media.compose.ComposeFailureException;
 import com.harucut.media.compose.ComposeLambdaPayload;
 import com.harucut.media.compose.FourcutRenderer;
 import com.harucut.media.compose.ImageFormat;
@@ -9,6 +11,7 @@ import com.harucut.media.compose.RenderResult;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
@@ -47,13 +50,13 @@ public class ComposeHandler implements RequestStreamHandler {
         ComposeLambdaPayload payload = MAPPER.readValue(input, ComposeLambdaPayload.class);
 
         List<byte[]> sources = payload.sourceKeys().stream()
-                .map(key -> download(payload.bucket(), key))
+                .map(key -> download(payload.bucket(), key, ComposeFailureCode.SOURCE_MISSING))
                 .toList();
 
         // 자산 목록은 스펙이 소유한다 — 계산이 두 벌이면 서버와 어긋난다
         Map<String, byte[]> assets = new LinkedHashMap<>();
         for (String key : payload.spec().referencedAssetKeys()) {
-            assets.put(key, download(payload.bucket(), key));
+            assets.put(key, download(payload.bucket(), key, ComposeFailureCode.ASSET_MISSING));
         }
 
         // outputFormat 없는 payload = 포맷 도입 전 서버 — PNG로 떨어진다.
@@ -82,8 +85,13 @@ public class ComposeHandler implements RequestStreamHandler {
         output.write("{\"ok\":true}".getBytes(StandardCharsets.UTF_8));
     }
 
-    private byte[] download(String bucket, String key) {
-        return s3Client.getObjectAsBytes(
-                GetObjectRequest.builder().bucket(bucket).key(key).build()).asByteArray();
+    // 없는 객체는 종류를 달아 던진다(원본이 만료·삭제됐는지 자산이 사라졌는지) — 그 밖의 S3 오류는 그대로(재시도 대상)
+    private byte[] download(String bucket, String key, ComposeFailureCode missing) {
+        try {
+            return s3Client.getObjectAsBytes(
+                    GetObjectRequest.builder().bucket(bucket).key(key).build()).asByteArray();
+        } catch (NoSuchKeyException e) {
+            throw new ComposeFailureException(missing, "저장소에 없다: " + key, e);
+        }
     }
 }

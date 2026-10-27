@@ -10,6 +10,7 @@ import com.harucut.entitlement.service.EntitlementService;
 import com.harucut.frame.service.FrameService;
 import com.harucut.media.compose.ComposeMetrics;
 import com.harucut.media.compose.ComposeRequestedEvent;
+import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeSpec;
 import com.harucut.media.compose.ComposeSpecAssembler;
 import com.harucut.media.dto.ComposeJobResponse;
@@ -374,7 +375,7 @@ class ComposeServiceTest {
         @DisplayName("실패 기록: FAILED 로 전이하고 원본 삭제를 예약한다. 없는 Job이면 조용히 지나간다")
         void failRecordsReasonAndDeletesSources() {
             given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job()));
-            given(composeJobRepository.markFailed(JOB_ID, "원본을 읽을 수 없다",
+            given(composeJobRepository.markFailed(JOB_ID, "원본을 읽을 수 없다", ComposeFailureCode.UNKNOWN,
                     ComposeStatus.PENDING, ComposeStatus.FAILED)).willReturn(1);
             given(composeJobRepository.findById(999L)).willReturn(Optional.empty());
 
@@ -388,11 +389,11 @@ class ComposeServiceTest {
         @DisplayName("긴 사유는 255자로 잘려 UPDATE 된다")
         void failTruncatesReason() {
             given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job()));
-            given(composeJobRepository.markFailed(any(), any(), any(), any())).willReturn(1);
+            given(composeJobRepository.markFailed(any(), any(), any(), any(), any())).willReturn(1);
 
             composeService.failJob(JOB_ID, "x".repeat(300));
 
-            then(composeJobRepository).should().markFailed(JOB_ID, "x".repeat(255),
+            then(composeJobRepository).should().markFailed(JOB_ID, "x".repeat(255), ComposeFailureCode.UNKNOWN,
                     ComposeStatus.PENDING, ComposeStatus.FAILED);
         }
 
@@ -400,7 +401,7 @@ class ComposeServiceTest {
         @DisplayName("이미 끝난 Job 의 실패(UPDATE 0행)는 원본을 지우지 않는다 — 늦은 실패가 성공 뒤를 건드리지 않는다")
         void failLosesRace() {
             given(composeJobRepository.findById(JOB_ID)).willReturn(Optional.of(job()));
-            given(composeJobRepository.markFailed(any(), any(), any(), any())).willReturn(0);
+            given(composeJobRepository.markFailed(any(), any(), any(), any(), any())).willReturn(0);
 
             assertThat(composeService.failJob(JOB_ID, "뒤늦은 실패")).isFalse();
             then(s3Deleter).shouldHaveNoInteractions();

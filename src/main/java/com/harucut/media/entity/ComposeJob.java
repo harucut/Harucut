@@ -1,6 +1,7 @@
 package com.harucut.media.entity;
 
 import com.harucut.common.entity.BaseEntity;
+import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeSpec;
 import com.harucut.media.converter.ComposeSpecConverter;
 import com.harucut.media.enums.ComposeStatus;
@@ -115,6 +116,11 @@ public class ComposeJob extends BaseEntity {
 
     @Column(name = "failure_reason")
     private String failureReason;
+
+    // FAILED 일 때 실패 종류 — 화면 문구를 고른다(V26 이전 행은 null)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "failure_code", length = 30)
+    private ComposeFailureCode failureCode;
 
     @Column(name = "started_at")
     private LocalDateTime startedAt;

@@ -197,15 +197,17 @@ public class StoreSubscriptionService {
 
     private boolean applyOwned(VerifiedPurchase verified, Long userId, String notificationId, String type) {
         LocalDateTime now = now();
-        UserSubscription subscription = subscriptionRepository.lockByUserId(userId)
-                .orElseThrow(() -> new BusinessException(SubscriptionErrorCode.NO_ACTIVE_SUBSCRIPTION));
+        // 탈퇴로 구독 행이 없는 주인이면 구매 상태와 수신 기록만 남긴다(동기화할 구독이 없다) — 재전송이 같은 실패를 되풀이하지 않게
+        Optional<UserSubscription> locked = subscriptionRepository.lockByUserId(userId);
         if (notificationId != null && receiptRepository.recordOnce(now, verified.platform().name(), notificationId, type) == 0) {
             return true;   // 이미 처리한 알림
         }
         StorePurchase purchase = purchaseRepository.lockByKey(verified.platform(), StorePurchase.hash(verified.storeKey())).orElseThrow();
-        if (!purchase.applyIfNewer(verified, properties.products().getOrDefault(verified.productId(), purchase.getPlanTier()), now)) {
-            return true;   // 이미 반영한 것보다 오래된 소식
+        if (!purchase.applyIfNewer(verified, properties.products().getOrDefault(verified.productId(), purchase.getPlanTier()), now)
+                || locked.isEmpty()) {
+            return true;   // 이미 반영한 소식이거나, 동기화할 구독이 없다
         }
+        UserSubscription subscription = locked.get();
         // 이 스토어가 구독의 출처면 늘 맞추고(연장·강등), 지금 무료·쿠폰이면 유효한 구매로 다시 올린다. 웹·다른 스토어로 구독 중이면 구매만 갱신
         SubscriptionSource active = activeSource(subscription, now);
         boolean drivenByThis = subscription.getSource() == verified.platform().source();

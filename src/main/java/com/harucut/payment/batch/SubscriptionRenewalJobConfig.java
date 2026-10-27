@@ -103,7 +103,8 @@ public class SubscriptionRenewalJobConfig {
                             and s.currentPeriodEnd is not null
                             and s.currentPeriodEnd <= :baseTime
                         """)
-                // 웹 정기결제만 청구한다 — 스토어 구독은 스토어가 갱신하고 카드도 없다(ADR-0011 §2)
+                // 웹 정기결제만 청구한다 — 스토어 구독은 스토어가 갱신하고 카드도 없다(ADR-0011 §2).
+                // 이 조건은 RenewalPreparationService.isRenewable 이 처리 직전에 다시 본다 — 둘을 같이 바꿀 것
                 .parameterValues(Map.of(
                         "statuses", List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.PAST_DUE),
                         "web", SubscriptionSource.WEB,

@@ -81,27 +81,24 @@ public class StorePurchase extends BaseEntity {
     }
 
     /**
-     * 이벤트 시각 규칙(ADR-0011 §2-4) — 마지막으로 반영한 입력보다 <b>나중에 서명된</b> 입력만 상태·기한·자동갱신을 바꾼다.
-     * 등록·복원(앱이 보낸 증빙)과 알림 모두 이 하나로 판정한다: 늦게 도착한 옛 알림·옛 증빙은 아무것도 되돌리지 못한다.
-     * 더 나중의 입력이라도 기한은 앞으로만 간다 — 같은 원거래의 이전 기간 거래가 환불됐으면 지금 기간을 그대로 둔다.
+     * 반영 규칙(ADR-0011 §2-4) — **기간 먼저, 서명 시각은 같은 기간 안에서만** ((expiresAt, signedAt) 사전순).
+     * <ul>
+     *   <li>저장 기간보다 늦게 끝나는 거래 = 새 기간: 서명 시각과 상관없이 반영하고, 이 기간의 마지막 이벤트 시각을 그 서명 시각으로 다시 잡는다</li>
+     *   <li>같은 기간: 마지막 이벤트 시각보다 나중에 서명된 것만 상태·자동갱신·환불을 바꾼다 — 늦게 온 옛 알림·옛 증빙은 되돌리지 못한다</li>
+     *   <li>이전 기간(저장 기간보다 먼저 끝남): 지금 기간과 무관하다 — 이전 기간의 환불도 지금 기간을 건드리지 않는다</li>
+     * </ul>
      *
      * @param tier 이 입력의 상품 등급(모르는 상품이면 호출자가 저장값을 넘긴다)
      * @return 반영했으면 true
      */
     public boolean applyIfNewer(VerifiedPurchase verified, PlanTier tier, LocalDateTime now) {
-        if (!verified.signedAt().isAfter(lastEventAt)) {
+        boolean newPeriod = verified.expiresAt().isAfter(expiresAt);
+        boolean samePeriodNewer = verified.expiresAt().isEqual(expiresAt) && verified.signedAt().isAfter(lastEventAt);
+        if (!newPeriod && !samePeriodNewer) {
             return false;
         }
         lastEventAt = verified.signedAt();
         lastVerifiedAt = now;
-        if (verified.expiresAt().isBefore(expiresAt)) {
-            // 이전 기간 거래의 소식 — 환불이면 지금 기간과 무관하고, 아니면 기한·상품은 두고 갱신 설정만 받는다(환불된 지금 기간은 그대로)
-            if (!verified.revoked() && status != StorePurchaseStatus.REVOKED) {
-                autoRenew = verified.autoRenew();
-                status = renewalStatus(verified.billingRetry(), now);
-            }
-            return true;
-        }
         productId = verified.productId();
         planTier = tier;
         expiresAt = verified.expiresAt();
@@ -109,16 +106,6 @@ public class StorePurchase extends BaseEntity {
         environment = verified.environment();
         status = verified.statusAt(now);
         return true;
-    }
-
-    private StorePurchaseStatus renewalStatus(boolean billingRetry, LocalDateTime now) {
-        if (!now.isBefore(expiresAt)) {
-            return StorePurchaseStatus.EXPIRED;
-        }
-        if (billingRetry) {
-            return StorePurchaseStatus.PAST_DUE;
-        }
-        return autoRenew ? StorePurchaseStatus.ACTIVE : StorePurchaseStatus.CANCELED;
     }
 
     /** 주인 없는 행(알림이 먼저 온 구매)을 이 계정이 이어받는다. 이미 주인이 있으면 false */

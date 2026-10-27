@@ -84,6 +84,7 @@ public class SubscriptionExpirationJobConfig {
                             or (s.source in :storeSources and s.subscriptionStatus in :storeRenewing
                                 and s.currentPeriodEnd <= :storeGraceLimit))
                         """)
+                // 이 조건은 SubscriptionExpirationService.isExpirable 이 처리 직전에 다시 본다 — 둘을 같이 바꿀 것.
                 // 스토어 구독(ADR-0011 §2)은 스토어가 갱신한다 — 기한이 지나고 유예(billing.store.grace-days)가 지나도 갱신 알림이 없으면 강등.
                 // 읽기 시점 등급은 기한에서 바로 BASIC 이다(effectiveTier)
                 .parameterValues(Map.of(

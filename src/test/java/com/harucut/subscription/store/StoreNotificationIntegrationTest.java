@@ -323,6 +323,39 @@ class StoreNotificationIntegrationTest {
         assertThat(subscription(user).isAutoRenew()).isFalse();
     }
 
+    @Test
+    @DisplayName("#43 재리뷰4 P2: 다음 기간 갱신(먼저 서명)이 늦고 이전 기간 환불(나중 서명)이 먼저 와도 — 기간 먼저: 늦게 끝나는 거래는 서명 시각과 상관없이 새 기간으로 반영")
+    void laterPeriodWinsRegardlessOfSignedOrder() {
+        assertThat(purchase(user, "APP_STORE", PLUS, proof("tx-80", PLUS, later, Map.of()))).hasStatusOk();
+        LocalDateTime next = later.plusMonths(1);
+        String renewalSigned = LocalDateTime.now().toString();   // 다음 기간 갱신 — 먼저 서명됐지만 늦게 도착한다
+
+        notify("n-80", "REFUND", transaction("tx-80", later, Map.of("revoked", true)));            // 이전(지금 저장된) 기간 환불, 나중 서명
+        assertThat(subscription(user).getPlanTier()).isEqualTo(PlanTier.BASIC);
+        notify("n-81", "DID_RENEW", transaction("tx-80", next, Map.of("signedAt", renewalSigned)));
+
+        assertThat(subscription(user).getPlanTier()).isEqualTo(PlanTier.PLUS);
+        assertThat(subscription(user).getCurrentPeriodEnd()).isEqualTo(next);
+        assertThat(purchaseRepository.findAllByUserIdAndPlatform(user.getId(), StorePlatform.APP_STORE)).singleElement()
+                .satisfies(row -> assertThat(row.getStatus()).isEqualTo(StorePurchaseStatus.ACTIVE));
+    }
+
+    @Test
+    @DisplayName("#43 재리뷰4 P2: 탈퇴로 구독 행이 없는 주인의 구매 알림 — 구매 상태와 수신 기록만 남기고 200(재전송도 같은 실패를 되풀이하지 않음)")
+    void notificationForDeletedOwner() {
+        assertThat(purchase(user, "APP_STORE", PLUS, proof("tx-81", PLUS, later, Map.of()))).hasStatusOk();
+        jdbcTemplate.update("delete from user_subscription where user_id = ?", user.getId());
+
+        notify("n-82", "DID_CHANGE_RENEWAL_STATUS", transaction("tx-81", later, Map.of("autoRenew", false)));
+        notify("n-82", "DID_CHANGE_RENEWAL_STATUS", transaction("tx-81", later, Map.of("autoRenew", false)));   // 재전송
+
+        assertThat(purchaseRepository.findAllByUserIdAndPlatform(user.getId(), StorePlatform.APP_STORE)).singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getStatus()).isEqualTo(StorePurchaseStatus.CANCELED);
+                    assertThat(row.isAutoRenew()).isFalse();
+                });
+    }
+
     private String proof(String storeKey, String productId, LocalDateTime expiresAt, Map<String, Object> extra) {
         return "mock:" + objectMapper.writeValueAsString(transaction(storeKey, expiresAt, extra, productId));
     }

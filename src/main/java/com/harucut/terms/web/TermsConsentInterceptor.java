@@ -48,6 +48,8 @@ public class TermsConsentInterceptor implements HandlerInterceptor {
             PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/auth/terms/consents"),
             PathPatternRequestMatcher.pathPattern(HttpMethod.DELETE, "/api/harucut/exit"),
             PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/harucut/reactivate"),
+            // 로그아웃 직전의 푸시 기기 해제 — 동의가 빠져 있어도 기기는 떼어 낼 수 있어야 한다
+            PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/auth/devices/unregister"),
             PathPatternRequestMatcher.pathPattern("/api/admin/**"),
             SecurityPaths.publicMatcher());
 

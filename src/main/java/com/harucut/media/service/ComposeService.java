@@ -23,6 +23,8 @@ import com.harucut.media.exception.MediaErrorCode;
 import com.harucut.media.repository.ComposeJobRepository;
 import com.harucut.media.repository.UserMediaRepository;
 import com.harucut.media.util.DisplayNames;
+import com.harucut.push.service.PushMessage;
+import com.harucut.push.service.PushRequestedEvent;
 import com.harucut.storage.service.S3Deleter;
 import com.harucut.storage.util.S3Keys;
 import com.harucut.user.entity.User;
@@ -192,6 +194,7 @@ public class ComposeService {
             UserMedia media = userMediaRepository.save(UserMedia.of(job.getUser(), resultKey,
                     thumbnailKey, DisplayNames.resolve(null, resultKey, LocalDateTime.now(clock))));
             composeJobRepository.attachMedia(jobId, media.getId());
+            eventPublisher.publishEvent(new PushRequestedEvent(job.getUser().getId(), PushMessage.composeDone(jobId)));
         }
         if (job.getEventId() != null) {
             // 사용량 예약을 확정한다 — 전이를 이긴 이 트랜잭션에서만(늦은 통지는 위에서 false 로 끝났다)
@@ -226,6 +229,11 @@ public class ComposeService {
         }
         if (job.get().getEventId() != null) {
             entitlementService.release(jobId);   // 예약 수량을 돌려준다(돈의 환불이 아니다)
+        }
+        // 개인 작업만 푸시한다 — 행사 참가자는 계정이 없다
+        if (job.get().getUser() != null) {
+            eventPublisher.publishEvent(new PushRequestedEvent(job.get().getUser().getId(),
+                    PushMessage.composeFailed(jobId, code.name())));
         }
         s3Deleter.deleteAfterCommit(job.get().sourceKeys());
         return true;

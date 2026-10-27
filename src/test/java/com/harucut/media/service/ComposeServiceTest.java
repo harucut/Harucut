@@ -21,6 +21,8 @@ import com.harucut.media.enums.ComposeStatus;
 import com.harucut.media.exception.MediaErrorCode;
 import com.harucut.media.repository.ComposeJobRepository;
 import com.harucut.media.repository.UserMediaRepository;
+import com.harucut.push.service.PushMessage;
+import com.harucut.push.service.PushRequestedEvent;
 import com.harucut.storage.service.S3Deleter;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
@@ -342,6 +344,8 @@ class ComposeServiceTest {
             assertThat(captor.getValue().getDisplayName()).isEqualTo("harucut_20260720_100000.jpg");
             then(composeJobRepository).should().attachMedia(JOB_ID, 42L);
             then(s3Deleter).should().deleteAfterCommit(SOURCE_KEYS);
+            // 개인 작업 완료 푸시 — 전이를 이긴 이 트랜잭션에서만
+            then(eventPublisher).should().publishEvent(new PushRequestedEvent(1L, PushMessage.composeDone(JOB_ID)));
         }
 
         @Test
@@ -355,6 +359,7 @@ class ComposeServiceTest {
 
             then(userMediaRepository).shouldHaveNoInteractions();
             then(s3Deleter).shouldHaveNoInteractions();
+            then(eventPublisher).shouldHaveNoInteractions();
         }
 
         @Test
@@ -381,6 +386,8 @@ class ComposeServiceTest {
 
             assertThat(composeService.failJob(JOB_ID, "원본을 읽을 수 없다")).isTrue();
             then(s3Deleter).should().deleteAfterCommit(SOURCE_KEYS);
+            then(eventPublisher).should().publishEvent(
+                    new PushRequestedEvent(1L, PushMessage.composeFailed(JOB_ID, "UNKNOWN")));
 
             assertThat(composeService.failJob(999L, "이유")).isFalse();
         }
@@ -405,6 +412,7 @@ class ComposeServiceTest {
 
             assertThat(composeService.failJob(JOB_ID, "뒤늦은 실패")).isFalse();
             then(s3Deleter).shouldHaveNoInteractions();
+            then(eventPublisher).shouldHaveNoInteractions();
         }
     }
 

@@ -9,6 +9,9 @@ import com.harucut.payment.gateway.dto.PaymentResult;
 import com.harucut.payment.repository.BillingKeyRepository;
 import com.harucut.payment.repository.PaymentOrderRepository;
 import com.harucut.payment.repository.PaymentRepository;
+import com.harucut.push.service.PushMessage;
+import com.harucut.push.service.PushRequestedEvent;
+import com.harucut.push.service.PushType;
 import com.harucut.subscription.entity.UserSubscription;
 import com.harucut.subscription.enums.PlanTier;
 import com.harucut.subscription.enums.SubscriptionSource;
@@ -17,6 +20,7 @@ import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,6 +45,7 @@ public class RenewalChargeTransactionService {
     private final BillingKeyRepository billingKeyRepository;
     private final UserRepository userRepository;
     private final UserSubscriptionRepository userSubscriptionRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     // "긁는 중" 도장을 찍고 커밋한다 — PG 호출은 반드시 이 커밋 이후여야 한다
     @Transactional
@@ -68,6 +73,7 @@ public class RenewalChargeTransactionService {
             // 준비 커밋과 청구 사이에 카드·사용자가 사라진 드문 경우 — 시도 없이 실패 확정
             order.markFailed();
             subscription.ifPresent(UserSubscription::markPastDue);
+            notifyPaymentFailed(order.getUserId());
             return null;
         }
 
@@ -101,6 +107,15 @@ public class RenewalChargeTransactionService {
         order.markFailed();
         paymentRepository.save(payment);
         web.ifPresent(UserSubscription::markPastDue);
+        // 스토어로 바뀐 구독은 웹 결제 실패를 알리지 않는다(이용은 스토어 기간으로 이어진다)
+        if (web.isPresent()) {
+            notifyPaymentFailed(order.getUserId());
+        }
+    }
+
+    // 커밋 뒤 발송 — 주문을 실패로 확정하는 트랜잭션에서만 부른다(롤백되면 나가지 않는다)
+    private void notifyPaymentFailed(Long userId) {
+        eventPublisher.publishEvent(new PushRequestedEvent(userId, PushMessage.of(PushType.PAYMENT_FAILED)));
     }
 
     private static boolean isStore(SubscriptionSource source) {

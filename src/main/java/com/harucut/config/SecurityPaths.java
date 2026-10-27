@@ -67,7 +67,9 @@ public final class SecurityPaths {
      */
     public static final String[] AUTHENTICATED_ONLY = {
             "/api/auth/status",
-            "/api/harucut/reactivate"
+            "/api/harucut/reactivate",
+            // 로그아웃 직전의 푸시 기기 해제 — 탈퇴 요청·정지 상태에서도 기기를 떼어 낼 수 있어야 한다
+            "/api/auth/devices/unregister"
     };
 
     /**

@@ -12,6 +12,8 @@ import com.harucut.payment.gateway.dto.PaymentResult;
 import com.harucut.payment.repository.BillingKeyRepository;
 import com.harucut.payment.repository.PaymentOrderRepository;
 import com.harucut.payment.repository.PaymentRepository;
+import com.harucut.push.service.PushRequestedEvent;
+import com.harucut.push.service.PushType;
 import com.harucut.subscription.entity.UserSubscription;
 import com.harucut.subscription.enums.PlanTier;
 import com.harucut.subscription.enums.SubscriptionSource;
@@ -28,6 +30,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -60,12 +63,15 @@ class RenewalChargeTransactionServiceTest {
     @Mock
     private UserSubscriptionRepository userSubscriptionRepository;
 
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private RenewalChargeTransactionService service;
 
     @BeforeEach
     void setUp() {
         service = new RenewalChargeTransactionService(paymentOrderRepository, paymentRepository,
-                billingKeyRepository, userRepository, userSubscriptionRepository);
+                billingKeyRepository, userRepository, userSubscriptionRepository, eventPublisher);
     }
 
     @Nested
@@ -134,6 +140,8 @@ class RenewalChargeTransactionServiceTest {
 
             assertThat(order.getStatus()).isEqualTo(OrderStatus.FAILED);
             assertThat(subscription.getSubscriptionStatus()).isEqualTo(SubscriptionStatus.PAST_DUE);
+            then(eventPublisher).should().publishEvent(new PushRequestedEvent(USER_ID,
+                    com.harucut.push.service.PushMessage.of(PushType.PAYMENT_FAILED)));
         }
 
         @Test
@@ -196,6 +204,8 @@ class RenewalChargeTransactionServiceTest {
             given(paymentOrderRepository.lockById(ORDER_ID)).willReturn(Optional.of(failing));
             service.applyResult(ORDER_ID, PaymentResult.failure("DECLINED", "거절"), BASE_TIME);
             assertThat(store.getSubscriptionStatus()).isEqualTo(SubscriptionStatus.ACTIVE);
+            // 이용은 스토어 기간으로 이어지니 결제 실패 푸시를 보내지 않는다
+            then(eventPublisher).shouldHaveNoInteractions();
         }
     }
 
@@ -225,6 +235,7 @@ class RenewalChargeTransactionServiceTest {
             assertThat(subscription.getSubscriptionStatus()).isEqualTo(SubscriptionStatus.ACTIVE);
             assertThat(subscription.getCurrentPeriodStart()).isEqualTo(BASE_TIME);
             assertThat(subscription.getCurrentPeriodEnd()).isEqualTo(BASE_TIME.plusMonths(1));
+            then(eventPublisher).shouldHaveNoInteractions();
         }
 
         @Test
@@ -261,6 +272,11 @@ class RenewalChargeTransactionServiceTest {
             assertThat(subscription.getSubscriptionStatus()).isEqualTo(SubscriptionStatus.PAST_DUE);
             // 실패는 주기를 건드리지 않는다 — 만료 배치가 유예를 계산할 기준이 남아야 한다
             assertThat(subscription.getCurrentPeriodEnd()).isEqualTo(originalPeriodEnd);
+            // 결제 실패 푸시 — 커밋 뒤 발송되도록 이벤트로 남긴다
+            ArgumentCaptor<PushRequestedEvent> push = ArgumentCaptor.captor();
+            then(eventPublisher).should().publishEvent(push.capture());
+            assertThat(push.getValue().userId()).isEqualTo(USER_ID);
+            assertThat(push.getValue().message().type()).isEqualTo(PushType.PAYMENT_FAILED);
         }
 
         @Test

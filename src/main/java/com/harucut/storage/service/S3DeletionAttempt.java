@@ -45,8 +45,19 @@ public class S3DeletionAttempt {
         this.maxAttempts = maxAttempts;
     }
 
-    /** @param previousFailures 지금까지 실패한 횟수(첫 시도면 0) @return 지웠으면 true */
+    /** 커밋 뒤 첫 시도 — 방금 만든 행이라 고른 일정이 없다(재시도 배치는 첫 백오프 전에 이 행을 고르지 않는다) */
     public boolean attempt(String key, int previousFailures) {
+        return attempt(key, previousFailures, null);
+    }
+
+    /**
+     * @param previousFailures 지금까지 실패한 횟수(첫 시도면 0)
+     * @param seenNextAttemptAt 재시도 배치가 행을 고를 때 본 다음 시각 — 행 정리(재무장·삭제·실패 기록)는 그 일정 그대로인 행에만 한다.
+     *                          배치는 잠금 없이 고르고 여러 인스턴스가 돌므로, 다른 인스턴스가 같은 행을 먼저 지우고 재삭제로 재무장했으면
+     *                          (다음 시각이 바뀜) 늦은 쪽은 행을 건드리지 않는다 — 재삭제 예약을 지우거나 백오프로 앞당기지 않게(R5 D09)
+     * @return 지웠으면 true
+     */
+    public boolean attempt(String key, int previousFailures, LocalDateTime seenNextAttemptAt) {
         String keyHash = OpaqueTokens.hash(key);
         try {
             fileStorageService.delete(key);
@@ -54,7 +65,8 @@ public class S3DeletionAttempt {
             int failures = previousFailures + 1;
             LocalDateTime now = LocalDateTime.now(clock);
             String reason = truncate(e.getClass().getSimpleName() + ": " + e.getMessage());
-            update(() -> repository.recordFailure(keyHash, previousFailures, now.plus(backoff(failures)), reason, now));
+            update(() -> repository.recordFailure(keyHash, previousFailures, seenNextAttemptAt, now.plus(backoff(failures)),
+                    reason, now));
             if (failures >= maxAttempts) {
                 log.error("[S3 삭제] 재시도 상한({}회)에 닿아 남겨 둔다 — 고아 객체: {} ({})", maxAttempts, key, reason);
             } else {
@@ -62,7 +74,13 @@ public class S3DeletionAttempt {
             }
             return false;
         }
-        update(() -> repository.deleteByKeyHash(keyHash));
+        // 재삭제가 걸린 key 는 행을 남겨 그 시각에 한 번 더 지운다 — 늦게 도착한 실행이 다시 만든 객체를 치운다(R5 D09)
+        LocalDateTime now = LocalDateTime.now(clock);
+        update(() -> {
+            if (repository.rearmForRedelete(keyHash, seenNextAttemptAt, now) == 0) {
+                repository.deleteIfSchedule(keyHash, seenNextAttemptAt);
+            }
+        });
         return true;
     }
 

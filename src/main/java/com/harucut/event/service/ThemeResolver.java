@@ -117,6 +117,9 @@ public class ThemeResolver {
             if (theme.branding().outputLogo() != null && !OUTPUT_LOGOS.contains(theme.branding().outputLogo())) {
                 violations.add(violation("theme.branding.outputLogo", "NONE · ORGANIZER_LOGO 중 하나여야 한다"));
             }
+            if ("ORGANIZER_LOGO".equals(theme.branding().outputLogo()) && theme.logoAssetId() == null) {
+                violations.add(violation("theme.branding.outputLogo", "완성 이미지에 넣을 로고(theme.logoAssetId)가 없다"));
+            }
             if (Boolean.TRUE.equals(theme.branding().hideHarucutBranding()) && !whiteLabelAllowed) {
                 violations.add(violation("theme.branding.hideHarucutBranding", "이용권 기능 WHITE_LABEL 이 있어야 숨길 수 있다"));
             }

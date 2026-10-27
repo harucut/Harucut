@@ -3,6 +3,8 @@ package com.harucut.media.compose;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.frame.attributes.BackgroundAttributes;
+import com.harucut.frame.cell.PhotoCell;
+import com.harucut.frame.cell.PhotoCells;
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.entity.FrameComponent;
 import com.harucut.frame.layout.FrameLayout;
@@ -23,12 +25,15 @@ public class ComposeSpecAssembler {
         // 검사가 생기기 전에 저장된 프레임(남의 스티커 key 등)이 합성으로 새지 않게 여기서 한 번 더 본다.
         // 시스템 프레임(user=null)은 ROLE_ADMIN 이 신뢰 경계라 검사하지 않는다
         String owner = frame.getUser() == null ? null : frame.getUser().getPublicId();
+        // 자유 사진 칸(ADR-0012)이면 칸 사각형과 칸마다의 회전·모양·순번을 스냅샷에 싣는다
+        List<PhotoCell> cells = frame.getPhotoCells();
         return new ComposeSpec(
                 layout.canvasWidth(), layout.canvasHeight(),
                 composableBackground(frame.getBackground(), backgroundColorOverride, owner),
-                layout.slots(),
+                cells == null ? layout.slots() : PhotoCells.slots(cells),
                 frame.getCellCutouts(),
-                frame.getComponents().stream().map(component -> toLayer(component, owner)).toList());
+                frame.getComponents().stream().map(component -> toLayer(component, owner)).toList(),
+                cells == null ? null : PhotoCells.composeCells(cells));
     }
 
     private BackgroundAttributes composableBackground(

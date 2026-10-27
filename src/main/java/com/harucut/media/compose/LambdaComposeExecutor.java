@@ -51,7 +51,7 @@ public class LambdaComposeExecutor implements ComposeExecutor {
         // 실행기가 자기 판단으로 고르면 그 보장이 사라진다
         String payload = objectMapper.writeValueAsString(new ComposeLambdaPayload(
                 bucket, event.jobId(), event.spec(), event.sourceKeys(),
-                event.resultKey(), event.thumbnailKey(), event.outputFormat()));
+                event.resultKey(), event.thumbnailKey(), event.outputFormat(), event.attemptNo(), event.contract()));
 
         InvokeResponse response = lambdaClient.invoke(InvokeRequest.builder()
                 .functionName(functionName)

@@ -50,4 +50,10 @@ public interface FileStorageService {
      * 객체가 없으면 empty. 권한 오류·일시 장애는 예외로 그대로 올린다 — 모든 HEAD 실패를 "미업로드"로 단정하지 않는다.
      */
     Optional<StoredObject> head(String key);
+
+    /**
+     * 저장된 객체의 SHA-256 체크섬(S3 checksumSHA256, base64) — 업로드 때 S3 가 검증·저장한 값이다(ChecksumMode).
+     * 객체가 없거나 그 체크섬 없이 올라간 객체면 비어 있다
+     */
+    Optional<String> sha256Checksum(String key);
 }

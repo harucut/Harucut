@@ -34,7 +34,7 @@ public class EffectiveSettingsResolver {
 
     // 최상위 경로 — 목록은 통째로
     static final List<String> TOP = List.of("timezone", "byodEnabled", "boothEnabled", "resultRetentionDays",
-            "allowedLayouts", "frames", "consentItems");
+            "allowedLayouts", "frames", "consentItems", "freeText");
     // 테마 하위 경로 — 키마다. "" 를 「기본값·없음」으로 받는 경로(글꼴은 받지 않는다 — 기본은 SYSTEM)
     static final List<String> THEME = List.of("theme.schemaVersion",
             "theme.colors.bg", "theme.colors.card", "theme.colors.text", "theme.colors.muted", "theme.colors.border",
@@ -103,7 +103,7 @@ public class EffectiveSettingsResolver {
 
     // 직접 값·기본값으로 넣고 빼는 키 — 테마는 객체째(그 안에서 빠진 키는 위 단계 값)
     public static final List<String> KEYS = List.of("timezone", "byodEnabled", "boothEnabled", "resultRetentionDays",
-            "allowedLayouts", "frames", "consentItems", "theme");
+            "allowedLayouts", "frames", "consentItems", "theme", "freeText");
 
     /**
      * 머지 패치 — patch 에 있는 키만: null 이면 지워서 위 단계 값을 따르고, 값이면 둔다(테마는 객체째). 검사 후 정규화한 JSON(비면 "{}").
@@ -162,6 +162,9 @@ public class EffectiveSettingsResolver {
         if (days != null && (days < 1 || days > MAX_RETENTION_DAYS)) {
             throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE,
                     "resultRetentionDays 는 1~" + MAX_RETENTION_DAYS + " 이어야 합니다.");
+        }
+        if (settings.freeText() != null) {
+            settings.freeText().validate();
         }
         if (settings.theme() != null && "".equals(settings.theme().font())) {
             throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE,

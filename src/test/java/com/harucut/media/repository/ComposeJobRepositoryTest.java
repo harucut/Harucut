@@ -3,6 +3,7 @@ package com.harucut.media.repository;
 import com.harucut.config.JpaAuditingConfig;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.enums.FrameType;
+import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeSpec;
 import com.harucut.media.converter.ComposeSpecConverter;
 import com.harucut.media.entity.ComposeJob;
@@ -264,6 +265,24 @@ class ComposeJobRepositoryTest {
             assertThat(claim(jobId)).isZero();
         }
 
+        @Test
+        @DisplayName("선점할 때마다 시도 번호가 오르고, 실패는 지금 시도 번호일 때만 반영된다(R5 D09)")
+        void attemptNumbersGuardLateFailures() {
+            Long jobId = persistJob("idem-attempt");
+            assertThat(claim(jobId)).isEqualTo(1);
+            assertThat(composeJobRepository.findAttemptNo(jobId)).isEqualTo(1);
+            startedAt(jobId, NOW.minusMinutes(30));
+            assertThat(claim(jobId)).isEqualTo(1);
+            assertThat(composeJobRepository.findAttemptNo(jobId)).isEqualTo(2);
+
+            // 1차 실행의 늦은 실패 — 2차가 진행 중이라 반영하지 않는다
+            assertThat(composeJobRepository.markFailed(jobId, "늦은 1차", null, 1, ComposeStatus.PENDING, ComposeStatus.FAILED)).isZero();
+            em.clear();
+            assertThat(reload(jobId).getStatus()).isEqualTo(ComposeStatus.PENDING);
+            // 지금 시도의 실패는 반영한다
+            assertThat(composeJobRepository.markFailed(jobId, "2차", null, 2, ComposeStatus.PENDING, ComposeStatus.FAILED)).isEqualTo(1);
+        }
+
         private int claim(Long jobId) {
             int affected = composeJobRepository.claim(jobId, NOW, NOW.minus(STALE_AFTER));
             em.flush();
@@ -402,6 +421,16 @@ class ComposeJobRepositoryTest {
             assertThat(markFailed(jobId, "뒤늦은 실패")).isZero();
             assertThat(reload(jobId).getStatus()).isEqualTo(ComposeStatus.DONE);
             assertThat(reload(jobId).getFailureReason()).isNull();
+        }
+
+        @Test
+        @DisplayName("실패 종류도 같은 조건부 UPDATE 로 남는다(V26)")
+        void failureCodeStored() {
+            Long jobId = persistJob("idem-failure-code");
+            assertThat(composeJobRepository.markFailed(jobId, "원본 없음", ComposeFailureCode.SOURCE_MISSING,
+                    ComposeStatus.PENDING, ComposeStatus.FAILED)).isEqualTo(1);
+            em.clear();
+            assertThat(composeJobRepository.findById(jobId).orElseThrow().getFailureCode()).isEqualTo(ComposeFailureCode.SOURCE_MISSING);
         }
 
         @Test

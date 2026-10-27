@@ -1,6 +1,7 @@
 package com.harucut.media.entity;
 
 import com.harucut.common.entity.BaseEntity;
+import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeSpec;
 import com.harucut.media.converter.ComposeSpecConverter;
 import com.harucut.media.enums.ComposeStatus;
@@ -116,8 +117,28 @@ public class ComposeJob extends BaseEntity {
     @Column(name = "failure_reason")
     private String failureReason;
 
+    // FAILED 일 때 실패 종류 — 화면 문구를 고른다(V26 이전 행은 null)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "failure_code", length = 30)
+    private ComposeFailureCode failureCode;
+
     @Column(name = "started_at")
     private LocalDateTime startedAt;
+
+    // 앱이 이 작업을 실행기에 넘긴 횟수 — claim 마다 +1, payload 에 실려 간다. 실패 통지는 지금 번호와 같을 때만 반영한다(R5 D09)
+    @Column(name = "attempt_no", nullable = false)
+    private int attemptNo;
+
+    // 출력 계약(ComposeOutputContract) — 접수 때 고정, 재시도가 바꾸지 않는다. null = 도입 전 작업(예전 계약)
+    @Column(name = "render_contract")
+    private Integer renderContract;
+
+    // 계약 2 에서 완료를 확정할 때 검증한 결과·썸네일의 SHA-256(base64) — 확정한 한 쌍의 기록
+    @Column(name = "result_sha256", length = 44)
+    private String resultSha256;
+
+    @Column(name = "thumbnail_sha256", length = 44)
+    private String thumbnailSha256;
 
     // 행사 사진함의 삭제 요청 — 목록·ZIP·결과 링크에서 빠진다(ADR-0008 §3)
     @Column(name = "deleted_at")
@@ -192,8 +213,38 @@ public class ComposeJob extends BaseEntity {
     }
 
     // Lambda 페이로드 조립용 — 슬롯 순서 그대로
+    /** 접수 때 출력 계약을 정한다 — 저장 전에 한 번만(accept) */
+    public void fixRenderContract(int contract) {
+        if (this.renderContract != null) {
+            throw new IllegalStateException("출력 계약은 접수 때 한 번만 정한다: " + id);
+        }
+        this.renderContract = contract;
+    }
+
+    public boolean verifiedPairContract() {
+        return renderContract != null && renderContract >= com.harucut.media.compose.ComposeOutputContract.VERIFIED_PAIR;
+    }
+
     public List<String> sourceKeys() {
         return List.of(sourceKey1, sourceKey2, sourceKey3, sourceKey4);
+    }
+
+    /** 이 작업만 쓰는 서버 생성 레이어(참가자 자유 문구 PNG)가 놓이는 폴더 — 작업 저장 위치 아래 */
+    public static final String PRIVATE_TEXT_DIR = "text/";
+
+    /**
+     * 합성이 확정(성공·최종 실패)되면 지울 입력 — 원본 네 장과, 저장 위치 아래 text/ 의 서버 생성 레이어(R5 D06).
+     * 프레임 자산은 저장 위치 밖이라 여기 끼지 않는다(발행본이 계속 쓴다)
+     */
+    public List<String> inputKeys() {
+        List<String> keys = new java.util.ArrayList<>(sourceKeys());
+        if (spec != null && spec.layers() != null && storageRoot != null) {
+            String privateDir = storageRoot + PRIVATE_TEXT_DIR;
+            spec.layers().stream().map(ComposeSpec.Layer::source)
+                    .filter(source -> source != null && source.startsWith(privateDir))
+                    .forEach(keys::add);
+        }
+        return List.copyOf(keys);
     }
 
     // 사진함·묶음·결과 링크에서 더는 보이지 않는가 — 삭제 요청이나 보관 종료

@@ -4,6 +4,7 @@ import com.harucut.asset.entity.Asset;
 import com.harucut.asset.repository.AssetRepository;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.frame.attributes.BackgroundAttributes;
+import com.harucut.frame.cell.PhotoCells;
 import com.harucut.frame.entity.FrameVersion;
 import com.harucut.frame.exception.FrameErrorCode;
 import com.harucut.frame.layout.FrameLayout;
@@ -48,8 +49,12 @@ public class FrameSpecComposer {
         BackgroundAttributes background = spec.background() instanceof BackgroundAttributes.Image image
                 ? image.withKey(image.key(), null).withUrl(null)
                 : spec.background();
+        // 자유 사진 칸(ADR-0012)이면 칸마다의 회전·모양·순번 — slots 는 발행본이 이미 칸 사각형으로 채워 두었다
+        List<ComposeSpec.Cell> cells = spec.layout().cells() == null ? null : spec.layout().cells().stream()
+                .map(cell -> PhotoCells.composeCell(cell.rotation(), cell.shape(), cell.shotIndex()))
+                .toList();
         return new ComposeSpec(spec.canvas().width(), spec.canvas().height(), background, slots,
-                spec.cellCutouts(), layers);
+                spec.cellCutouts(), layers, cells);
     }
 
     private static String requireKey(Map<String, String> keys, String assetId) {

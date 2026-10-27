@@ -49,6 +49,18 @@ public class S3Deleter {
     }
 
     /**
+     * 지금 지우고(커밋 뒤 첫 시도), {@code redeleteAfter} 뒤 한 번 더 지운다 — 고정 key 에 늦게 도착한 실행이 다시 쓸 수 있는 자리
+     * (최종 실패·삭제된 합성 작업의 결과·썸네일, R5 D09). 재삭제까지 예약 행이 남는다
+     */
+    public void deleteAfterCommit(Collection<String> keys, Duration redeleteAfter) {
+        deleteAfterCommit(keys);
+        LocalDateTime redeleteAt = LocalDateTime.now(clock).plus(redeleteAfter);
+        LocalDateTime now = LocalDateTime.now(clock);
+        keys.stream().filter(S3Keys::isManagedKey).distinct()
+                .forEach(key -> deletionRepository.armRedelete(OpaqueTokens.hash(key), redeleteAt, now));
+    }
+
+    /**
      * 업로드를 시작하기 전에 그 key 를 지울 책임을 먼저 남긴다 — 다음 시도는 lease 뒤. 업로드 결과가 DB 에 기록되면 {@link #release},
      * 쓸모없게 됐으면 {@link #deleteHeldAfterCommit}. 그사이 프로세스가 멈추면 lease 가 지나 재시도 배치가 지운다.
      * 업로드 중에 다른 곳이 deleteAfterCommit 으로 같은 key 를 예약해도 이 행이 있어 미리 소모되지 않는다(아직 없는 객체를 지우고 끝나지 않게)

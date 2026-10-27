@@ -3,6 +3,7 @@ package com.harucut.frame.cell;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.frame.layout.FrameLayout;
+import com.harucut.media.compose.ComposeSpec;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -80,6 +81,25 @@ public final class PhotoCells {
             }
             case MASK -> violations.add(violation(field + ".shape", "이미지 마스크는 아직 지원하지 않는다"));
         }
+    }
+
+    /** 합성 스냅샷의 칸 사각형(회전 전) — 칸 순서 그대로 */
+    public static List<FrameLayout.Slot> slots(List<PhotoCell> cells) {
+        return cells.stream().map(cell -> new FrameLayout.Slot(cell.x(), cell.y(), cell.width(), cell.height())).toList();
+    }
+
+    /** 합성 스냅샷의 칸 그리기 정보(ADR-0012 §4) — 검증을 지난 칸이라 MASK 는 오지 않는다 */
+    public static List<ComposeSpec.Cell> composeCells(List<PhotoCell> cells) {
+        return cells.stream().map(cell -> composeCell(cell.rotation(), cell.shape(), cell.shotIndex())).toList();
+    }
+
+    public static ComposeSpec.Cell composeCell(double rotation, PhotoCell.Shape shape, int shotIndex) {
+        ComposeSpec.CellShape type = switch (shape.type()) {
+            case RECT -> ComposeSpec.CellShape.RECT;
+            case ELLIPSE -> ComposeSpec.CellShape.ELLIPSE;
+            case MASK -> throw new IllegalStateException("이미지 마스크 칸은 아직 그릴 수 없다");
+        };
+        return new ComposeSpec.Cell(rotation, type, shape.cornerRadius() == null ? 0 : shape.cornerRadius(), shotIndex);
     }
 
     private static Map<String, String> violation(String field, String reason) {

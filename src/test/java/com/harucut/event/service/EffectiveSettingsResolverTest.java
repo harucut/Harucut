@@ -3,6 +3,7 @@ package com.harucut.event.service;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.event.dto.InheritableSettings;
 import com.harucut.event.dto.PageTheme;
+import java.util.List;
 import com.harucut.event.service.EffectiveSettingsResolver.Source;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -94,5 +95,40 @@ class EffectiveSettingsResolverTest {
                 .isInstanceOf(BusinessException.class);
         assertThatThrownBy(() -> EffectiveSettingsResolver.validate(new InheritableSettings(null, null, null, 0, null, null, null, null)))
                 .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    @DisplayName("자유 문구(R5 D06): 객체째 상속, 행사의 {enabled:false} 가 공간의 켬을 끈다, 형식 오류는 GEN-002")
+    void freeTextInheritance() {
+        String workspace = """
+                {"freeText":{"enabled":true,"box":{"x":0.1,"y":0.85,"width":0.8,"height":0.1},
+                 "styleIds":["pretendard-bold-dark"],"maxLength":12}}""";
+
+        EffectiveSettingsResolver.Effective inherited = resolver.resolve(workspace, null, null);
+        assertThat(inherited.values().freeText().on()).isTrue();
+        assertThat(inherited.values().freeText().maxLengthOrDefault()).isEqualTo(12);
+        assertThat(inherited.values().freeText().maxLinesOrDefault()).isEqualTo(1);
+        assertThat(inherited.sources()).containsEntry("freeText", Source.WORKSPACE);
+
+        EffectiveSettingsResolver.Effective off = resolver.resolve(workspace, null, "{\"freeText\":{\"enabled\":false}}");
+        assertThat(off.values().freeText().on()).isFalse();
+        assertThat(off.sources()).containsEntry("freeText", Source.EVENT);
+
+        for (String bad : List.of(
+                "{\"freeText\":{\"box\":{\"x\":0,\"y\":0,\"width\":1,\"height\":1},\"styleIds\":[\"pretendard-bold-dark\"]}}",
+                "{\"freeText\":{\"enabled\":true,\"styleIds\":[\"pretendard-bold-dark\"]}}",
+                "{\"freeText\":{\"enabled\":true,\"box\":{\"x\":0.5,\"y\":0,\"width\":0.6,\"height\":0.1},\"styleIds\":[\"pretendard-bold-dark\"]}}",
+                "{\"freeText\":{\"enabled\":true,\"box\":{\"x\":0,\"y\":0,\"width\":1,\"height\":0.1},\"styleIds\":[\"comic-sans\"]}}",
+                "{\"freeText\":{\"enabled\":true,\"box\":{\"x\":0,\"y\":0,\"width\":1,\"height\":0.1},\"styleIds\":[]}}",
+                "{\"freeText\":{\"enabled\":true,\"box\":{\"x\":0,\"y\":0,\"width\":1,\"height\":0.1},\"styleIds\":[\"pretendard-bold-dark\"],\"maxLength\":31}}",
+                "{\"freeText\":{\"enabled\":true,\"box\":{\"x\":0,\"y\":0,\"width\":1,\"height\":0.1},\"styleIds\":[\"pretendard-bold-dark\"],\"maxLines\":4}}")) {
+            assertThatThrownBy(() -> resolver.merge(null, JsonMapper.builder().build().readTree(bad), true))
+                    .as(bad)
+                    .isInstanceOf(com.harucut.common.exception.BusinessException.class)
+                    .satisfies(e -> assertThat(((com.harucut.common.exception.BusinessException) e).getErrorCode())
+                            .isEqualTo(com.harucut.common.exception.GlobalErrorCode.INVALID_INPUT_VALUE));
+        }
+        // 끈 정책은 다른 키를 보지 않는다
+        resolver.merge(null, JsonMapper.builder().build().readTree("{\"freeText\":{\"enabled\":false}}"), true);
     }
 }

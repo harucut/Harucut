@@ -6,6 +6,7 @@ import com.harucut.storage.entity.S3Deletion;
 import com.harucut.storage.repository.S3DeletionRepository;
 import com.harucut.storage.service.FileStorageService;
 import com.harucut.storage.service.S3Deleter;
+import com.harucut.storage.service.S3DeletionAttempt;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -46,6 +47,7 @@ class S3DeletionIntegrationTest {
     @Autowired private S3DeletionRetrier retrier;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private S3DeletionAttempt deletionAttempt;
 
     @MockitoBean private FileStorageService fileStorageService;
 
@@ -93,6 +95,56 @@ class S3DeletionIntegrationTest {
             assertThat(row.getAttempts()).isEqualTo(1);
             assertThat(row.getLastError()).contains("S3 장애");
             assertThat(row.getNextAttemptAt()).isCloseTo(LocalDateTime.now().plusMinutes(5), within(Duration.ofMinutes(1)));
+        });
+    }
+
+    @Test
+    @DisplayName("재삭제(R5 D09): 커밋 뒤 지운 key 는 행을 남겨 재삭제 시각을 다음 차례로 옮기고, 그때 다시 지우면 행이 사라진다")
+    void redeleteAfterWindow() {
+        transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(KEY), Duration.ofHours(6)));
+
+        then(fileStorageService).should().delete(KEY);
+        assertThat(repository.findAll()).singleElement().satisfies(row -> {
+            assertThat(row.getRedeleteAt()).isNull();
+            assertThat(row.getAttempts()).isZero();
+            assertThat(row.getNextAttemptAt()).isCloseTo(LocalDateTime.now().plusHours(6), within(Duration.ofMinutes(1)));
+        });
+
+        // 재삭제 시각이 됐다 — 늦게 도착한 실행이 다시 쓴 객체를 지우고 행을 정리한다
+        jdbcTemplate.update("update s3_deletion set next_attempt_at = ?", LocalDateTime.now().minusMinutes(1));
+        retrier.retryDue();
+        then(fileStorageService).should(org.mockito.Mockito.times(2)).delete(KEY);
+        assertThat(repository.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("#45 Codex: 두 인스턴스가 같은 행을 골랐을 때 먼저 지운 쪽이 재무장하면, 늦은 쪽(옛 일정)은 행을 지우지도 앞당기지도 않는다")
+    void staleAttemptKeepsRearmedRow() {
+        LocalDateTime due = LocalDateTime.now().minusMinutes(1).withNano(0);
+        LocalDateTime redeleteAt = LocalDateTime.now().plusHours(6).withNano(0);
+        String keyHash = OpaqueTokens.hash(KEY);
+        transaction.executeWithoutResult(status -> {
+            repository.schedule(KEY, keyHash, due, LocalDateTime.now());
+            repository.armRedelete(keyHash, redeleteAt, LocalDateTime.now());
+        });
+        // 둘 다 같은 행(다음 시각 due)을 골랐다 — A 가 먼저 지우고 재무장
+        assertThat(deletionAttempt.attempt(KEY, 0, due)).isTrue();
+        assertThat(repository.findAll()).singleElement().satisfies(row -> {
+            assertThat(row.getNextAttemptAt()).isEqualTo(redeleteAt);
+            assertThat(row.getRedeleteAt()).isNull();
+        });
+
+        // B 도 지우는 데 성공 — 옛 일정(due)으로 본 행은 이제 없으니 재삭제 예약을 남긴다
+        assertThat(deletionAttempt.attempt(KEY, 0, due)).isTrue();
+        assertThat(repository.findAll()).singleElement()
+                .satisfies(row -> assertThat(row.getNextAttemptAt()).isEqualTo(redeleteAt));
+
+        // B 가 실패해도 재삭제 예약을 백오프(5분)로 앞당기지 않는다
+        willThrow(new IllegalStateException("S3 장애")).given(fileStorageService).delete(KEY);
+        assertThat(deletionAttempt.attempt(KEY, 0, due)).isFalse();
+        assertThat(repository.findAll()).singleElement().satisfies(row -> {
+            assertThat(row.getNextAttemptAt()).isEqualTo(redeleteAt);
+            assertThat(row.getAttempts()).isZero();
         });
     }
 

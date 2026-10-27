@@ -394,6 +394,63 @@ class SecurityFilterChainTest extends SecurityBeansMockSupport {
         }
     }
 
+    /*
+     * 출처 검사 필터가 체인에, 인증보다 앞에 꽂혔는지를 본다. 판정 규칙 자체는 OriginCheckFilterTest 가 본다.
+     */
+    @Nested
+    @DisplayName("쿠키 인증 변경 요청의 출처 검사")
+    class OriginCheck {
+
+        @Test
+        @DisplayName("허용 목록 밖 Origin 의 쿠키 POST 는 403 GEN-022")
+        void foreignOriginRejected() {
+            assertThat(mockMvc.post().uri(PLAIN_URI).cookie(accessCookie(accessToken(activeUser())))
+                    .header(HttpHeaders.ORIGIN, "https://evil.example"))
+                    .hasStatus(HttpStatus.FORBIDDEN)
+                    .bodyJson()
+                    .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("GEN-022"));
+        }
+
+        @Test
+        @DisplayName("허용 목록의 Origin 이면 통과한다")
+        void allowedOriginPasses() {
+            assertThat(mockMvc.post().uri(PLAIN_URI).cookie(accessCookie(accessToken(activeUser())))
+                    .header(HttpHeaders.ORIGIN, "https://harucut.com"))
+                    .hasStatusOk();
+        }
+
+        @Test
+        @DisplayName("만료 토큰이어도 401 보다 출처 거절이 먼저다")
+        void rejectedBeforeAuthentication() {
+            assertThat(mockMvc.post().uri(PLAIN_URI).cookie(accessCookie(expiredAccessToken()))
+                    .header(HttpHeaders.ORIGIN, "https://evil.example"))
+                    .hasStatus(HttpStatus.FORBIDDEN)
+                    .bodyJson()
+                    .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("GEN-022"));
+        }
+
+        @Test
+        @DisplayName("refreshToken 만 실린 재발급도 대상이다")
+        void reissueWithRefreshCookieOnly() {
+            assertThat(mockMvc.post().uri("/api/harucut/reissue").cookie(new Cookie("refreshToken", "r"))
+                    .header(HttpHeaders.ORIGIN, "https://evil.example"))
+                    .hasStatus(HttpStatus.FORBIDDEN)
+                    .bodyJson()
+                    .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("GEN-022"));
+        }
+
+        @Test
+        @DisplayName("소셜 로그인 콜백(form_post)은 다른 출처에서 와도 출처 검사에서 빠진다")
+        void oauthCallbackExempt() throws Exception {
+            MvcTestResult result = mockMvc.post().uri("/login/oauth2/code/google")
+                    .cookie(accessCookie(accessToken(activeUser())))
+                    .header(HttpHeaders.ORIGIN, "https://accounts.google.com")
+                    .exchange();
+
+            assertThat(result.getResponse().getContentAsString()).doesNotContain("GEN-022");
+        }
+    }
+
     private User activeUser() {
         return user(UserStatus.ACTIVE, UserRole.ROLE_USER);
     }

@@ -1,5 +1,6 @@
 package com.harucut.media.repository;
 
+import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.entity.ComposeJob;
 import com.harucut.media.enums.ComposeStatus;
 import com.harucut.participant.enums.ParticipantChannel;
@@ -96,12 +97,16 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
     @Modifying(clearAutomatically = true)
     @Query("""
             UPDATE ComposeJob j
-            SET j.startedAt = :now
+            SET j.startedAt = :now, j.attemptNo = j.attemptNo + 1
             WHERE j.id = :jobId
                 AND j.status = ComposeStatus.PENDING
                 AND (j.startedAt IS NULL OR j.startedAt < :staleBefore)
             """)
     int claim(Long jobId, LocalDateTime now, LocalDateTime staleBefore);
+
+    // claim 을 이긴 같은 트랜잭션에서 — 방금 올린 시도 번호
+    @Query("SELECT j.attemptNo FROM ComposeJob j WHERE j.id = :jobId")
+    int findAttemptNo(Long jobId);
 
     // 완료·실패 전이는 "읽고 PENDING 확인 후 저장"이 아니라 조건부 UPDATE 다. 두 통지가 동시에 와도
     // 행 잠금 뒤 두 번째 UPDATE 는 0행이 되어, 결과·미디어·원본 삭제가 정확히 한 번만 일어난다.
@@ -113,10 +118,16 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
     @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE ComposeJob j
-            SET j.status = :done, j.resultKey = :resultKey
+            SET j.status = :done, j.resultKey = :resultKey, j.resultSha256 = :resultSha256, j.thumbnailSha256 = :thumbnailSha256
             WHERE j.id = :jobId AND j.status = :pending
             """)
-    int markDone(Long jobId, String resultKey, ComposeStatus pending, ComposeStatus done);
+    int markDone(Long jobId, String resultKey, String resultSha256, String thumbnailSha256,
+                 ComposeStatus pending, ComposeStatus done);
+
+    // 체크섬이 없는 예전 계약의 완료
+    default int markDone(Long jobId, String resultKey, ComposeStatus pending, ComposeStatus done) {
+        return markDone(jobId, resultKey, null, null, pending, done);
+    }
 
     @Modifying(flushAutomatically = true)
     @Query("UPDATE ComposeJob j SET j.mediaId = :mediaId WHERE j.id = :jobId")
@@ -125,10 +136,22 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
     @Modifying(flushAutomatically = true)
     @Query("""
             UPDATE ComposeJob j
-            SET j.status = :failed, j.failureReason = :reason
+            SET j.status = :failed, j.failureReason = :reason, j.failureCode = :code
             WHERE j.id = :jobId AND j.status = :pending
+                AND (:attemptNo IS NULL OR j.attemptNo = :attemptNo)
             """)
-    int markFailed(Long jobId, String reason, ComposeStatus pending, ComposeStatus failed);
+    int markFailed(Long jobId, String reason, ComposeFailureCode code, Integer attemptNo,
+                   ComposeStatus pending, ComposeStatus failed);
+
+    // 시도 번호를 대조하지 않는 실패(예전 계약 통지·서버 판정 실패)
+    default int markFailed(Long jobId, String reason, ComposeFailureCode code, ComposeStatus pending, ComposeStatus failed) {
+        return markFailed(jobId, reason, code, null, pending, failed);
+    }
+
+    // 실패 종류가 없던 시절의 호출 — 테스트 픽스처 호환(종류는 비운다)
+    default int markFailed(Long jobId, String reason, ComposeStatus pending, ComposeStatus failed) {
+        return markFailed(jobId, reason, null, null, pending, failed);
+    }
 
     @Query("""
             SELECT j FROM ComposeJob j

@@ -9,8 +9,10 @@ import com.harucut.auth.oauth2.app.RememberingAuthorizationRequestRepository;
 import com.harucut.auth.security.CustomAccessDeniedHandler;
 import com.harucut.auth.security.CustomAuthenticationEntryPoint;
 import com.harucut.auth.security.JwtAuthenticationFilter;
+import com.harucut.auth.security.OriginCheckFilter;
 import com.harucut.auth.service.JwtTokenService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -26,6 +28,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.CorsFilter;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 
@@ -33,6 +37,7 @@ import java.util.List;
 @EnableWebSecurity
 @EnableMethodSecurity
 @RequiredArgsConstructor
+@EnableConfigurationProperties(CorsProperties.class)
 public class SecurityConfig {
 
     private final JwtTokenService jwtTokenService;
@@ -43,11 +48,14 @@ public class SecurityConfig {
     private final CustomOAuth2SuccessHandler oAuth2SuccessHandler;
     private final ClientRegistrationRepository clientRegistrationRepository;
     private final CustomOAuth2FailureHandler oAuth2FailureHandler;
+    private final CorsProperties corsProperties;
+    private final ObjectMapper objectMapper;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 
         http
+                // 스프링 CSRF 토큰 대신 쿠키 인증 변경 요청의 Origin 을 본다(OriginCheckFilter, R5 D07)
                 .csrf(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
@@ -77,6 +85,11 @@ public class SecurityConfig {
                         new JwtAuthenticationFilter(SecurityPaths.publicMatcher(), jwtTokenService, authenticationEntryPoint),
                         UsernamePasswordAuthenticationFilter.class
                 )
+                // CORS·인증보다 먼저 — 다른 출처에서 온 쿠키 요청은 토큰을 읽기 전에 GEN-022 로 거절한다
+                .addFilterBefore(
+                        new OriginCheckFilter(corsProperties.allowedOrigins(), SecurityPaths.originCheckExemptMatcher(), objectMapper),
+                        CorsFilter.class
+                )
 
                 .authorizeHttpRequests(auth -> auth
                         // Prometheus 가 긁어갈 경로. 인증 수단이 없으니 통과시킨다.
@@ -101,12 +114,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
 
-        config.setAllowedOrigins(List.of(
-                "https://harucut.com",
-                "https://www.harucut.com",
-                "http://localhost:5173",
-                "http://localhost:3000"
-        ));
+        config.setAllowedOrigins(corsProperties.allowedOrigins());
 
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));

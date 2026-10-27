@@ -209,7 +209,9 @@ class PhotoBoxIntegrationTest {
 
         assertThat(composeService.completeJob(pending.getId(), "uploads/events/e/results/late.jpg", "uploads/events/e/results/late_thumb.jpg"))
                 .isTrue();
-        then(s3Deleter).should().deleteAfterCommit(List.of("uploads/events/e/results/late.jpg", "uploads/events/e/results/late_thumb.jpg"));
+        // 지금 한 번 + 늦은 실행이 다시 쓸 수 있는 기간 뒤 한 번 더(R5 D09)
+        then(s3Deleter).should().deleteAfterCommit(List.of("uploads/events/e/results/late.jpg", "uploads/events/e/results/late_thumb.jpg"),
+                ComposeService.LATE_WRITE_WINDOW);
     }
 
     @Test

@@ -54,4 +54,13 @@ class FlywayMysqlMigrationTest {
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'compose_job'",
                 Integer.class)).isEqualTo(1);
     }
+
+    @Test
+    @DisplayName("약관 동의는 회원 FK 를 가진다(V27)")
+    void termsAgreementUserForeignKey() {
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT referenced_table_name FROM information_schema.referential_constraints
+                WHERE constraint_schema = DATABASE() AND constraint_name = 'fk_terms_agreement_user'
+                """, String.class)).isEqualTo("users");
+    }
 }

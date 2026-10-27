@@ -15,7 +15,9 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.Shape;
 import java.awt.geom.AffineTransform;
+import java.awt.geom.Ellipse2D;
 import java.awt.geom.Rectangle2D;
+import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -102,7 +104,7 @@ public class FourcutRenderer {
             case BackgroundAttributes.Image image -> {
                 g.setColor(IMAGE_BACKGROUND_BASE);
                 g.fill(whole);
-                BufferedImage bg = crop(decode(requireAsset(assets, image.key())), image.crop());
+                BufferedImage bg = crop(decode(requireAsset(assets, image.key()), ComposeFailureCode.ASSET_UNREADABLE), image.crop());
                 Composite old = g.getComposite();
                 g.setComposite(AlphaComposite.getInstance(
                         AlphaComposite.SRC_OVER, (float) clamp01(image.opacity())));
@@ -119,9 +121,27 @@ public class FourcutRenderer {
         List<FrameLayout.Slot> slots = spec.slots();
         for (int i = 0; i < slots.size(); i++) {
             FrameLayout.Slot slot = slots.get(i);
-            drawCover(g, decode(sourcePhotos.get(i)),
-                    new Rectangle2D.Double(slot.x(), slot.y(), slot.width(), slot.height()));
+            Rectangle2D rect = new Rectangle2D.Double(slot.x(), slot.y(), slot.width(), slot.height());
+            if (spec.cells() == null) {
+                drawCover(g, decode(sourcePhotos.get(i), ComposeFailureCode.SOURCE_UNREADABLE), rect);
+                continue;
+            }
+            // 자유 사진 칸(ADR-0012): 칸 중심 기준으로 회전한 좌표계에서, 모양으로 자른 칸에 그 칸의 순번 원본을 cover 로
+            ComposeSpec.Cell cell = spec.cells().get(i);
+            AffineTransform oldTransform = g.getTransform();
+            g.rotate(Math.toRadians(cell.rotation()), rect.getCenterX(), rect.getCenterY());
+            drawCover(g, decode(sourcePhotos.get(cell.shotIndex()), ComposeFailureCode.SOURCE_UNREADABLE), rect, cellShape(cell, rect));
+            g.setTransform(oldTransform);
         }
+    }
+
+    private static Shape cellShape(ComposeSpec.Cell cell, Rectangle2D rect) {
+        return switch (cell.shape()) {
+            case ELLIPSE -> new Ellipse2D.Double(rect.getX(), rect.getY(), rect.getWidth(), rect.getHeight());
+            // 반지름 r 인 둥근 모서리 — RoundRectangle2D 는 호의 지름을 받는다
+            case RECT -> cell.cornerRadius() <= 0 ? rect : new RoundRectangle2D.Double(rect.getX(), rect.getY(),
+                    rect.getWidth(), rect.getHeight(), cell.cornerRadius() * 2.0, cell.cornerRadius() * 2.0);
+        };
     }
 
     // ── 그리기 순서 3: 레이어(스티커·구운 텍스트)를 zIndex 오름차순으로 ──────────────────────
@@ -132,7 +152,7 @@ public class FourcutRenderer {
                 .toList();
 
         for (ComposeSpec.Layer layer : ordered) {
-            BufferedImage image = decode(requireAsset(assets, layer.source()));
+            BufferedImage image = decode(requireAsset(assets, layer.source()), ComposeFailureCode.ASSET_UNREADABLE);
             AffineTransform oldTransform = g.getTransform();
             Composite oldComposite = g.getComposite();
 
@@ -161,8 +181,13 @@ public class FourcutRenderer {
 
     // cover: 비율 유지 + 가운데 정렬 + 넘치는 부분은 사각형 밖으로 못 나가게 클리핑
     private void drawCover(Graphics2D g, BufferedImage image, Rectangle2D rect) {
+        drawCover(g, image, rect, rect);
+    }
+
+    // rect 를 덮도록 맞추고 clip 모양으로 자른다(사각 칸은 clip == rect)
+    private void drawCover(Graphics2D g, BufferedImage image, Rectangle2D rect, Shape clip) {
         Shape oldClip = g.getClip();
-        g.clip(rect);
+        g.clip(clip);
         double scale = Math.max(rect.getWidth() / image.getWidth(),
                 rect.getHeight() / image.getHeight());
         double drawWidth = image.getWidth() * scale;
@@ -222,22 +247,23 @@ public class FourcutRenderer {
         return new Color(Integer.parseInt(hex, 16));
     }
 
-    private static BufferedImage decode(byte[] bytes) {
+    // 읽지 못하면 무엇을 읽다 실패했는지(원본·자산) 종류를 달아 던진다 — 화면 문구가 갈린다
+    private static BufferedImage decode(byte[] bytes, ComposeFailureCode unreadable) {
         try {
             BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
             if (image == null) {
-                throw new IllegalArgumentException("이미지 형식을 인식할 수 없다");
+                throw new ComposeFailureException(unreadable, "이미지 형식을 인식할 수 없다");
             }
             return image;
         } catch (IOException e) {
-            throw new IllegalArgumentException("이미지 바이트를 읽을 수 없다", e);
+            throw new ComposeFailureException(unreadable, "이미지 바이트를 읽을 수 없다", e);
         }
     }
 
     private static byte[] requireAsset(Map<String, byte[]> assets, String source) {
         byte[] bytes = assets.get(source);
         if (bytes == null) {
-            throw new IllegalArgumentException("스펙이 참조하는 이미지가 없다: " + source);
+            throw new ComposeFailureException(ComposeFailureCode.ASSET_MISSING, "스펙이 참조하는 이미지가 없다: " + source);
         }
         return bytes;
     }

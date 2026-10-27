@@ -275,6 +275,10 @@
   "status" : 403,
   "message" : "Access denied."
 }, {
+  "code" : "GEN-022",
+  "status" : 403,
+  "message" : "Request origin is not allowed."
+}, {
   "code" : "GEN-031",
   "status" : 404,
   "message" : "Resource not found."
@@ -342,6 +346,14 @@
   "code" : "PART-006",
   "status" : 403,
   "message" : "This action is not allowed for a booth session."
+}, {
+  "code" : "PART-007",
+  "status" : 403,
+  "message" : "Free text is not offered for this event."
+}, {
+  "code" : "PART-008",
+  "status" : 400,
+  "message" : "The free text cannot be used."
 }, {
   "code" : "PAY-001",
   "status" : 502,

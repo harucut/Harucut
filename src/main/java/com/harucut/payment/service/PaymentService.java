@@ -15,6 +15,7 @@ import com.harucut.subscription.config.PlanPricingProperties;
 import com.harucut.subscription.dto.SubscriptionResponse;
 import com.harucut.subscription.entity.UserSubscription;
 import com.harucut.subscription.enums.PlanTier;
+import com.harucut.subscription.enums.SubscriptionSource;
 import com.harucut.subscription.exception.SubscriptionErrorCode;
 import com.harucut.subscription.repository.UserSubscriptionRepository;
 import com.harucut.user.entity.User;
@@ -26,6 +27,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
@@ -52,7 +54,7 @@ public class PaymentService {
         Optional<PaymentOrder> existingOrder = paymentOrderRepository.findByIdempotencyKey(request.idempotencyKey());
 
         if (existingOrder.isPresent()) {
-            return replay(existingOrder.get(), user.getId(), request);
+            return replay(existingOrder.get(), user.getId(), publicId, request);
         }
 
         requireNotSubscribed(user.getId());
@@ -91,20 +93,25 @@ public class PaymentService {
             throw new BusinessException(PaymentErrorCode.PAYMENT_FAILED);
         }
 
-        return toResponse(applied.subscription());
+        return toResponse(applied.subscription(), publicId);
     }
 
     private void requireNotSubscribed(Long userId) {
         LocalDateTime now = LocalDateTime.now(clock);
         userSubscriptionRepository.findByUserId(userId)
-                .map(subscription -> subscription.effectiveTier(now))
-                .filter(tier -> tier != PlanTier.BASIC)
-                .ifPresent(tier -> {
+                .filter(subscription -> subscription.effectiveTier(now) != PlanTier.BASIC)
+                .ifPresent(subscription -> {
+                    // 스토어로 구독 중이면 어디서 관리하는지 알린다(SUBS-009), 웹·쿠폰은 지금처럼 PAY-003
+                    SubscriptionSource source = subscription.getSource();
+                    if (source == SubscriptionSource.APP_STORE || source == SubscriptionSource.PLAY_STORE) {
+                        throw new BusinessException(SubscriptionErrorCode.SUBSCRIBED_ELSEWHERE, "스토어로 구독 중입니다.",
+                                Map.of("source", source));
+                    }
                     throw new BusinessException(PaymentErrorCode.ALREADY_SUBSCRIBED);
                 });
     }
 
-    private SubscriptionResponse replay(PaymentOrder order, Long userId, SubscribeRequest request) {
+    private SubscriptionResponse replay(PaymentOrder order, Long userId, String publicId, SubscribeRequest request) {
         if (!order.getUserId().equals(userId) || order.getTargetTier() != request.planTier()) {
             log.warn("[payment] 멱등 키 재사용 오류. userId={}, orderId={}", userId, order.getId());
             throw new BusinessException(PaymentErrorCode.DUPLICATE_PAYMENT);
@@ -112,7 +119,7 @@ public class PaymentService {
 
         return switch (order.getStatus()) {
             case PAID -> userSubscriptionRepository.findByUserId(userId)
-                    .map(this::toResponse)
+                    .map(subscription -> toResponse(subscription, publicId))
                     .orElseThrow(() -> new BusinessException(SubscriptionErrorCode.NO_ACTIVE_SUBSCRIPTION));
             case FAILED -> throw new BusinessException(PaymentErrorCode.PAYMENT_FAILED);
             // IN_PROGRESS는 갱신 배치 전용 도장이라 INITIAL 주문에선 안 나오지만,
@@ -121,7 +128,7 @@ public class PaymentService {
         };
     }
 
-    private SubscriptionResponse toResponse(UserSubscription subscription) {
-        return SubscriptionResponse.of(subscription, subscription.effectiveTier(LocalDateTime.now(clock)));
+    private SubscriptionResponse toResponse(UserSubscription subscription, String publicId) {
+        return SubscriptionResponse.of(subscription, subscription.effectiveTier(LocalDateTime.now(clock)), publicId);
     }
 }

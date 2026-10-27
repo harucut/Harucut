@@ -40,6 +40,9 @@ public final class SecurityPaths {
             "/api/oauth2/unlink/naver",
             "/api/terms",
             "/api/payments/webhook",
+            // 스토어 알림 — 애플은 JWS 서명, 구글은 푸시 URL 토큰으로 확인한다(ADR-0011 §2)
+            "/api/payments/webhooks/app-store",
+            "/api/payments/webhooks/google-play",
             "/api/public/inquiries",
             "/swagger-ui/**",
             "/swagger-ui.html",

@@ -142,7 +142,7 @@ public class OpenApiConfig {
                 .group("1-user")
                 .displayName("사용자 API")
                 .pathsToMatch("/api/**")
-                .pathsToExclude("/api/admin/**", "/api/payments/webhook", "/api/oauth2/unlink/**")
+                .pathsToExclude("/api/admin/**", "/api/payments/webhook", "/api/payments/webhooks/**", "/api/oauth2/unlink/**")
                 .build();
     }
 
@@ -160,7 +160,7 @@ public class OpenApiConfig {
         return GroupedOpenApi.builder()
                 .group("3-webhook")
                 .displayName("웹훅 (외부 시스템이 호출)")
-                .pathsToMatch("/api/payments/webhook", "/api/oauth2/unlink/**")
+                .pathsToMatch("/api/payments/webhook", "/api/payments/webhooks/**", "/api/oauth2/unlink/**")
                 .build();
     }
 

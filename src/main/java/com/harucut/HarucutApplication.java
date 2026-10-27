@@ -10,6 +10,7 @@ import com.harucut.payment.config.PaymentProperties;
 import com.harucut.storage.config.AwsProperties;
 import com.harucut.storage.config.StorageProperties;
 import com.harucut.subscription.config.PlanPricingProperties;
+import com.harucut.subscription.store.config.StoreProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -23,6 +24,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
         FrameDraftProperties.class,
         ParticipationProperties.class,
         PlanPricingProperties.class,
+        StoreProperties.class,
         PaymentProperties.class,
         KakaoAuthProperties.class
 })

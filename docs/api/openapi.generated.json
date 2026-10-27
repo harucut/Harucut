@@ -6642,6 +6642,66 @@
         },
         "type" : "object"
       },
+      "StorePurchaseRequest" : {
+        "description" : "스토어 구매 등록 — 앱이 스토어 결제를 마친 직후 보낸다",
+        "properties" : {
+          "platform" : {
+            "enum" : [ "APP_STORE", "PLAY_STORE" ],
+            "type" : "string"
+          },
+          "productId" : {
+            "description" : "스토어 상품 id",
+            "example" : "harucut.plus.monthly",
+            "maxLength" : 150,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "proof" : {
+            "description" : "구매 증빙 — `APP_STORE`: StoreKit 2 의 `Transaction.jwsRepresentation`(서명된 거래 JWS),\n`PLAY_STORE`: `purchaseToken`",
+            "maxLength" : 20000,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "platform", "productId", "proof" ],
+        "type" : "object"
+      },
+      "StoreRestoreItem" : {
+        "properties" : {
+          "productId" : {
+            "maxLength" : 150,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "proof" : {
+            "description" : "구매 등록과 같은 증빙",
+            "maxLength" : 20000,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "productId", "proof" ],
+        "type" : "object"
+      },
+      "StoreRestoreRequest" : {
+        "description" : "구매 복원 — 스토어가 돌려준 이 기기 계정의 구독 구매 전부(최대 20건)",
+        "properties" : {
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/StoreRestoreItem"
+            },
+            "maxItems" : 20,
+            "minItems" : 0,
+            "type" : "array"
+          },
+          "platform" : {
+            "enum" : [ "APP_STORE", "PLAY_STORE" ],
+            "type" : "string"
+          }
+        },
+        "required" : [ "items", "platform" ],
+        "type" : "object"
+      },
       "SubscribeRequest" : {
         "description" : "구독 결제 요청",
         "properties" : {
@@ -6735,10 +6795,21 @@
             "example" : "PLUS",
             "type" : "string"
           },
+          "source" : {
+            "description" : "유료 등급의 출처 — 어디서 관리(해지)하는지 안내할 때 쓴다. **BASIC·만료면 키 자체가 없다.**\n`WEB` 웹 정기결제(해지 API) · `APP_STORE` 앱스토어 · `PLAY_STORE` 구글 플레이(각 스토어 구독 관리에서 해지 — 해지 API 는 `SUBS-009`) ·\n`COUPON` 쿠폰 무료 부여",
+            "enum" : [ "WEB", "APP_STORE", "PLAY_STORE", "COUPON" ],
+            "example" : "WEB",
+            "type" : "string"
+          },
           "status" : {
             "description" : "구독의 진행 상태. `planTier` 와 달리 **DB 원본**이라 둘이 어긋나 보일 수 있다.\n\n`ACTIVE` 정상 구독 중 ·\n`CANCELED` 자동갱신 해지 예약(주기 끝까지는 유료) ·\n`PAST_DUE` 정기결제 실패 ·\n`EXPIRED` 만료되어 BASIC 으로 강등됨 ·\n`GRANTED` 쿠폰으로 받은 무료 구독",
             "enum" : [ "ACTIVE", "CANCELED", "PAST_DUE", "EXPIRED", "GRANTED" ],
             "example" : "ACTIVE",
+            "type" : "string"
+          },
+          "storeAccountToken" : {
+            "description" : "스토어 구매를 이 계정에 묶는 표시(UUID). 앱이 구매할 때 애플 `appAccountToken`·구글 `obfuscatedAccountId` 로 실어 보낸다 —\n다른 계정의 표시가 실린 구매는 `SUBS-008` 로 거절된다. 계정마다 고정이다.",
+            "example" : "4a1d6f0e-2b3c-3d4e-9f00-112233445566",
             "type" : "string"
           }
         },
@@ -17902,6 +17973,308 @@
         "tags" : [ "구독" ]
       }
     },
+    "/api/auth/subscriptions/store-purchases" : {
+      "post" : {
+        "description" : "앱이 스토어 결제를 마친 직후 부른다. 서버가 스토어 증빙을 확인해 이 계정에 묶고 구독을 그 구매로 맞춘 뒤 **내 구독**을 돌려준다.\n구매할 때 `storeAccountToken`(내 구독 응답)을 애플 `appAccountToken`·구글 `obfuscatedAccountId` 로 실어 보내야 한다.\n\n이후 갱신·자동갱신 끔·결제 재시도·만료·환불은 스토어 알림이 반영한다. 같은 구매를 다시 보내도 된다(최신 상태로 맞춘다).\n",
+        "operationId" : "purchase",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/StorePurchaseRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseSubscriptionResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  },
+                  "SUBS-007" : {
+                    "summary" : "SUBS-007 — 증빙을 확인하지 못함(서명·번들·상품 불일치, 만료·환불된 구매)",
+                    "value" : {
+                      "code" : "SUBS-007",
+                      "message" : "The store purchase could not be verified.",
+                      "status" : 400
+                    }
+                  },
+                  "SUBS-010" : {
+                    "summary" : "SUBS-010 — 모르는 상품",
+                    "value" : {
+                      "code" : "SUBS-010",
+                      "message" : "Unknown store product.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `SUBS-007` — 증빙을 확인하지 못함(서명·번들·상품 불일치, 만료·환불된 구매) _(The store purchase could not be verified.)_\n- `SUBS-010` — 모르는 상품 _(Unknown store product.)_\n- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "SUBS-008" : {
+                    "summary" : "SUBS-008 — 다른 계정에 묶인 구매(또는 다른 계정 표시가 실린 구매)",
+                    "value" : {
+                      "code" : "SUBS-008",
+                      "message" : "The store purchase belongs to another account.",
+                      "status" : 409
+                    }
+                  },
+                  "SUBS-009" : {
+                    "summary" : "SUBS-009 — 웹·다른 스토어로 이미 구독 중 — data.source 가 그 출처(WEB·APP_STORE·PLAY_STORE)",
+                    "value" : {
+                      "code" : "SUBS-009",
+                      "message" : "Already subscribed through another payment source.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `SUBS-008` — 다른 계정에 묶인 구매(또는 다른 계정 표시가 실린 구매) _(The store purchase belongs to another account.)_\n- `SUBS-009` — 웹·다른 스토어로 이미 구독 중 — data.source 가 그 출처(WEB·APP_STORE·PLAY_STORE) _(Already subscribed through another payment source.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "스토어 구매 등록",
+        "tags" : [ "구독" ]
+      }
+    },
+    "/api/auth/subscriptions/store-purchases/restore" : {
+      "post" : {
+        "description" : "스토어가 돌려준 이 기기 계정의 구독 구매를 보낸다. 확인되고 아직 유효한 구매를 이 계정에 묶고, 그중 가장 늦게 끝나는 것으로\n구독을 맞춘 뒤 **내 구독**을 돌려준다. 확인 실패·만료·모르는 상품은 건너뛴다.\n\n- 복원할 것이 없으면 200 으로 지금 구독을 그대로 돌려준다(`planTier` 로 판단).\n- 유효한 구매가 모두 다른 계정 것이면 `SUBS-008` — 조용히 옮기지 않는다.\n",
+        "operationId" : "restore",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/StoreRestoreRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseSubscriptionResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-003` — 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "SUBS-008" : {
+                    "summary" : "SUBS-008 — 유효한 구매가 모두 다른 계정 것",
+                    "value" : {
+                      "code" : "SUBS-008",
+                      "message" : "The store purchase belongs to another account.",
+                      "status" : 409
+                    }
+                  },
+                  "SUBS-009" : {
+                    "summary" : "SUBS-009 — 웹·다른 스토어로 이미 구독 중 — data.source",
+                    "value" : {
+                      "code" : "SUBS-009",
+                      "message" : "Already subscribed through another payment source.",
+                      "status" : 409
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `SUBS-008` — 유효한 구매가 모두 다른 계정 것 _(The store purchase belongs to another account.)_\n- `SUBS-009` — 웹·다른 스토어로 이미 구독 중 — data.source _(Already subscribed through another payment source.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "스토어 구매 복원",
+        "tags" : [ "구독" ]
+      }
+    },
     "/api/auth/terms/consents" : {
       "post" : {
         "description" : "⚠️ **요청 본문의 최상위가 배열이다.** 객체로 감싸 보내면 `GEN-006` 이다.\n\n```json\n[ { \"code\": \"tos\", \"agreed\": true }, { \"code\": \"marketing\", \"agreed\": false } ]\n```\n\n**전부 아니면 전무다.** 세 번째 항목에서 실패하면 앞의 두 개도 저장되지 않는다.\n부분 성공이 없으므로, 실패하면 사용자가 고른 값을 그대로 두고 다시 보내면 된다.\n\n**필수 약관은 철회할 수 없다**(`TERMS-003`). 정책상 탈퇴로만 가능하므로\n프론트가 탈퇴 안내로 연결해야 한다 — 서버는 그 안내를 주지 않는다.\n\n항목 검증에 실패하면 `GEN-002` 다. **어느 항목이 왜 틀렸는지는 알려주지 않는다** —\n본문이 배열이라 필드 경로를 담는 `GEN-003` 형식을 쓸 수 없다. 보내기 전에 프론트가 검증할 것.\n",
@@ -27268,6 +27641,114 @@
           }
         },
         "summary" : "결제 웹훅",
+        "tags" : [ "결제 웹훅" ]
+      }
+    },
+    "/api/payments/webhooks/app-store" : {
+      "post" : {
+        "description" : "**애플이 호출한다. 프론트가 부를 API 가 아니다.** 본문 `{ \"signedPayload\": \"<JWS>\" }` — 서명(x5c → Apple 루트)을 확인하고\n같은 notificationUUID 는 한 번만 처리한다. 등록되지 않은 구매의 알림은 건너뛴다(앱의 등록·복원이 반영한다).\n",
+        "operationId" : "appStore",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "type" : "string"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PAY-008" : {
+                    "summary" : "PAY-008 — 서명 검증 실패",
+                    "value" : {
+                      "code" : "PAY-008",
+                      "message" : "Invalid webhook signature.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PAY-008` — 서명 검증 실패 _(Invalid webhook signature.)_"
+          }
+        },
+        "summary" : "App Store 서버 알림 v2",
+        "tags" : [ "결제 웹훅" ]
+      }
+    },
+    "/api/payments/webhooks/google-play" : {
+      "post" : {
+        "description" : "**Pub/Sub 푸시가 호출한다. 프론트가 부를 API 가 아니다.** 푸시 URL 의 `token` 이 `billing.store.google.push-token` 과 같아야 한다.\n알림은 「다시 조회하라」는 신호일 뿐이고 상태는 Play Developer API 로 다시 읽는다(실연동 미확인).\n",
+        "operationId" : "googlePlay",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "token",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "type" : "string"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PAY-008" : {
+                    "summary" : "PAY-008 — 푸시 토큰 불일치",
+                    "value" : {
+                      "code" : "PAY-008",
+                      "message" : "Invalid webhook signature.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PAY-008` — 푸시 토큰 불일치 _(Invalid webhook signature.)_"
+          }
+        },
+        "summary" : "Google Play 실시간 개발자 알림(RTDN)",
         "tags" : [ "결제 웹훅" ]
       }
     },

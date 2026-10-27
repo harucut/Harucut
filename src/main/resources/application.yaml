@@ -117,6 +117,25 @@ mail:
 frontend:
   url: ${FRONTEND_URL:http://localhost:5173}
 
+billing:
+  store:
+    # mock(로컬·테스트) · real(애플 JWS 서명 검증 + 구글 Play API — 실연동 미확인). 운영에서 mock 은 STORE_MOCK_ALLOWED 없이는 기동하지 않는다
+    verifier: ${STORE_VERIFIER:mock}
+    mock:
+      allowed-outside-local: ${STORE_MOCK_ALLOWED:false}
+    # 스토어 상품 id → 등급 (App Store Connect·Play Console 의 상품 id 와 같아야 한다 — 실연동 미확인)
+    products:
+      "[harucut.plus.monthly]": PLUS
+      "[harucut.pro.monthly]": PRO
+    apple:
+      bundle-id: ${APPLE_BUNDLE_ID:com.harucut.app}
+      # Apple Root CA - G3 PEM. 비어 있으면 실검증이 전부 실패한다
+      root-certificates: ${APPLE_ROOT_CERTIFICATES:}
+      allow-sandbox: ${APPLE_ALLOW_SANDBOX:true}
+    google:
+      package-name: ${GOOGLE_PACKAGE_NAME:com.harucut.app}
+      push-token: ${GOOGLE_RTDN_PUSH_TOKEN:}
+
 app:
   oauth2:
     # 앱 로그인(시스템 브라우저)이 끝나면 돌아갈 앱 스킴 — 셸의 app.json scheme. 이 한 곳으로만 돌려보낸다(열린 redirect 없음)

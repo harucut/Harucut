@@ -19,6 +19,7 @@ import com.harucut.payment.repository.PaymentOrderRepository;
 import com.harucut.payment.repository.PaymentRepository;
 import com.harucut.subscription.entity.UserSubscription;
 import com.harucut.subscription.enums.PlanTier;
+import com.harucut.subscription.enums.SubscriptionSource;
 import com.harucut.subscription.enums.SubscriptionStatus;
 import com.harucut.subscription.repository.UserSubscriptionRepository;
 import com.harucut.support.UserFixtures;
@@ -143,6 +144,25 @@ class SubscriptionRenewalJobTest {
                 .getCurrentPeriodEnd()).isEqualTo(base.plusDays(5));
         assertThat(userSubscriptionRepository.findByUserId(canceled.getId()).orElseThrow()
                 .getSubscriptionStatus()).isEqualTo(SubscriptionStatus.CANCELED);
+    }
+
+    @Test
+    @DisplayName("스토어 구독은 청구하지 않는다 — 기한이 지나도 주문도 PAST_DUE 도 없다(스토어가 갱신한다, ADR-0011 §2)")
+    void skipsStoreSubscriptions() throws Exception {
+        LocalDate runDate = LocalDate.of(2033, 7, 7);
+        LocalDateTime base = runDate.atStartOfDay();
+        User store = saveUser("renewal-store@harucut.com");
+        UserSubscription subscription = UserSubscription.createBasic(store.getId());
+        subscription.activateStore(SubscriptionSource.APP_STORE, PlanTier.PLUS, SubscriptionStatus.ACTIVE,
+                base.minusMonths(1), base.minusDays(1), true);
+        userSubscriptionRepository.save(subscription);
+
+        JobExecution execution = jobOperator.start(subscriptionRenewalJob, params(runDate));
+
+        assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED);
+        assertThat(paymentOrderRepository.findAll()).isEmpty();
+        assertThat(userSubscriptionRepository.findByUserId(store.getId()).orElseThrow().getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.ACTIVE);
     }
 
     // 유예 3일 동안 매일 재청구한다는 설계 결정을 고정하는 테스트

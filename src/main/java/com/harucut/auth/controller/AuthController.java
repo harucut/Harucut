@@ -68,7 +68,6 @@ public class AuthController {
             "AUTH-001: 비밀번호가 틀림",
             "AUTH-020: 그 이메일로 가입된 계정이 없음 (소셜로 가입한 계정은 여기서 안 찾힌다)",
             "AUTH-010: 그 밖의 인증 실패",
-            "AUTH-042: 정지된 계정(비밀번호가 맞을 때만)",
             "GEN-061: 같은 IP(분당 60) 또는 같은 이메일(분당 10)의 로그인 시도가 너무 많음"
     })
     @PostMapping("/login")
@@ -99,8 +98,7 @@ public class AuthController {
                     코드는 60초·1회용이고 검증값이 틀려도 소모된다.
                     """)
     @ApiErrors({
-            "AUTH-041: 코드가 없거나 만료·사용됐거나 PKCE 검증값이 맞지 않음",
-            "AUTH-042: 정지된 계정"
+            "AUTH-041: 코드가 없거나 만료·사용됐거나 PKCE 검증값이 맞지 않음"
     })
     @PostMapping("/oauth2/exchange")
     public ResponseEntity<Response<LoginResponse>> exchange(@Valid @RequestBody AppLoginExchangeRequest request) {

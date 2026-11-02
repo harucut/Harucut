@@ -106,17 +106,36 @@ class UserExitServiceTest {
         }
 
         @Test
-        @DisplayName("정지 계정은 탈퇴 요청으로 정지를 벗어나지 못한다 — 살아 있는 access 토큰이어도 AUTH-042")
-        void blockedCannotRequestExit() {
+        @DisplayName("정지 계정도 탈퇴를 요청할 수 있고, 복구하면 ACTIVE 가 아니라 BLOCKED 로 돌아간다(정지 회피 방지)")
+        void blockedCanRequestExitAndReturnsToBlocked() {
             User user = givenActiveUserLocked();
-            user.block();
+            user.block(NOW);
 
-            org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.requestExit(PUBLIC_ID))
-                    .isInstanceOf(com.harucut.common.exception.BusinessException.class)
-                    .extracting("errorCode").isEqualTo(com.harucut.auth.exception.AuthErrorCode.ACCOUNT_BLOCKED);
+            service.requestExit(PUBLIC_ID);
+
+            assertThat(user.getUserStatus()).isEqualTo(UserStatus.DELETED_REQUESTED);
+            assertThat(user.getDeleteRequestedAt()).isEqualTo(NOW);
+            then(refreshTokenService).should().revokeAll(PUBLIC_ID);
+
+            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
+            service.reActivate(PUBLIC_ID);
 
             assertThat(user.getUserStatus()).isEqualTo(UserStatus.BLOCKED);
-            then(refreshTokenService).shouldHaveNoInteractions();
+            assertThat(user.getDeleteRequestedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("정지했다가 해제한 계정은 복구하면 ACTIVE 다")
+        void unblockedReturnsToActive() {
+            User user = givenActiveUserLocked();
+            user.block(NOW);
+            user.unblock();
+
+            service.requestExit(PUBLIC_ID);
+            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
+            service.reActivate(PUBLIC_ID);
+
+            assertThat(user.getUserStatus()).isEqualTo(UserStatus.ACTIVE);
         }
 
         @Test

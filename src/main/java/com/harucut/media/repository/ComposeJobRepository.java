@@ -106,14 +106,6 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
             """)
     List<Object[]> countCompletedByEventIds(Collection<Long> eventIds, LocalDateTime now);
 
-    // 사진 범위가 있는 수신자의 사진 수 — 이 시각 이후 것만
-    @Query("""
-            SELECT COUNT(j) FROM ComposeJob j
-            WHERE j.eventId = :eventId AND j.status = ComposeStatus.DONE AND j.deletedAt IS NULL AND j.purgedAt IS NULL
-                AND (j.retainUntil IS NULL OR j.retainUntil > :now) AND j.createdAt >= :from
-            """)
-    long countCompletedSince(Long eventId, LocalDateTime from, LocalDateTime now);
-
     // spec_json 은 변환기 칸이라 JPQL 로 LIKE 를 걸 수 없다 — 네이티브. PENDING 은 적어 스캔이 짧다. '_' 는 넓게 걸릴 뿐(지우지 않는 쪽)이다
     @Query(value = "select count(*) from compose_job where status = 'PENDING' and spec_json like :pattern", nativeQuery = true)
     long countPendingWithSpecLike(@Param("pattern") String pattern);

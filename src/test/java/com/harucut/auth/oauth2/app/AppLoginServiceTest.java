@@ -26,7 +26,6 @@ import static com.harucut.auth.oauth2.app.AppLoginFixtures.CHALLENGE;
 import static com.harucut.auth.oauth2.app.AppLoginFixtures.VERIFIER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
@@ -69,14 +68,18 @@ class AppLoginServiceTest {
     }
 
     @Test
-    @DisplayName("코드를 받은 뒤 정지됐으면 AUTH-042 — 토큰도 세션도 만들지 않는다")
+    @DisplayName("코드를 받은 뒤 정지됐어도 교환은 된다 — 상태는 BLOCKED, 지금 값이 토큰에 실린다")
     void exchangeBlocked() {
         given(values.getAndDelete(startsWith("oauth2:app:code:"))).willReturn(user.getPublicId() + " " + CHALLENGE);
-        user.block();
+        user.block(java.time.LocalDateTime.now());
+        given(jwtTokenService.createAccessToken(user.getPublicId(), UserRole.ROLE_USER, UserStatus.BLOCKED))
+                .willReturn(new IssuedToken("blocked-access", Duration.ofMinutes(30)));
 
-        assertThatThrownBy(() -> service.exchange("code", VERIFIER))
-                .isInstanceOf(BusinessException.class).extracting("errorCode").isEqualTo(AuthErrorCode.ACCOUNT_BLOCKED);
-        then(refreshTokenService).should(never()).save(anyString(), any());
+        LoginResult result = service.exchange("code", VERIFIER);
+
+        assertThat(result.userStatus()).isEqualTo(UserStatus.BLOCKED);
+        assertThat(result.accessTokenCookie().getValue()).isEqualTo("blocked-access");
+        assertThat(result.refreshTokenCookie().getValue()).isEqualTo("refresh");
     }
 
     @Test

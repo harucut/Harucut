@@ -4,10 +4,12 @@ import com.harucut.audit.repository.AuditLogRepository;
 import com.harucut.auth.cookie.CookieManager;
 import com.harucut.auth.service.JwtTokenService;
 import com.harucut.auth.service.RefreshTokenRepository;
+import com.harucut.storage.service.FileStorageService;
 import com.harucut.user.entity.User;
 import com.harucut.user.enums.UserRole;
 import com.harucut.user.enums.UserStatus;
 import com.harucut.user.repository.UserRepository;
+import com.harucut.workspace.service.WorkspaceService;
 import jakarta.persistence.EntityManager;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -25,12 +28,14 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
 
 /*
- * 계정 정지(A17, R5 L399·L636) — 실제 보안 체인·인터셉터로. 토큰은 정지 전에 발급한 그대로 쓴다: 관리·사진 경로만 바로 막히고,
- * 일반 API 는 access 만료까지 남는다. Redis 는 테스트에 없어 세션 저장소만 목으로 둔다.
+ * 계정 정지(A17, R5 L399·L636) — 실제 보안 체인·인터셉터로. 정지 계정은 다시 로그인할 수 있지만 마이페이지와 탈퇴만 되고, 그 밖은 403 AUTH-042.
+ * 정지 전에 받은 토큰은 관리·사진·행사 경로만 바로 막히고, 일반 API 는 access 만료까지 남는다. Redis 는 테스트에 없어 세션 저장소만 목으로 둔다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -43,10 +48,12 @@ class AccountBlockIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private AuditLogRepository auditLogRepository;
     @Autowired private JwtTokenService jwtTokenService;
+    @Autowired private WorkspaceService workspaceService;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private EntityManager entityManager;
 
     @MockitoBean private RefreshTokenRepository refreshTokenRepository;
+    @MockitoBean private FileStorageService fileStorageService;
 
     private User admin;
     private User member;
@@ -55,13 +62,14 @@ class AccountBlockIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        given(fileStorageService.generatePresignedGetUrl(anyString())).willReturn("https://s3/profile");
         admin = userRepository.save(User.localUser("admin@harucut.com", "e", "관리자"));
         member = userRepository.save(User.localUser("member@harucut.com", "e", "회원"));
         entityManager.flush();
         jdbcTemplate.update("update users set user_role = 'ROLE_ADMIN' where user_id = ?", admin.getId());
         entityManager.clear();
-        adminCookie = cookie(admin.getPublicId(), UserRole.ROLE_ADMIN);
-        memberCookie = cookie(member.getPublicId(), UserRole.ROLE_USER);
+        adminCookie = cookie(admin.getPublicId(), UserRole.ROLE_ADMIN, UserStatus.ACTIVE);
+        memberCookie = cookie(member.getPublicId(), UserRole.ROLE_USER, UserStatus.ACTIVE);
     }
 
     @Test
@@ -120,34 +128,116 @@ class AccountBlockIntegrationTest {
     }
 
     @Test
-    @DisplayName("정지 전에 받은 access 토큰 — 관리·사진·행사 경로는 바로 403 GEN-021, 일반 API 는 만료까지 남는다")
-    void blockedTokenStillAlive() {
+    @DisplayName("정지 계정의 토큰 — 상태·내 정보·로그아웃만 되고 그 밖은 일반 API·관리 경로 모두 403 AUTH-042")
+    void blockedToken() {
+        assertThat(block(member.getPublicId(), "약관 위반", adminCookie)).hasStatusOk();
+        Cookie blocked = cookie(member.getPublicId(), UserRole.ROLE_USER, UserStatus.BLOCKED);
+
+        assertThat(mvc.get().uri("/api/auth/status").cookie(blocked)).hasStatusOk().bodyJson()
+                .extractingPath("$.data.userStatus").isEqualTo("BLOCKED");
+        assertThat(mvc.get().uri("/api/auth/user/info").cookie(blocked)).hasStatusOk().bodyJson().satisfies(json -> {
+            assertThat(json).extractingPath("$.data.userStatus").isEqualTo("BLOCKED");
+            assertThat(json).extractingPath("$.data.email").isEqualTo("member@harucut.com");
+        });
+        assertThat(mvc.delete().uri("/api/harucut/logout").cookie(blocked)).hasStatusOk();
+        assertThat(mvc.delete().uri("/api/harucut/logout/all").cookie(blocked)).hasStatusOk();
+
+        assertBlocked(mvc.get().uri("/api/auth/terms/consents/me").cookie(blocked).exchange());
+        assertBlocked(mvc.get().uri("/api/auth/subscriptions").cookie(blocked).exchange());
+        assertBlocked(mvc.get().uri("/api/auth/me/events").cookie(blocked).exchange());
+        assertBlocked(mvc.get().uri("/api/auth/workspaces").cookie(blocked).exchange());
+        assertBlocked(mvc.get().uri("/api/auth/events/anything/photos").cookie(blocked).exchange());
+        assertBlocked(mvc.get().uri("/api/admin/users?email=a@b.c")
+                .cookie(cookie(member.getPublicId(), UserRole.ROLE_ADMIN, UserStatus.BLOCKED)).exchange());
+    }
+
+    @Test
+    @DisplayName("정지 전에 받은 토큰 — 내 정보는 바로 BLOCKED 를 알리고 관리·사진·행사 경로는 바로 403 AUTH-042, 일반 API 는 만료까지 남는다")
+    void liveTokenFromBeforeBlock() {
         assertThat(mvc.get().uri("/api/auth/me/events").cookie(memberCookie)).hasStatusOk();
-        assertThat(mvc.get().uri("/api/auth/workspaces").cookie(memberCookie)).hasStatusOk();
+        assertThat(mvc.get().uri("/api/auth/user/info").cookie(memberCookie)).hasStatusOk().bodyJson()
+                .extractingPath("$.data.userStatus").isEqualTo("ACTIVE");
 
         assertThat(block(member.getPublicId(), "약관 위반", adminCookie)).hasStatusOk();
-        entityManager.flush();
 
-        assertForbidden(mvc.get().uri("/api/auth/me/events").cookie(memberCookie).exchange());
-        assertForbidden(mvc.get().uri("/api/auth/workspaces").cookie(memberCookie).exchange());
-        assertForbidden(mvc.get().uri("/api/auth/events/anything").cookie(memberCookie).exchange());
-        assertForbidden(mvc.get().uri("/api/auth/events/anything/photos").cookie(memberCookie).exchange());
-        assertThat(mvc.get().uri("/api/auth/status").cookie(memberCookie)).hasStatusOk();
+        assertThat(mvc.get().uri("/api/auth/user/info").cookie(memberCookie)).hasStatusOk().bodyJson()
+                .extractingPath("$.data.userStatus").isEqualTo("BLOCKED");
+        assertBlocked(mvc.get().uri("/api/auth/me/events").cookie(memberCookie).exchange());
+        assertBlocked(mvc.get().uri("/api/auth/workspaces").cookie(memberCookie).exchange());
+        assertBlocked(mvc.get().uri("/api/auth/events/anything").cookie(memberCookie).exchange());
+        assertBlocked(mvc.get().uri("/api/auth/events/anything/photos").cookie(memberCookie).exchange());
         assertThat(mvc.get().uri("/api/auth/terms/consents/me").cookie(memberCookie)).hasStatusOk();
     }
 
     @Test
-    @DisplayName("ADMIN 권한이 빠지거나 정지된 관리자 — access 토큰이 ADMIN 이어도 관리자 경로는 바로 403 GEN-021")
-    void demotedAdminTokenStillAlive() {
+    @DisplayName("해제하면 정지 상태의 토큰도 다음 요청부터 풀린다 — access 만료를 기다리지 않는다")
+    void unblockTakesEffectOnBlockedToken() {
+        assertThat(block(member.getPublicId(), "약관 위반", adminCookie)).hasStatusOk();
+        Cookie blocked = cookie(member.getPublicId(), UserRole.ROLE_USER, UserStatus.BLOCKED);
+        assertBlocked(mvc.get().uri("/api/auth/workspaces").cookie(blocked).exchange());
+
+        assertThat(post("/api/admin/users/" + member.getPublicId() + "/unblock", "소명 확인", adminCookie)).hasStatusOk();
+
+        assertThat(mvc.get().uri("/api/auth/workspaces").cookie(blocked)).hasStatusOk();
+        assertThat(mvc.get().uri("/api/auth/status").cookie(blocked)).hasStatusOk().bodyJson()
+                .extractingPath("$.data.userStatus").isEqualTo("ACTIVE");
+    }
+
+    @Test
+    @DisplayName("탈퇴 — 정지 계정도 요청하면 쿠키가 만료되고, 복구하면 ACTIVE 가 아니라 BLOCKED 로 돌아간다. 정지 전 토큰도 같다")
+    void blockedExitAndReactivate() {
+        assertThat(block(member.getPublicId(), "약관 위반", adminCookie)).hasStatusOk();
+        Cookie blocked = cookie(member.getPublicId(), UserRole.ROLE_USER, UserStatus.BLOCKED);
+
+        MvcTestResult exit = mvc.delete().uri("/api/harucut/exit").cookie(blocked).exchange();
+        assertThat(exit).hasStatusOk();
+        assertThat(exit.getResponse().getHeaders(HttpHeaders.SET_COOKIE)).hasSize(2).allSatisfy(header -> assertThat(header).contains("Max-Age=0"));
+        settle();
+        assertThat(status()).isEqualTo(UserStatus.DELETED_REQUESTED);
+
+        // 들고 있던 정지 토큰으로도, 다시 로그인한 탈퇴 요청 토큰으로도 복구로 간다
+        assertThat(mvc.post().uri("/api/harucut/reactivate").cookie(blocked)).hasStatusOk();
+        settle();
+        assertThat(status()).isEqualTo(UserStatus.BLOCKED);
+
+        assertThat(mvc.delete().uri("/api/harucut/exit").cookie(blocked)).hasStatusOk();
+        settle();
+        assertThat(mvc.post().uri("/api/harucut/reactivate")
+                .cookie(cookie(member.getPublicId(), UserRole.ROLE_USER, UserStatus.DELETED_REQUESTED))).hasStatusOk();
+        settle();
+        assertThat(status()).isEqualTo(UserStatus.BLOCKED);
+
+        // 탈퇴 요청이 아닌 정지 계정이 복구를 부르면 그대로 막힌다
+        assertBlocked(mvc.post().uri("/api/harucut/reactivate").cookie(blocked).exchange());
+    }
+
+    @Test
+    @DisplayName("정지된 사람이 조직 공간의 마지막 소유자면 탈퇴는 409 MEMBER-004 — 정지 상태는 그대로다")
+    void blockedLastOwnerCannotExit() {
+        workspaceService.createOrganization(member.getPublicId(), "웨딩홀");
+        entityManager.flush();
+        assertThat(block(member.getPublicId(), "약관 위반", adminCookie)).hasStatusOk();
+
+        assertThat(mvc.delete().uri("/api/harucut/exit").cookie(cookie(member.getPublicId(), UserRole.ROLE_USER, UserStatus.BLOCKED)))
+                .hasStatus(409).bodyJson().extractingPath("$.code").isEqualTo("MEMBER-004");
+        settle();
+        assertThat(status()).isEqualTo(UserStatus.BLOCKED);
+    }
+
+    @Test
+    @DisplayName("ADMIN 권한이 빠진 관리자는 관리자 경로 403 GEN-021, 정지된 관리자는 403 AUTH-042 — access 토큰이 ADMIN 이어도")
+    void demotedOrBlockedAdminTokenStillAlive() {
         assertThat(mvc.get().uri("/api/admin/users?email=a@b.c").cookie(adminCookie)).hasStatusOk();
 
         jdbcTemplate.update("update users set user_role = 'ROLE_USER' where user_id = ?", admin.getId());
-        assertForbidden(mvc.get().uri("/api/admin/users?email=a@b.c").cookie(adminCookie).exchange());
-        assertForbidden(mvc.post().uri("/api/admin/users/{id}/block", member.getPublicId()).cookie(adminCookie)
-                .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"x\"}").exchange());
+        assertThat(mvc.get().uri("/api/admin/users?email=a@b.c").cookie(adminCookie))
+                .hasStatus(403).bodyJson().extractingPath("$.code").isEqualTo("GEN-021");
+        assertThat(mvc.post().uri("/api/admin/users/{id}/block", member.getPublicId()).cookie(adminCookie)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"x\"}"))
+                .hasStatus(403).bodyJson().extractingPath("$.code").isEqualTo("GEN-021");
 
         jdbcTemplate.update("update users set user_role = 'ROLE_ADMIN', user_status = 'BLOCKED' where user_id = ?", admin.getId());
-        assertForbidden(mvc.get().uri("/api/admin/users?email=a@b.c").cookie(adminCookie).exchange());
+        assertBlocked(mvc.get().uri("/api/admin/users?email=a@b.c").cookie(adminCookie).exchange());
     }
 
     private MvcTestResult block(String publicId, String reason, Cookie cookie) {
@@ -157,13 +247,22 @@ class AccountBlockIntegrationTest {
     private MvcTestResult post(String uri, String reason, Cookie cookie) {
         MvcTestResult result = mvc.post().uri(uri).cookie(cookie).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"reason\":\"" + reason + "\"}").exchange();
-        entityManager.flush();   // 운영에서는 요청마다 커밋된다 — 다음 요청의 조회와 같은 상태로
-        entityManager.clear();
+        settle();
         return result;
     }
 
-    private void assertForbidden(MvcTestResult result) {
-        assertThat(result).hasStatus(403).bodyJson().extractingPath("$.code").isEqualTo("GEN-021");
+    // 운영에서는 요청마다 커밋된다 — 다음 요청의 조회와 같은 상태로
+    private void settle() {
+        entityManager.flush();
+        entityManager.clear();
+    }
+
+    private UserStatus status() {
+        return userRepository.findByPublicId(member.getPublicId()).orElseThrow().getUserStatus();
+    }
+
+    private void assertBlocked(MvcTestResult result) {
+        assertThat(result).hasStatus(403).bodyJson().extractingPath("$.code").isEqualTo("AUTH-042");
     }
 
     private long actions(String action) {
@@ -171,7 +270,7 @@ class AccountBlockIntegrationTest {
                 && log.getActorUserId().equals(admin.getId()) && log.getTargetId().equals(member.getPublicId())).count();
     }
 
-    private Cookie cookie(String publicId, UserRole role) {
-        return new Cookie(CookieManager.ACCESS_TOKEN, jwtTokenService.createAccessToken(publicId, role, UserStatus.ACTIVE).value());
+    private Cookie cookie(String publicId, UserRole role, UserStatus status) {
+        return new Cookie(CookieManager.ACCESS_TOKEN, jwtTokenService.createAccessToken(publicId, role, status).value());
     }
 }

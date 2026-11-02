@@ -73,7 +73,7 @@ public final class SecurityPaths {
     };
 
     /**
-     * 로그인만 되어 있으면 되는 경로 ({@code authenticated}). 나머지 경로는 전부
+     * 로그인만 되어 있으면 되는 경로 ({@code authenticated}). 나머지 경로는 {@link #BLOCKED_ALLOWED} 를 빼면 전부
      * {@code hasAnyRole("USER","ADMIN")} 이라 탈퇴 요청·정지 상태에서 403 이 난다.
      *
      * <p>여기 있는 경로는 <b>역할을 보지 않으므로 그 403 이 나지 않는다.</b>
@@ -86,6 +86,15 @@ public final class SecurityPaths {
             "/api/harucut/reactivate",
             // 로그아웃 직전의 푸시 기기 해제 — 탈퇴 요청·정지 상태에서도 기기를 떼어 낼 수 있어야 한다
             "/api/auth/devices/unregister"
+    };
+
+    /**
+     * 정지(BLOCKED) 계정에도 열린 경로 — 마이페이지와 탈퇴. 그 밖의 보호 경로는 403 AUTH-042 다(CustomAccessDeniedHandler).
+     * 탈퇴 요청 상태에는 열지 않는다. 상태 조회·복구는 AUTHENTICATED_ONLY, 로그아웃·재발급은 PUBLIC 에 있다
+     */
+    public static final String[] BLOCKED_ALLOWED = {
+            "/api/auth/user/info",
+            "/api/harucut/exit"
     };
 
     /**
@@ -117,6 +126,7 @@ public final class SecurityPaths {
     private static final List<PathPattern> PARSED_EVENT = parse(EVENT);
     private static final List<PathPattern> PARSED_EVENT_OPEN = parse(EVENT_OPEN);
     private static final List<PathPattern> PARSED_AUTHENTICATED_ONLY = parse(AUTHENTICATED_ONLY);
+    private static final List<PathPattern> PARSED_BLOCKED_ALLOWED = parse(BLOCKED_ALLOWED);
     private static final List<PathPattern> PARSED_ORIGIN_CHECK_EXEMPT = parse(ORIGIN_CHECK_EXEMPT);
 
     private SecurityPaths() {
@@ -156,6 +166,10 @@ public final class SecurityPaths {
 
     public static boolean isEventOpen(String pathTemplate) {
         return matches(PARSED_EVENT_OPEN, pathTemplate);
+    }
+
+    public static boolean isBlockedAllowed(String pathTemplate) {
+        return matches(PARSED_BLOCKED_ALLOWED, pathTemplate);
     }
 
     public static boolean isAuthenticatedOnly(String pathTemplate) {

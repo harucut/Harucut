@@ -9,7 +9,6 @@ import com.harucut.auth.service.RefreshTokenService;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.utils.OpaqueTokens;
 import com.harucut.user.entity.User;
-import com.harucut.user.enums.UserStatus;
 import com.harucut.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -51,9 +50,6 @@ public class AppLoginService {
         // 60초 사이에 바뀌었을 수 있는 역할·상태는 지금 값으로 — 이메일 로그인과 같은 토큰·쿠키
         User user = userRepository.findByPublicId(grant.userPublicId())
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.APP_LOGIN_CODE_INVALID));
-        if (user.getUserStatus() == UserStatus.BLOCKED) {
-            throw new BusinessException(AuthErrorCode.ACCOUNT_BLOCKED);
-        }
         IssuedToken accessToken = jwtTokenService.createAccessToken(user.getPublicId(), user.getUserRole(), user.getUserStatus());
         IssuedToken refreshToken = jwtTokenService.createRefreshToken(user.getPublicId());
         refreshTokenService.save(user.getPublicId(), refreshToken);

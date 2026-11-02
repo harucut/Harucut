@@ -157,7 +157,7 @@ class PhotoBoxIntegrationTest {
     @DisplayName("권한: 고객은 받은 권한만(열람만이면 다운로드 403 PHOTO-001), 관계없는 사람은 404")
     void permissions() {
         invitationService.accept(customer.getPublicId(), eventGrantService.inviteCustomer(owner.getPublicId(), event.getPublicId(),
-                new MemberDtos.EventInvitationRequest(Set.of(PhotoPermission.VIEW_PHOTOS), null, true)).inviteToken());
+                new MemberDtos.EventInvitationRequest(Set.of(PhotoPermission.VIEW_PHOTOS), null)).inviteToken());
 
         assertThat(page(customer, null, null, null, null, null).items()).hasSize(3);
         assertCode(() -> photoService.download(customer.getPublicId(), event.getPublicId(), byodDone.getId()),

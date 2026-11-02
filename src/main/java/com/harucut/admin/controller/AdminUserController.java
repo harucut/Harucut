@@ -40,8 +40,8 @@ public class AdminUserController {
 
     @Operation(summary = "계정 정지",
             description = """
-                    모든 refresh 세션을 끊는다. 정지 계정의 로그인·재발급은 403 `AUTH-042`.
-                    관리·사진·행사 경로는 살아 있는 access 토큰으로도 바로 403 `GEN-021`, 그 밖의 API 는 access 만료(30분)까지 남는다.
+                    모든 refresh 세션을 끊는다. 정지 계정은 다시 로그인할 수 있지만(`userStatus: BLOCKED`) 마이페이지와 탈퇴만 되고, 그 밖의 보호 API 는 403 `AUTH-042` 다.
+                    정지 전에 받은 access 토큰은 관리·사진·행사 경로에서 바로 403 `AUTH-042`, 그 밖의 API 에서는 만료(30분)까지 남는다.
                     이미 정지면 그대로 답한다.
                     """)
     @ApiErrors({
@@ -57,7 +57,7 @@ public class AdminUserController {
         return Response.ok(adminUserService.block(principal.publicId(), userId, request.reason()));
     }
 
-    @Operation(summary = "정지 해제", description = "끊은 세션은 돌아오지 않아 다시 로그인해야 한다. 정지 상태가 아니면 그대로 답한다.")
+    @Operation(summary = "정지 해제", description = "정지 상태의 토큰도 다음 요청부터 풀린다. 정지 상태가 아니면 그대로 답한다. 탈퇴 요청 중이면 상태를 바꾸지 않는다.")
     @ApiErrors({"GEN-003: 사유가 없거나 500자를 넘는다", "GEN-031: 없는 계정"})
     @PostMapping("/{userId}/unblock")
     public Response<AdminUserDtos.StatusResponse> unblock(@AuthenticationPrincipal AuthenticatedUser principal,

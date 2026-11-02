@@ -7,7 +7,6 @@ import com.harucut.auth.oauth2.app.AppLoginService;
 import com.harucut.auth.security.AuthenticatedUser;
 import com.harucut.auth.service.JwtTokenService;
 import com.harucut.auth.service.RefreshTokenService;
-import com.harucut.user.enums.UserStatus;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
@@ -62,16 +61,13 @@ public class CustomOAuth2SuccessHandler implements AuthenticationSuccessHandler 
         }
 
         IssuedToken accessToken = jwtTokenService.createAccessToken(user.publicId(), user.role(), user.status());
+        IssuedToken refreshToken = jwtTokenService.createRefreshToken(user.publicId());
+        refreshTokenService.save(user.publicId(), refreshToken);
+
         response.addHeader(HttpHeaders.SET_COOKIE,
                 cookieManager.createTokenCookie(CookieManager.ACCESS_TOKEN, accessToken).toString());
-        // 정지 계정 — 리다이렉트라 AUTH-042 를 본문으로 줄 수 없다. 상태 조회만 되는 access 토큰만 주면
-        // 콜백 화면이 BLOCKED 를 읽어 이유와 문의처를 말하고 지운다. 세션(refresh)은 만들지 않는다
-        if (user.status() != UserStatus.BLOCKED) {
-            IssuedToken refreshToken = jwtTokenService.createRefreshToken(user.publicId());
-            refreshTokenService.save(user.publicId(), refreshToken);
-            response.addHeader(HttpHeaders.SET_COOKIE,
-                    cookieManager.createTokenCookie(CookieManager.REFRESH_TOKEN, refreshToken).toString());
-        }
+        response.addHeader(HttpHeaders.SET_COOKIE,
+                cookieManager.createTokenCookie(CookieManager.REFRESH_TOKEN, refreshToken).toString());
 
         response.sendRedirect(callbackUrl);
     }

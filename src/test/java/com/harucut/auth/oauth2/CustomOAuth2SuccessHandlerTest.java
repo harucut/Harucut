@@ -176,20 +176,19 @@ class CustomOAuth2SuccessHandlerTest {
     }
 
     @Test
-    @DisplayName("정지 계정 — 상태 조회만 되는 access 쿠키로 콜백에 보내고 refresh 세션은 만들지 않는다")
+    @DisplayName("정지 계정도 두 쿠키와 세션을 받는다 — 토큰에 BLOCKED 가 실리고, 화면이 마이페이지로 보낸다")
     void blockedAccount() throws IOException {
         given(jwtTokenService.createAccessToken(PUBLIC_ID, UserRole.ROLE_USER, UserStatus.BLOCKED)).willReturn(ACCESS);
+        given(jwtTokenService.createRefreshToken(PUBLIC_ID)).willReturn(REFRESH);
         CustomOAuth2User blocked = new CustomOAuth2User(
                 new DefaultOAuth2User(List.of(new SimpleGrantedAuthority("PROVIDER")), Map.of("sub", "google-sub-1"), "sub"),
                 new AuthenticatedUser(PUBLIC_ID, UserRole.ROLE_USER, UserStatus.BLOCKED));
 
         handler.onAuthenticationSuccess(request, response, authentication(blocked));
 
-        assertThat(response.getHeaders(HttpHeaders.SET_COOKIE)).singleElement()
-                .satisfies(cookie -> assertThat(cookie).startsWith("accessToken=access-token-value"));
+        assertThat(response.getHeaders(HttpHeaders.SET_COOKIE)).hasSize(2);
         assertThat(response.getRedirectedUrl()).isEqualTo(FRONTEND_URL + "/oauth2/callback");
-        then(refreshTokenService).should(never()).save(any(), any());
-        then(jwtTokenService).should(never()).createRefreshToken(any());
+        then(refreshTokenService).should().save(PUBLIC_ID, REFRESH);
     }
 
     @Nested

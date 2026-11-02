@@ -264,7 +264,7 @@ class OperatorIntegrationTest {
         Long otherGrant = grantRepository.save(new EventGrant(eventId, other.getId(), EnumSet.of(PhotoPermission.VIEW_PHOTOS), owner.getId())).getId();
         assertThat(grantRepository.findById(otherGrant).orElseThrow().getOperations()).isEmpty();
 
-        assertCode(() -> eventGrantService.update(operator.getPublicId(), event.eventId(), otherGrant, EnumSet.of(PhotoPermission.VIEW_PHOTOS), false),
+        assertCode(() -> eventGrantService.update(operator.getPublicId(), event.eventId(), otherGrant, EnumSet.of(PhotoPermission.VIEW_PHOTOS)),
                 GlobalErrorCode.FORBIDDEN);
         assertCode(() -> eventGrantService.delete(operator.getPublicId(), event.eventId(), otherGrant), GlobalErrorCode.FORBIDDEN);
         // 공간 OWNER 의 행도 운영자의 행이다

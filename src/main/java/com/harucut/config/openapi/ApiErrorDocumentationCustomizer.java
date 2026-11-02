@@ -85,6 +85,10 @@ public class ApiErrorDocumentationCustomizer implements GlobalOpenApiCustomizer 
 
             if (canBeForbidden(path, operation)) {
                 errors.put(GlobalErrorCode.FORBIDDEN.getCode(), forbidden(path));
+                if (!SecurityPaths.isBlockedAllowed(path)) {
+                    errors.put(AuthErrorCode.ACCOUNT_BLOCKED.getCode(),
+                            DocumentedError.of(AuthErrorCode.ACCOUNT_BLOCKED, "정지(BLOCKED) 계정 — 마이페이지와 탈퇴만 된다"));
+                }
             }
         }
 
@@ -170,8 +174,8 @@ public class ApiErrorDocumentationCustomizer implements GlobalOpenApiCustomizer 
 
     private DocumentedError forbidden(String path) {
         String note = path.startsWith(ADMIN_PREFIX)
-                ? "ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태"
-                : "탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자";
+                ? "ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED) 상태"
+                : "탈퇴 요청(DELETED_REQUESTED) 상태의 사용자";
 
         return DocumentedError.of(GlobalErrorCode.FORBIDDEN, note);
     }

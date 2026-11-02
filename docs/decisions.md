@@ -30,7 +30,7 @@
 - **선택**: `role`, `status`만 access 토큰의 private claim으로 넣고 필터의 DB 조회를 제거한다. **`id`는 넣지 않는다.** refresh 토큰에는 넣지 않는다. principal 타입을 둘로 쪼갠다 — `CustomUserPrincipal`(로그인 심사용 `UserDetails`, DB에서 생성)과 `AuthenticatedUser`(요청 컨텍스트용 `AuthenticatedPrincipal`, 토큰에서 생성).
 - **이유**: 인가는 `authorizeHttpRequests`·`@PreAuthorize` 시점에 끝나야 하므로, role/status를 토큰에서 얻지 못하면 조회를 뺄 방법이 없다. `id`를 빼는 건 실제 필요가 Phase 8에서 드러나기 때문이고, 지금 넣으면 근거 없이 내부 PK만 노출한다. refresh에 넣지 않는 건 회전 때 옛 값이 복사되어 14일간 갱신이 멈추기 때문이다. 타입 분리는 토큰으로 만든 principal의 `id`/`email`/`password`가 null일 수밖에 없어서다 — 한 클래스로 두면 `getId()`가 조용히 null을 돌려주고, 나눠두면 컴파일이 막는다. 리소스 서버 전환은 발급·회전이 어차피 우리 몫이라 얻는 게 검증 쪽 절반뿐이고, 에러 봉투를 맞추려면 결국 커스텀이 필요해 실속이 준다.
 - **포기한 것**:
-  - **취소가 최대 30분(access TTL) 늦게 반영된다.** 상한이 성립하는 근거는 세션 삭제가 아니라 **재발급이 DB를 다시 읽는 것**이다. 차단 → 재발급 시 `BLOCKED`가 새 토큰에 실림 → authorities 빈 리스트 → 403.
+  - **취소가 최대 30분(access TTL) 늦게 반영된다.** 상한이 성립하는 근거는 세션 삭제가 아니라 **재발급이 DB를 다시 읽는 것**이다. 차단 → 재발급 시 `BLOCKED`가 새 토큰에 실림 → authorities 는 `ROLE_BLOCKED` 하나 → 마이페이지·탈퇴 말고 403 `AUTH-042`.
   - 재발급 경로에 DB 조회가 **새로 생긴다.** 조회가 사라진 게 아니라 매 요청에서 30분마다로 옮겨간 것이다.
   - **필터에서 없앤 것이지 요청 전체가 DB-free가 된 것은 아니다.** `user_id` FK가 필요한 쓰기 API는 서비스에서 `publicId`로 다시 조회하므로 조회 횟수가 그대로다(`PaymentService`·`CouponService`·`ComposeService`·`SubscriptionService` 모두 `findByPublicId`). 요청 전체가 조회 0이 되는 건 `/auth/status`·`logout`처럼 서비스가 User를 필요로 하지 않는 경로뿐이다. 그 API들은 즉시성만 잃는다.
   - 배포 시점에 살아 있던 access 토큰이 전부 무효가 된다(클레임 누락 → 거부). 서비스 전이라 감수한다.

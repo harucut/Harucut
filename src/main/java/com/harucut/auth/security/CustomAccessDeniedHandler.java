@@ -1,6 +1,11 @@
 package com.harucut.auth.security;
 
+import com.harucut.auth.exception.AuthErrorCode;
+import com.harucut.common.exception.ErrorCode;
 import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.user.enums.UserStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import com.harucut.common.response.Response;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,6 +33,13 @@ public class CustomAccessDeniedHandler implements AccessDeniedHandler {
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
 
-        objectMapper.writeValue(response.getOutputStream(), Response.error(GlobalErrorCode.FORBIDDEN));
+        objectMapper.writeValue(response.getOutputStream(), Response.error(deniedCode()));
+    }
+
+    /** 정지 계정이면 AUTH-042(화면이 마이페이지로 보낸다), 아니면 GEN-021 */
+    public static ErrorCode deniedCode() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        return authentication != null && authentication.getPrincipal() instanceof AuthenticatedUser user && user.status() == UserStatus.BLOCKED
+                ? AuthErrorCode.ACCOUNT_BLOCKED : GlobalErrorCode.FORBIDDEN;
     }
 }

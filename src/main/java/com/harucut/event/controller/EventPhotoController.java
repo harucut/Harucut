@@ -38,7 +38,6 @@ public class EventPhotoController {
     @Operation(summary = "사진함",
             description = """
                     그 행사의 VIEW_PHOTOS 권한. 최신순 커서(limit 기본 30, 최대 100). 삭제 요청된 사진은 없다.
-                    사진 범위가 제한된 수신자(`photosFrom`)에게는 그 시각 전 사진이 없는 것처럼 보인다 — 다운로드·삭제·회수·묶음도 같다(404).
                     thumbnailUrl 은 5분 — 이미지가 깨지면 목록을 다시 받는다. 행사를 볼 수 없으면 404, 볼 수는 있지만 권한이 없으면 403 PHOTO-001.
                     """)
     @ApiErrors({"PHOTO-001: 사진 열람 권한 없음", "GEN-002: 잘못된 커서", "GEN-031: 없는 행사이거나 볼 수 없다"})

@@ -8,7 +8,6 @@ import com.harucut.auth.jwt.JwtClaims;
 import com.harucut.auth.jwt.TokenType;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.user.entity.User;
-import com.harucut.user.enums.UserStatus;
 import com.harucut.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,12 +39,6 @@ public class RefreshTokenService {
         if (claims.sessionId() == null) {
             throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
         }
-        // 회전보다 먼저 — 정지 때 세션을 지워서, 뒤에서 보면 AUTH-042 대신 세션 없음(AUTH-011)이 된다
-        User user = userRepository.findByPublicId(claims.publicId())
-                .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_TOKEN));
-        if (user.getUserStatus() == UserStatus.BLOCKED) {
-            throw new BusinessException(AuthErrorCode.ACCOUNT_BLOCKED);
-        }
         IssuedToken candidate = jwtTokenService.createRefreshToken(claims.publicId(), claims.sessionId());
         RotationResult result = repository.rotate(claims.publicId(), claims.sessionId(), refreshToken, candidate);
 
@@ -59,6 +52,9 @@ public class RefreshTokenService {
                 throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
             }
         };
+
+        User user = userRepository.findByPublicId(claims.publicId())
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_TOKEN));
 
         IssuedToken newAccess = jwtTokenService.createAccessToken(
                 user.getPublicId(), user.getUserRole(), user.getUserStatus());

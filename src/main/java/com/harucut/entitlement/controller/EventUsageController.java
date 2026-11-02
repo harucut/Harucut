@@ -37,7 +37,7 @@ public class EventUsageController {
                     적용 이용권이 없으면 entitlement 키가 없고 수치는 0. 계약 금액은 싣지 않는다.
                     행사 배분이면 최상위 수치는 이 행사의 배분량이고, 공간 OWNER·ADMIN 에게는 기업 총량(parent)도 준다.
                     """)
-    @ApiErrors({"GEN-021: 테마 권한만 있거나 사진 범위가 제한된 수신자다", "GEN-031: 없는 행사이거나 볼 수 없다"})
+    @ApiErrors({"GEN-021: 테마 권한만 있다", "GEN-031: 없는 행사이거나 볼 수 없다"})
     @GetMapping("/api/auth/events/{eventId}/usage")
     public Response<EntitlementDtos.EventUsage> usage(@AuthenticationPrincipal AuthenticatedUser principal,
                                                       @Parameter(description = "행사 public id") @PathVariable String eventId) {
@@ -49,8 +49,8 @@ public class EventUsageController {
         if (!access.canSee()) {
             throw new BusinessException(GlobalErrorCode.NOT_FOUND);
         }
-        // 테마만 고치는 사람과 사진 범위가 제한된 수신자에게는 이용권·사용량을 주지 않는다(숨긴 사진 수를 짐작하게 된다)
-        if (access.themeOnly() || access.limitedRecipient()) {
+        // 테마만 고치는 사람에게는 이용권·사용량을 주지 않는다
+        if (access.themeOnly()) {
             throw new BusinessException(GlobalErrorCode.FORBIDDEN);
         }
         // 기업 총량(parent)은 공간 OWNER·ADMIN 에게만

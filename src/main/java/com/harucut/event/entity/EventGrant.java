@@ -10,7 +10,6 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.Set;
 
@@ -46,10 +45,6 @@ public class EventGrant extends BaseEntity {
     @Column(name = "granted_by_user_id")
     private Long grantedByUserId;
 
-    // 이 시각 이후에 제출된 사진만 — NULL 이면 제한 없음. 새 수신자가 과거 사진까지 저절로 보지 않게(R5 L347)
-    @Column(name = "photos_from")
-    private LocalDateTime photosFrom;
-
     public EventGrant(Long eventId, Long userId, Set<PhotoPermission> permissions, Long grantedByUserId) {
         this.eventId = eventId;
         this.userId = userId;
@@ -73,28 +68,10 @@ public class EventGrant extends BaseEntity {
         this.permissions = permissions.isEmpty() ? EnumSet.noneOf(PhotoPermission.class) : EnumSet.copyOf(permissions);
     }
 
-    /** 권한 수정 — 처음 사진 권한을 받으면 그 시각 이후 사진만. includePast 면 제한을 푼다. 아니면 이미 정한 범위를 바꾸지 않는다 */
-    public void replace(Set<PhotoPermission> permissions, boolean includePast, LocalDateTime now) {
-        LocalDateTime from = photosFromAfter(includePast, now);
-        replace(permissions);
-        this.photosFrom = from;
-    }
-
-    /** 초대 수락 — 권한은 합친다(이미 받은 권한을 줄이지 않는다). 범위는 권한 수정과 같다 */
-    public void merge(Set<PhotoPermission> more, boolean includePast, LocalDateTime now) {
-        LocalDateTime from = photosFromAfter(includePast, now);
-        EnumSet<PhotoPermission> merged = EnumSet.noneOf(PhotoPermission.class);
-        merged.addAll(permissions);
+    // 초대를 다시 수락하면 권한을 합친다 — 이미 받은 권한을 줄이지 않는다
+    public void merge(Set<PhotoPermission> more) {
+        EnumSet<PhotoPermission> merged = EnumSet.copyOf(permissions.isEmpty() ? EnumSet.noneOf(PhotoPermission.class) : permissions);
         merged.addAll(more);
         this.permissions = merged;
-        this.photosFrom = from;
-    }
-
-    /** 이 행에 사진 권한을 주면 범위가 어떻게 되는가 */
-    public LocalDateTime photosFromAfter(boolean includePast, LocalDateTime now) {
-        if (includePast) {
-            return null;
-        }
-        return permissions.isEmpty() ? now : photosFrom;
     }
 }

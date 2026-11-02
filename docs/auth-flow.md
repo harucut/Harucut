@@ -185,9 +185,10 @@ AuthStatusController       @AuthenticationPrincipal CustomUserPrincipal
 |--------------|-----------|
 | `ACTIVE` | `user.userRole` (`ROLE_USER` 또는 `ROLE_ADMIN`) |
 | `DELETED_REQUESTED` | `ROLE_DELETED_REQUESTED` **하나만** |
-| `BLOCKED`, `DELETED` | 빈 목록 |
+| `BLOCKED` | `ROLE_BLOCKED` **하나만** |
+| `DELETED` | 빈 목록 |
 
-정지(`BLOCKED`) 계정의 로그인·재발급·앱 코드 교환은 403 `AUTH-042` 다. 소셜 로그인은 리다이렉트라 본문을 줄 수 없어, 상태 조회만 되는 access 쿠키만 주고 refresh 세션은 만들지 않는다.
+정지(`BLOCKED`) 계정의 로그인·소셜 로그인·앱 코드 교환·재발급은 탈퇴 요청 계정처럼 정상으로 되고 토큰에 `BLOCKED` 가 실린다. 쓸 수 있는 것은 내 정보·탈퇴·복구·상태 조회·로그아웃뿐이고, 그 밖은 403 `AUTH-042` 다(`jwt-authorization-claims.md` 4절).
 
 `DELETED_REQUESTED`가 `ROLE_USER`를 잃는 이유는 **fail-closed**다.
 새 API를 만들 때마다 "탈퇴 요청한 사람 막아야지"를 기억할 필요 없이, 기본이 차단이고 허용할 것만 명시한다.

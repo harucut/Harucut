@@ -223,28 +223,33 @@ class PhotoBoxIntegrationTest {
     @Test
     @DisplayName("내 행사 목록의 완성 사진 수 — 완성된 것만 세고, 삭제한 사진은 빠진다")
     void myEventsCountsCompletedPhotos() {
-        long before = eventGrantService.myEvents(owner.getPublicId()).stream()
-                .filter(row -> row.eventId().equals(event.getPublicId())).findFirst().orElseThrow().completedPhotoCount();
+        long before = completedPhotoCount();
         assertThat(before).isPositive();
 
         photoService.delete(owner.getPublicId(), event.getPublicId(), byodDone.getId());
         entityManager.flush();
         entityManager.clear();
 
-        assertThat(eventGrantService.myEvents(owner.getPublicId()).stream()
-                .filter(row -> row.eventId().equals(event.getPublicId())).findFirst().orElseThrow().completedPhotoCount())
-                .isEqualTo(before - 1);
+        assertThat(completedPhotoCount()).isEqualTo(before - 1);
     }
 
     @Test
-    @DisplayName("보관 기한이 지난 사진 — 정리 배치 전이어도 사진함·다운로드에서 빠진다(참가자 쪽과 같은 판정)")
+    @DisplayName("보관 기한이 지난 사진 — 정리 배치 전이어도 사진함·다운로드·완성 사진 수에서 빠진다(참가자 쪽과 같은 판정)")
     void expiredPhotoIsHiddenBeforePurge() {
         entityManager.flush();
+        long before = completedPhotoCount();
+        assertThat(before).isPositive();
         jdbcTemplate.update("update compose_job set retain_until = ? where compose_job_id = ?", java.time.LocalDateTime.now().minusMinutes(1), byodDone.getId());
         entityManager.clear();
 
         assertThat(page(owner, null, null, null, null, null).items()).extracting(PhotoDtos.Photo::photoId).doesNotContain(byodDone.getId());
         assertCode(() -> photoService.download(owner.getPublicId(), event.getPublicId(), byodDone.getId()), GlobalErrorCode.NOT_FOUND);
+        assertThat(completedPhotoCount()).isEqualTo(before - 1);
+    }
+
+    private long completedPhotoCount() {
+        return eventGrantService.myEvents(owner.getPublicId()).stream()
+                .filter(row -> row.eventId().equals(event.getPublicId())).findFirst().orElseThrow().completedPhotoCount();
     }
 
     @Test

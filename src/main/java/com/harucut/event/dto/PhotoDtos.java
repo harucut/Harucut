@@ -16,6 +16,11 @@ public final class PhotoDtos {
     private PhotoDtos() {
     }
 
+    @Schema(name = "ResultAccessRevokeRequest", description = "결과 링크 회수 — 사유는 감사에 남는다")
+    public record ResultAccessRevokeRequest(
+            @NotBlank @Size(max = 500) @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "오발송") String reason) {
+    }
+
     @Schema(name = "PhotoPage", description = "사진함 한 쪽 — 최신순")
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record PhotoPage(List<Photo> items, @Schema(description = "다음 쪽 커서. 없으면 마지막 쪽") String nextCursor) {

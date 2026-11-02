@@ -174,44 +174,46 @@ class RefreshTokenServiceTest {
         void putsFreshAuthorizationClaimsOnNewAccessToken() {
             String presented = oldRefreshToken();
             givenRotation(presented, new RotationResult.Rotated("new-refresh"));
-            givenStoredUser(UserStatus.BLOCKED, UserRole.ROLE_ADMIN);
+            givenStoredUser(UserStatus.DELETED_REQUESTED, UserRole.ROLE_ADMIN);
 
             AuthTokenCookies cookies = refreshTokenService.reissue(presented);
 
             JwtClaims claims = jwtTokenService.parse(cookies.accessTokenCookie().getValue());
-            assertThat(claims.status()).isEqualTo(UserStatus.BLOCKED);
+            assertThat(claims.status()).isEqualTo(UserStatus.DELETED_REQUESTED);
             assertThat(claims.role()).isEqualTo(UserRole.ROLE_ADMIN);
         }
 
         @Test
-        @DisplayName("회전이 거부되면 사용자를 조회하지 않는다")
-        void skipsUserLookupWhenRotationRejected() {
-            String presented = oldRefreshToken();
-            givenRotation(presented, new RotationResult.ReuseDetected());
-
-            assertThatThrownBy(() -> refreshTokenService.reissue(presented))
-                    .isInstanceOf(BusinessException.class);
-
-            then(userRepository).shouldHaveNoInteractions();
-        }
-
-        @Test
-        @DisplayName("회전에 성공해도 사용자가 없으면 AUTH-011이다")
+        @DisplayName("사용자가 없으면 회전하지 않고 AUTH-011이다")
         void rejectsWhenUserGone() {
             String presented = oldRefreshToken();
-            givenRotation(presented, new RotationResult.Rotated("new-refresh"));
             given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.empty());
 
             assertThatThrownBy(() -> refreshTokenService.reissue(presented))
                     .isInstanceOf(BusinessException.class)
                     .extracting("errorCode")
                     .isEqualTo(AuthErrorCode.INVALID_TOKEN);
+            then(repository).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("정지 계정은 회전하지 않고 AUTH-042 — 정지 때 세션이 지워졌어도 세션 없음(AUTH-011)으로 뭉개지지 않는다")
+        void blockedAccount() {
+            String presented = oldRefreshToken();
+            givenStoredUser(UserStatus.BLOCKED, UserRole.ROLE_USER);
+
+            assertThatThrownBy(() -> refreshTokenService.reissue(presented))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(AuthErrorCode.ACCOUNT_BLOCKED);
+            then(repository).shouldHaveNoInteractions();
         }
 
         @Test
         @DisplayName("세션이 없으면 AUTH-011을 던진다")
         void noSession() {
             String presented = oldRefreshToken();
+            givenStoredUser(UserStatus.ACTIVE, UserRole.ROLE_USER);
             givenRotation(presented, new RotationResult.NoSession());
 
             assertThatThrownBy(() -> refreshTokenService.reissue(presented))
@@ -224,6 +226,7 @@ class RefreshTokenServiceTest {
         @DisplayName("재사용으로 판정되면 AUTH-011을 던진다")
         void reuseDetected() {
             String presented = oldRefreshToken();
+            givenStoredUser(UserStatus.ACTIVE, UserRole.ROLE_USER);
             givenRotation(presented, new RotationResult.ReuseDetected());
 
             assertThatThrownBy(() -> refreshTokenService.reissue(presented))
@@ -308,7 +311,7 @@ class RefreshTokenServiceTest {
                 .willReturn(result);
     }
 
-    /** 회전에 성공한 요청만 사용자 조회까지 간다. */
+    /** 정지 여부를 보려고 회전 전에 사용자를 읽는다. */
     private User givenStoredUser(UserStatus status, UserRole role) {
         User user = UserFixtures.localUser("user@harucut.com", "encoded", status, role);
         ReflectionTestUtils.setField(user, "publicId", PUBLIC_ID);

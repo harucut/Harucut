@@ -9,9 +9,12 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.time.LocalDateTime;
 
+// @DynamicUpdate: 프로필·비밀번호를 고쳐 저장할 때 전체 열을 쓰면, 그사이 커밋된 정지(BLOCKED)를 읽었던 낡은 값으로 되돌린다 — 바뀐 열만 쓴다
+@DynamicUpdate
 @Entity
 @Table(
         name = "users",
@@ -108,6 +111,14 @@ public class User extends BaseEntity {
     public void reActivate() {
         this.userStatus = UserStatus.ACTIVE;
         this.deleteRequestedAt = null;
+    }
+
+    public void block() {
+        this.userStatus = UserStatus.BLOCKED;
+    }
+
+    public void unblock() {
+        this.userStatus = UserStatus.ACTIVE;
     }
 
     public void delete() {

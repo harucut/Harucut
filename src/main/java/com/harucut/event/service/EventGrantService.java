@@ -13,12 +13,14 @@ import com.harucut.event.repository.EventRepository;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.dto.MemberDtos;
+import com.harucut.workspace.entity.Workspace;
 import com.harucut.workspace.entity.WorkspaceInvitation;
 import com.harucut.workspace.entity.WorkspaceMembership;
 import com.harucut.workspace.enums.MembershipStatus;
 import com.harucut.workspace.enums.WorkspaceRole;
 import com.harucut.workspace.repository.WorkspaceInvitationRepository;
 import com.harucut.workspace.repository.WorkspaceMembershipRepository;
+import com.harucut.workspace.repository.WorkspaceRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +51,7 @@ public class EventGrantService {
     private final com.harucut.media.repository.ComposeJobRepository composeJobRepository;
     private final WorkspaceInvitationRepository invitationRepository;
     private final WorkspaceMembershipRepository membershipRepository;
+    private final WorkspaceRepository workspaceRepository;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
     private final Clock clock;
@@ -57,7 +60,8 @@ public class EventGrantService {
     public EventGrantService(EventAccessPolicy policy, EventGrantRepository grantRepository, EventRepository eventRepository,
                              com.harucut.media.repository.ComposeJobRepository composeJobRepository,
                              WorkspaceInvitationRepository invitationRepository,
-                             WorkspaceMembershipRepository membershipRepository, UserRepository userRepository,
+                             WorkspaceMembershipRepository membershipRepository, WorkspaceRepository workspaceRepository,
+                             UserRepository userRepository,
                              AuditLogService auditLogService, Clock clock,
                              @Value("${workspace.invitation-ttl:7d}") Duration invitationTtl) {
         this.policy = policy;
@@ -66,6 +70,7 @@ public class EventGrantService {
         this.composeJobRepository = composeJobRepository;
         this.invitationRepository = invitationRepository;
         this.membershipRepository = membershipRepository;
+        this.workspaceRepository = workspaceRepository;
         this.userRepository = userRepository;
         this.auditLogService = auditLogService;
         this.clock = clock;
@@ -82,14 +87,15 @@ public class EventGrantService {
         User actor = user(actorPublicId);
         Event event = eventRepository.findByPublicId(eventPublicId)
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
-        requireWithinOwn(policy.requireOperation(event, actor.getId(), OperationPermission.INVITE_CUSTOMERS), request.permissions());
+        boolean includePast = Boolean.TRUE.equals(request.includePast());
+        requireWithinOwn(policy.requireOperation(event, actor.getId(), OperationPermission.INVITE_CUSTOMERS), request.permissions(), includePast);
         String token = OpaqueTokens.generate();
         LocalDateTime expiresAt = LocalDateTime.now(clock).plus(invitationTtl);
         WorkspaceInvitation invitation = invitationRepository.save(WorkspaceInvitation.eventCustomer(event.getWorkspaceId(),
-                event.getId(), request.permissions(), blankToNull(request.note()), OpaqueTokens.hash(token), expiresAt,
+                event.getId(), request.permissions(), includePast, blankToNull(request.note()), OpaqueTokens.hash(token), expiresAt,
                 actor.getId()));
         auditLogService.record(actor.getId(), event.getWorkspaceId(), event.getId(), "CUSTOMER_INVITED", "INVITATION",
-                invitation.getPublicId(), Map.of("permissions", sorted(request.permissions())));
+                invitation.getPublicId(), Map.of("permissions", sorted(request.permissions()), "includePast", includePast));
         return new MemberDtos.InvitationIssued(invitation.getPublicId(), token, offset(expiresAt));
     }
 
@@ -106,18 +112,23 @@ public class EventGrantService {
     }
 
     public MemberDtos.EventGrantView update(String actorPublicId, String eventPublicId, Long grantId,
-                                            Set<PhotoPermission> permissions) {
+                                            Set<PhotoPermission> permissions, boolean includePast) {
         User actor = user(actorPublicId);
         Event event = eventRepository.findByPublicId(eventPublicId)
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
         EventAccessPolicy.Access access = policy.requireOperation(event, actor.getId(), OperationPermission.INVITE_CUSTOMERS);
         EventGrant grant = grantOf(event, grantId);
         requireCustomerGrant(access, event, grant);
-        requireWithinOwn(access, permissions);
-        grant.replace(permissions);
+        requireWithinOwn(access, permissions, includePast);
+        LocalDateTime now = LocalDateTime.now(clock);
+        // 권한을 더하면 대상의 범위까지 함께 넘기는 셈이다 — 자기 범위를 넘으면 더하지 못한다. 빼는 것은 된다
+        if (!grant.getPermissions().containsAll(permissions) && !access.canShare(grant.photosFromAfter(includePast, now))) {
+            throw new BusinessException(GlobalErrorCode.FORBIDDEN, "자기 사진 범위 밖까지 권한을 넓힐 수 없습니다.");
+        }
+        grant.replace(permissions, includePast, now);
         User target = userRepository.findById(grant.getUserId()).orElseThrow();
         auditLogService.record(actor.getId(), event.getWorkspaceId(), event.getId(), "GRANT_CHANGED", "USER",
-                target.getPublicId(), Map.of("permissions", sorted(permissions)));
+                target.getPublicId(), Map.of("permissions", sorted(permissions), "includePast", includePast));
         return view(grant, target);
     }
 
@@ -166,8 +177,8 @@ public class EventGrantService {
     }
 
     /**
-     * 내가 접근할 수 있는 행사 — 운영하는 공간(OWNER·ADMIN)의 행사, OPERATOR 로 운영 권한(행사·프로젝트)이 있는 행사,
-     * 사진 권한(행사·프로젝트)이 있는 행사. 최신순. access 는 EventAccessPolicy 와 같은 판정이다
+     * 내가 접근할 수 있는 행사 — 운영하는 공간(OWNER·ADMIN)의 행사, 테마를 고칠 수 있는 공간(DESIGNER)의 행사,
+     * OPERATOR 로 운영 권한(행사·프로젝트)이 있는 행사, 사진 권한(행사·프로젝트)이 있는 행사. 최신순. access 는 EventAccessPolicy 와 같은 판정이다
      */
     @Transactional(readOnly = true)
     public List<MemberDtos.MyEvent> myEvents(String actorPublicId) {
@@ -178,7 +189,7 @@ public class EventGrantService {
 
         Map<Long, Event> candidates = new LinkedHashMap<>();
         roles.forEach((workspaceId, role) -> {
-            if (EventAccessPolicy.OPERATOR_ROLES.contains(role) || role == WorkspaceRole.OPERATOR) {
+            if (EventAccessPolicy.OPERATOR_ROLES.contains(role) || role == WorkspaceRole.OPERATOR || role == WorkspaceRole.DESIGNER) {
                 eventRepository.findAllByWorkspaceIdOrderByCreatedAtDesc(workspaceId).forEach(e -> candidates.put(e.getId(), e));
             }
         });
@@ -187,6 +198,8 @@ public class EventGrantService {
         Map<Long, Long> completed = candidates.isEmpty() ? Map.of()
                 : composeJobRepository.countCompletedByEventIds(candidates.keySet(), LocalDateTime.now(clock)).stream()
                 .collect(Collectors.toMap(row -> (Long) row[0], row -> (Long) row[1]));
+        Map<Long, String> workspaceIds = workspaceRepository.findAllById(candidates.values().stream().map(Event::getWorkspaceId).distinct().toList())
+                .stream().collect(Collectors.toMap(Workspace::getId, Workspace::getPublicId));
         return candidates.values().stream()
                 .sorted(Comparator.comparing(Event::getCreatedAt).reversed())
                 .map(e -> Map.entry(e, policy.accessOf(e, actor.getId())))
@@ -195,17 +208,21 @@ public class EventGrantService {
                     EventAccessPolicy.Access access = entry.getValue();
                     Map<String, String> sources = new LinkedHashMap<>();
                     access.sources().forEach((name, source) -> sources.put(name, source.name()));
-                    return new MemberDtos.MyEvent(entry.getKey().getPublicId(), entry.getKey().getName(), entry.getKey().getStatus(),
+                    return new MemberDtos.MyEvent(entry.getKey().getPublicId(), workspaceIds.get(entry.getKey().getWorkspaceId()),
+                            entry.getKey().getName(), entry.getKey().getStatus(),
                             new MemberDtos.MyEvent.Access(access.role(), access.permissions(), access.operations(),
-                                    sources.isEmpty() ? null : sources),
-                            completed.getOrDefault(entry.getKey().getId(), 0L));
+                                    sources.isEmpty() ? null : sources, offset(access.photosFrom())),
+                            access.themeOnly() ? null : access.photosFrom() == null
+                                    ? completed.getOrDefault(entry.getKey().getId(), 0L)
+                                    // 범위 밖 사진 수는 알리지 않는다 — 빈 목록과 어긋나지 않게
+                                    : composeJobRepository.countCompletedSince(entry.getKey().getId(), access.photosFrom(), LocalDateTime.now(clock)));
                 })
                 .toList();
     }
 
-    // OPERATOR 는 자기가 가진 사진 권한 안에서만 고객에게 준다(OWNER·ADMIN 은 제한 없음)
-    private static void requireWithinOwn(EventAccessPolicy.Access access, Set<PhotoPermission> permissions) {
-        if (!access.admin() && !access.permissions().containsAll(permissions)) {
+    // OPERATOR 는 자기가 가진 사진 권한·범위 안에서만 고객에게 준다(OWNER·ADMIN 은 제한 없음)
+    private static void requireWithinOwn(EventAccessPolicy.Access access, Set<PhotoPermission> permissions, boolean includePast) {
+        if (!access.admin() && (!access.permissions().containsAll(permissions) || (includePast && access.photosFrom() != null))) {
             throw new BusinessException(GlobalErrorCode.FORBIDDEN, "자기가 가진 사진 권한 안에서만 줄 수 있습니다.");
         }
     }
@@ -226,7 +243,7 @@ public class EventGrantService {
 
     private MemberDtos.EventGrantView view(EventGrant grant, User user) {
         return new MemberDtos.EventGrantView(grant.getId(), user.getPublicId(), user.getUsername(), grant.getPermissions(),
-                grant.getOperations(), offset(grant.getCreatedAt()));
+                grant.getOperations(), offset(grant.getCreatedAt()), offset(grant.getPhotosFrom()));
     }
 
     private User user(String publicId) {

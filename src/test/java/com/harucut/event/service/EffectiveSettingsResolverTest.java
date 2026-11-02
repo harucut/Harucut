@@ -22,7 +22,7 @@ class EffectiveSettingsResolverTest {
              "consentItems":[{"code":"ws","version":1,"title":"공간 동의","required":true,"body":"b"}],
              "theme":{"colors":{"bg":"#111111","accent":"#222222"},"copy":{"welcome":"공간 환영"},"logoAssetId":"WsLogo"}}""";
     private static final String PROJECT = """
-            {"resultRetentionDays":45,"theme":{"colors":{"bg":"#333333"},"copy":{"done":"프로젝트 완료"}}}""";
+            {"resultRetentionDays":45,"theme":{"colors":{"bg":"#333333"},"copy":{"done":"프로젝트 완료","contact":"프로젝트 문의처"}}}""";
 
     @Test
     @DisplayName("뒤 단계가 이기고 경로마다 출처를 준다 — 테마는 하위 키 단위, 값 없는 경로는 sources 에 없다")
@@ -38,6 +38,8 @@ class EffectiveSettingsResolverTest {
         assertThat(theme.colors().accent()).isEqualTo("#222222");
         assertThat(theme.copy().welcome()).isEqualTo("행사 환영");
         assertThat(theme.copy().done()).isEqualTo("프로젝트 완료");
+        assertThat(theme.copy().contact()).isEqualTo("프로젝트 문의처");
+        assertThat(effective.sources()).containsEntry("theme.copy.contact", Source.PROJECT);
         assertThat(effective.sources()).containsEntry("timezone", Source.WORKSPACE)
                 .containsEntry("resultRetentionDays", Source.PROJECT)
                 .containsEntry("boothEnabled", Source.EVENT)

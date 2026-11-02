@@ -86,11 +86,14 @@ public class EventController {
                     보관된 프로젝트 409 PROJECT-001).
                     `settingsVersion` 이 서버와 다르면 409 `EVENT-005` + `data.currentSettingsVersion`.
                     게시한 행사의 slug 는 바꿀 수 없다.
+                    MANAGE_EVENT 가 필요하다. `EDIT_THEME` 만 있으면(공간 DESIGNER) `theme`·`frames` 만 받고, 다른 키가 하나라도 있으면
+                    아무것도 저장하지 않고 403 `GEN-021` 이다. `theme: null` 도 받는다.
                     """)
     @ApiErrors({
             "EVENT-005: settingsVersion 불일치",
             "EVENT-004: slug 중복",
             "GEN-002: 값이 잘못됐거나 게시 후 slug 변경·다른 공간의 프로젝트",
+            "GEN-021: 이 행사를 고칠 권한이 없거나, 테마 권한으로 theme·frames 밖의 키를 보냈다",
             "PROJECT-001: 보관된 프로젝트",
             "PROJECT-002: 게시한 행사의 프로젝트 변경",
             "GEN-031: 없는 행사이거나 권한이 없다"

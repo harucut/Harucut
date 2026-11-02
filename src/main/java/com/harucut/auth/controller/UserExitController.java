@@ -37,7 +37,7 @@ public class UserExitController {
 
                     이 상태로 로그인하면 로그인 자체는 되지만 일반 API 는 전부 403 이다.
                     """)
-    @ApiErrors("AUTH-020: 계정을 찾을 수 없음")
+    @ApiErrors({"AUTH-020: 계정을 찾을 수 없음", "AUTH-042: 정지된 계정"})
     @DeleteMapping("/exit")
     public ResponseEntity<Response<Void>> exit(@AuthenticationPrincipal AuthenticatedUser principal) {
         userExitService.requestExit(principal.publicId());

@@ -48,7 +48,8 @@ public class TokenController {
     @ApiErrors({
             "GEN-004: refreshToken 쿠키가 아예 없음",
             "AUTH-012: refresh 토큰이 만료됨(14일) — 재로그인",
-            "AUTH-011: refresh 토큰이 아니거나, 서명 불일치, 저장값 불일치, 재사용 감지 — 재로그인"
+            "AUTH-011: refresh 토큰이 아니거나, 서명 불일치, 저장값 불일치, 재사용 감지 — 재로그인",
+            "AUTH-042: 정지된 계정 — 재로그인해도 풀리지 않는다"
     })
     @PostMapping("/reissue")
     public ResponseEntity<Response<Void>> reissue(

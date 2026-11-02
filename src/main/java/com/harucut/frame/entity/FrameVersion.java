@@ -7,7 +7,9 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-// 프레임의 불변 발행본 — 행사 제공본과 이후 합성의 디자인을 고정한다. 수정 API 가 없다 (ADR-0006 §4)
+import java.time.LocalDateTime;
+
+// 프레임의 불변 발행본 — 행사 제공본과 이후 합성의 디자인을 고정한다. 내용을 고치는 API 가 없다 (ADR-0006 §4). 회수 표시만 바뀐다
 @Entity
 @Table(name = "frame_version",
         uniqueConstraints = @UniqueConstraint(name = "uk_frame_version_frame_no", columnNames = {"frame_id", "version_no"}))
@@ -38,6 +40,13 @@ public class FrameVersion extends BaseEntity {
     @Column(name = "created_by_user_id")
     private Long createdByUserId;
 
+    // 긴급 회수 — 게시·접수에서 막는다. 이미 접수한 작업과 결과는 그대로 둔다(R5 L302)
+    @Column(name = "revoked_at")
+    private LocalDateTime revokedAt;
+
+    @Column(name = "revoked_reason", length = 500)
+    private String revokedReason;
+
     private FrameVersion(Long frameId, int versionNo, FrameType frameType, String specJson, Long createdByUserId) {
         this.frameId = frameId;
         this.versionNo = versionNo;
@@ -49,5 +58,9 @@ public class FrameVersion extends BaseEntity {
     public static FrameVersion publish(Long frameId, int versionNo, FrameType frameType, String specJson,
                                        Long createdByUserId) {
         return new FrameVersion(frameId, versionNo, frameType, specJson, createdByUserId);
+    }
+
+    public boolean revoked() {
+        return revokedAt != null;
     }
 }

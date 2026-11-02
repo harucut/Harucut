@@ -83,6 +83,10 @@
   "status" : 400,
   "message" : "The app login code is invalid or expired."
 }, {
+  "code" : "AUTH-042",
+  "status" : 403,
+  "message" : "This account is blocked."
+}, {
   "code" : "AUTH-090",
   "status" : 500,
   "message" : "Failed to send verification email."

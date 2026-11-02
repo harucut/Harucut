@@ -13,6 +13,7 @@ import com.harucut.event.enums.EventStatus;
 import com.harucut.event.repository.EventExperienceVersionRepository;
 import com.harucut.event.repository.EventFrameRepository;
 import com.harucut.event.repository.EventRepository;
+import com.harucut.frame.entity.FrameVersion;
 import com.harucut.frame.repository.FrameRepository;
 import com.harucut.frame.repository.FrameVersionRepository;
 import com.harucut.storage.config.StorageProperties;
@@ -57,7 +58,9 @@ public class PublicEventService {
                 .orElseThrow(PublicEventService::notFound);
         EventExperienceDocument document = objectMapper.readValue(version.getSettingsJson(), EventExperienceDocument.class);
 
+        // 긴급 회수된 발행본은 빠진다 — 다른 프레임으로 대체하지 않아 빈 목록일 수 있다(R5 F32)
         var frames = eventFrameRepository.findAllByExperienceVersionIdOrderBySortOrderAsc(version.getId()).stream()
+                .filter(frame -> frameVersionRepository.findById(frame.getFrameVersionId()).filter(FrameVersion::revoked).isEmpty())
                 .map(frame -> new PublicEventResponse.OfferedFrame(frame.getFrameVersionId(), frame.getLayoutType(),
                         frame.getSortOrder(), frame.isDefault(), previewUrl(frame.getFrameVersionId()), cells(frame.getFrameVersionId())))
                 .toList();

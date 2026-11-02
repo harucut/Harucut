@@ -70,6 +70,7 @@ public class EventService {
 
     private static final Set<WorkspaceRole> OPERATOR_ROLES = Set.of(WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
     // 공간의 행사 목록·행사 만들기를 부를 수 있는 역할 — OPERATOR 는 그 안에서 다시 배정·프로젝트 권한으로 거른다
+    private static final Set<String> THEME_ONLY_KEYS = Set.of("theme", "frames");
     private static final Set<WorkspaceRole> MEMBER_OPERATOR_ROLES = Set.of(WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.OPERATOR);
     private static final Pattern SLUG = Pattern.compile("^[a-z0-9-]{3,40}$");
 
@@ -185,7 +186,8 @@ public class EventService {
     }
 
     public EventResponse patch(String publicId, String eventId, EventPatchRequest request) {
-        Operated operated = operate(publicId, eventId, OperationPermission.MANAGE_EVENT);
+        Operated operated = operate(publicId, eventId, null);
+        requirePatchable(operated.operations(), request.settings());
         Event event = operated.event();
         if (request.settingsVersion() != event.getSettingsVersion()) {
             throw versionConflict(event);
@@ -195,6 +197,20 @@ public class EventService {
         auditLogService.record(operated.user().getId(), event.getWorkspaceId(), event.getId(), "EVENT_SETTINGS_CHANGED",
                 "EVENT", event.getPublicId(), Map.of("fields", request.settings().propertyNames().stream().sorted().toList()));
         return response(flush(event), operated.workspace());
+    }
+
+    // MANAGE_EVENT 면 전부, EDIT_THEME 만 있으면 테마·제공 프레임만(R5 L368). 키 하나라도 벗어나면 아무것도 저장하지 않는다
+    private static void requirePatchable(Set<OperationPermission> operations, ObjectNode settings) {
+        if (operations.contains(OperationPermission.MANAGE_EVENT)) {
+            return;
+        }
+        if (!operations.contains(OperationPermission.EDIT_THEME)) {
+            throw new BusinessException(GlobalErrorCode.FORBIDDEN, "이 행사에 MANAGE_EVENT 권한이 없습니다.");
+        }
+        List<String> outside = settings.propertyNames().stream().filter(name -> !THEME_ONLY_KEYS.contains(name)).sorted().toList();
+        if (!outside.isEmpty()) {
+            throw new BusinessException(GlobalErrorCode.FORBIDDEN, "테마 권한으로는 theme·frames 만 고칠 수 있습니다: " + outside);
+        }
     }
 
     public EventResponse publish(String publicId, String eventId) {
@@ -409,6 +425,9 @@ public class EventService {
                 violations.add(violation(field, "없는 프레임 발행본이다"));
                 continue;
             }
+            if (version.revoked()) {
+                violations.add(violation(field, "긴급 회수된 발행본이다"));
+            }
             if (version.getFrameType() != ref.layoutType()) {
                 violations.add(violation(field, "발행본의 레이아웃(" + version.getFrameType() + ")과 다르다"));
             }
@@ -515,7 +534,7 @@ public class EventService {
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
         EventAccessPolicy.Access access = accessPolicy.requireOperation(event, user.getId(), operation);
         Workspace workspace = workspaceRepository.findById(event.getWorkspaceId()).orElseThrow();
-        return new Operated(user, event, workspace, access.admin());
+        return new Operated(user, event, workspace, access.admin(), access.operations());
     }
 
     private boolean isAdmin(Long workspaceId, Long userId) {
@@ -665,6 +684,6 @@ public class EventService {
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
     }
 
-    private record Operated(User user, Event event, Workspace workspace, boolean admin) {
+    private record Operated(User user, Event event, Workspace workspace, boolean admin, Set<OperationPermission> operations) {
     }
 }

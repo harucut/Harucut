@@ -73,6 +73,10 @@ public class WorkspaceInvitation extends BaseEntity {
     @Column(name = "accepted_at")
     private LocalDateTime acceptedAt;
 
+    // 행사 초대 — 수락하면 과거 사진까지 받는가. 기본은 수락한 뒤 사진만(R5 L347)
+    @Column(name = "include_past", nullable = false)
+    private boolean includePast;
+
     private WorkspaceInvitation(Long workspaceId, Long eventId, InvitationKind kind, WorkspaceRole role,
                                 Set<PhotoPermission> permissions, String email, String note, String tokenHash,
                                 LocalDateTime expiresAt, Long invitedByUserId) {
@@ -98,10 +102,12 @@ public class WorkspaceInvitation extends BaseEntity {
     }
 
     public static WorkspaceInvitation eventCustomer(Long workspaceId, Long eventId, Set<PhotoPermission> permissions,
-                                                    String note, String tokenHash, LocalDateTime expiresAt,
+                                                    boolean includePast, String note, String tokenHash, LocalDateTime expiresAt,
                                                     Long invitedByUserId) {
-        return new WorkspaceInvitation(workspaceId, eventId, InvitationKind.EVENT, null, permissions, null, note,
+        WorkspaceInvitation invitation = new WorkspaceInvitation(workspaceId, eventId, InvitationKind.EVENT, null, permissions, null, note,
                 tokenHash, expiresAt, invitedByUserId);
+        invitation.includePast = includePast;
+        return invitation;
     }
 
     public boolean expiredAt(LocalDateTime now) {

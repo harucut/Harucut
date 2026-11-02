@@ -6,6 +6,7 @@ import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.dto.FrameCreateRequest;
 import com.harucut.frame.dto.FrameResponse;
+import com.harucut.frame.dto.FrameVersionResponse;
 import com.harucut.frame.dto.PickableFrameVersion;
 import com.harucut.frame.enums.ComponentType;
 import com.harucut.frame.enums.FrameType;
@@ -65,6 +66,7 @@ class WorkspaceFrameIntegrationTest {
     @Autowired private UserRepository userRepository;
 
     @Autowired private jakarta.persistence.EntityManager entityManager;
+    @Autowired private com.harucut.audit.repository.AuditLogRepository auditLogRepository;
     @MockitoBean private FileStorageService fileStorageService;
 
     private User owner;
@@ -192,6 +194,59 @@ class WorkspaceFrameIntegrationTest {
         assertThat(pickable.get(0).frameType()).isEqualTo(FrameType.CLASSIC);
         assertThat(pickable.get(1).source()).isEqualTo(PickableFrameVersion.Source.SYSTEM);
         assertNotFound(() -> frameVersionService.pickable(stranger.getPublicId(), org.workspaceId()));
+    }
+
+    @Test
+    @DisplayName("긴급 회수: 고칠 수 있는 역할만, 처음 사유가 남고 감사는 한 번, 최신 발행본이 회수되면 고르기 목록에서 빠지고 이전 발행본으로 내려가지 않는다")
+    void revokeVersion() {
+        FrameResponse frame = create(owner, org.workspaceId(), photo(owner, "a.png"));
+        frameVersionService.publish(owner.getPublicId(), frame.frameId());
+        Long latest = frameVersionService.publish(owner.getPublicId(), frame.frameId()).frameVersionId();
+        FrameResponse system = frameAdminService.createSystemFrame(request(owner, null, null));
+        Long systemVersion = frameVersionService.publishSystem(owner.getPublicId(), system.frameId()).frameVersionId();
+
+        assertThatThrownBy(() -> frameVersionService.revoke(viewer.getPublicId(), frame.frameId(), 2, "x"))
+                .isInstanceOf(BusinessException.class).extracting("errorCode").isEqualTo(GlobalErrorCode.FORBIDDEN);
+        assertNotFound(() -> frameVersionService.revoke(stranger.getPublicId(), frame.frameId(), 2, "x"));
+        assertNotFound(() -> frameVersionService.revoke(owner.getPublicId(), frame.frameId(), 9, "x"));
+        // 시스템 프레임은 사용자 경로로 못 건드린다
+        assertNotFound(() -> frameVersionService.revoke(owner.getPublicId(), system.frameId(), 1, "x"));
+
+        FrameVersionResponse revoked = frameVersionService.revoke(designer.getPublicId(), frame.frameId(), 2, "저작권 문의");
+        assertThat(revoked.frameVersionId()).isEqualTo(latest);
+        assertThat(revoked.revokedAt()).isNotNull();
+        assertThat(frameVersionService.revoke(owner.getPublicId(), frame.frameId(), 2, "다른 사유").revokedReason()).isEqualTo("저작권 문의");
+        assertThat(frameVersionService.list(viewer.getPublicId(), frame.frameId())).extracting(FrameVersionResponse::revokedReason)
+                .containsExactly("저작권 문의", null);
+        assertThat(auditLogRepository.findAll()).filteredOn(log -> log.getAction().equals("FRAME_VERSION_REVOKED")).singleElement()
+                .satisfies(log -> {
+                    assertThat(log.getActorUserId()).isEqualTo(designer.getId());
+                    assertThat(log.getTargetId()).isEqualTo(latest.toString());
+                    assertThat(log.getDetail()).contains("저작권 문의");
+                });
+        assertThat(frameVersionService.pickable(viewer.getPublicId(), org.workspaceId()))
+                .extracting(PickableFrameVersion::frameVersionId).containsExactly(systemVersion);
+
+        // 관리자 경로 — 시스템 발행본도 id 로
+        assertThat(frameVersionService.revokeByAdmin(owner.getPublicId(), systemVersion, "라이선스 만료").revokedAt()).isNotNull();
+        assertThat(frameVersionService.pickable(viewer.getPublicId(), org.workspaceId())).isEmpty();
+        assertThat(frameVersionService.restoreByAdmin(owner.getPublicId(), systemVersion).revokedAt()).isNull();
+        assertNotFound(() -> frameVersionService.revokeByAdmin(owner.getPublicId(), 999_999L, "x"));
+
+        // 시스템 프레임 발행본 목록 — 회수 상태까지. 시스템 프레임이 아니면 FRAME-001
+        frameVersionService.revokeByAdmin(owner.getPublicId(), systemVersion, "라이선스 만료");
+        assertThat(frameVersionService.listSystem(system.frameId())).singleElement()
+                .satisfies(version -> assertThat(version.revokedReason()).isEqualTo("라이선스 만료"));
+        frameVersionService.restoreByAdmin(owner.getPublicId(), systemVersion);
+        assertThatThrownBy(() -> frameVersionService.listSystem(frame.frameId()))
+                .isInstanceOf(BusinessException.class).extracting("errorCode").isEqualTo(com.harucut.frame.exception.FrameErrorCode.SYSTEM_FRAME_NOT_FOUND);
+
+        // 해제하면 사유도 지워지고 고르기 목록으로 돌아온다
+        assertThat(frameVersionService.restore(designer.getPublicId(), frame.frameId(), 2).revokedReason()).isNull();
+        assertThat(frameVersionService.pickable(viewer.getPublicId(), org.workspaceId()))
+                .extracting(PickableFrameVersion::frameVersionId).containsExactly(latest, systemVersion);
+        assertThat(frameVersionService.restore(designer.getPublicId(), frame.frameId(), 2).revokedAt()).isNull();
+        assertThat(auditLogRepository.findAll()).filteredOn(log -> log.getAction().equals("FRAME_VERSION_RESTORED")).hasSize(3);
     }
 
     // ── fixtures ──────────────────────────────

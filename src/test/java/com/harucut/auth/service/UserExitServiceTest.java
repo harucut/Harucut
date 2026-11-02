@@ -83,7 +83,7 @@ class UserExitServiceTest {
         @Test
         @DisplayName("상태가 DELETED_REQUESTED가 되고 요청 시각이 기록된다")
         void marksDeleteRequested() {
-            User user = givenActiveUser();
+            User user = givenActiveUserLocked();
 
             service.requestExit(PUBLIC_ID);
 
@@ -94,7 +94,7 @@ class UserExitServiceTest {
         @Test
         @DisplayName("조직 공간의 마지막 OWNER 면 MEMBER-004 — 탈퇴 상태로 넘어가지 않는다(R5 L561)")
         void lastOwnerCannotExit() {
-            User user = givenActiveUser();
+            User user = givenActiveUserLocked();
             org.mockito.BDDMockito.willThrow(new com.harucut.common.exception.BusinessException(com.harucut.workspace.exception.MemberErrorCode.LAST_OWNER))
                     .given(workspaceService).requireNotLastOwner(user.getId());
 
@@ -106,9 +106,23 @@ class UserExitServiceTest {
         }
 
         @Test
+        @DisplayName("정지 계정은 탈퇴 요청으로 정지를 벗어나지 못한다 — 살아 있는 access 토큰이어도 AUTH-042")
+        void blockedCannotRequestExit() {
+            User user = givenActiveUserLocked();
+            user.block();
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.requestExit(PUBLIC_ID))
+                    .isInstanceOf(com.harucut.common.exception.BusinessException.class)
+                    .extracting("errorCode").isEqualTo(com.harucut.auth.exception.AuthErrorCode.ACCOUNT_BLOCKED);
+
+            assertThat(user.getUserStatus()).isEqualTo(UserStatus.BLOCKED);
+            then(refreshTokenService).shouldHaveNoInteractions();
+        }
+
+        @Test
         @DisplayName("refresh 토큰이 삭제된다")
         void revokesRefreshToken() {
-            givenActiveUser();
+            givenActiveUserLocked();
 
             service.requestExit(PUBLIC_ID);
 
@@ -118,7 +132,7 @@ class UserExitServiceTest {
         @Test
         @DisplayName("없는 사용자는 AUTH-020이고 토큰을 건드리지 않는다")
         void unknownUser() {
-            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.empty());
+            given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.requestExit(PUBLIC_ID))
                     .isInstanceOf(BusinessException.class)
@@ -330,6 +344,13 @@ class UserExitServiceTest {
             given(userRepository.findById(userId)).willReturn(Optional.of(user));
             return user;
         }
+    }
+
+    // 탈퇴 요청은 잠금 읽기로 시작한다
+    private User givenActiveUserLocked() {
+        User user = UserFixtures.localUser("exit@harucut.com", "encoded");
+        given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
+        return user;
     }
 
     private User givenActiveUser() {

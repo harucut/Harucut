@@ -88,9 +88,10 @@ public class ExportService {
 
     public ExportDtos.Export create(String actorPublicId, String eventPublicId, ExportDtos.ExportRequest request) {
         Long actorId = userId(actorPublicId);
-        Event event = policy.requirePhoto(actorId, eventPublicId, PhotoPermission.BULK_DOWNLOAD);
+        EventAccessPolicy.PhotoScope scope = policy.requirePhotoScope(actorId, eventPublicId, PhotoPermission.BULK_DOWNLOAD);
+        Event event = scope.event();
         entitlementService.requireFeature(event, Feature.BULK_DOWNLOAD);   // 계약 기능 — 없으면 403 ENT-004
-        List<ComposeJob> targets = targets(event, request);
+        List<ComposeJob> targets = targets(scope, request);
         if (targets.isEmpty() || targets.size() > maxPhotos) {
             throw new BusinessException(ExportErrorCode.INVALID_SELECTION,
                     "묶을 사진 " + targets.size() + "장 — 1장 이상 " + maxPhotos + "장 이하여야 합니다.");
@@ -121,13 +122,14 @@ public class ExportService {
     }
 
     /**
-     * 수령 — 권한·상태·기한·담긴 사진을 다시 본다. 무효면 그 자리에서 EXPIRED 로 바꾸고 객체를 지운 뒤 410.
+     * 수령 — 권한·상태·기한·담긴 사진·지금 사진 범위를 다시 본다. 무효면 그 자리에서 EXPIRED 로 바꾸고 객체를 지운 뒤 410.
      * 그 변경이 예외로 롤백되지 않게 BusinessException 으로 롤백하지 않는다(판정 전에는 아무것도 쓰지 않는다).
      */
     @Transactional(noRollbackFor = BusinessException.class)
     public DownloadUrlResponse download(String actorPublicId, String eventPublicId, String exportPublicId) {
         Long actorId = userId(actorPublicId);
-        Event event = policy.requirePhoto(actorId, eventPublicId, PhotoPermission.BULK_DOWNLOAD);
+        EventAccessPolicy.PhotoScope scope = policy.requirePhotoScope(actorId, eventPublicId, PhotoPermission.BULK_DOWNLOAD);
+        Event event = scope.event();
         ExportJob export = own(event, actorId, exportPublicId);
         switch (export.getStatus()) {
             case PENDING, RUNNING -> throw new BusinessException(ExportErrorCode.NOT_READY);
@@ -136,7 +138,7 @@ public class ExportService {
             }
         }
         LocalDateTime now = LocalDateTime.now(clock);
-        if (!now.isBefore(export.getExpiresAt()) || itemRepository.containsUnavailable(export.getId(), now)) {
+        if (!now.isBefore(export.getExpiresAt()) || itemRepository.containsUnavailable(export.getId(), now) || outOfScope(export, scope)) {
             expire(export);
             throw new BusinessException(ExportErrorCode.GONE);
         }
@@ -153,17 +155,23 @@ public class ExportService {
         exportJobRepository.findLiveContaining(composeJobId).forEach(this::expire);
     }
 
+    // 묶음을 만든 뒤 범위가 좁아졌을 수 있다(권한 회수 뒤 기본 초대 재수락 등) — 지금 범위 밖 사진이 담겼으면 받지 못한다
+    boolean outOfScope(ExportJob export, EventAccessPolicy.PhotoScope scope) {
+        return scope.photosFrom() != null && itemRepository.containsBefore(export.getId(), scope.event().getId(), scope.photosFrom());
+    }
+
     void expire(ExportJob export) {
         if (exportJobRepository.expire(export.getId(), LocalDateTime.now(clock)) == 1) {
             s3Deleter.deleteAfterCommit(List.of(export.getS3Key()));
         }
     }
 
-    private List<ComposeJob> targets(Event event, ExportDtos.ExportRequest request) {
+    private List<ComposeJob> targets(EventAccessPolicy.PhotoScope scope, ExportDtos.ExportRequest request) {
+        Event event = scope.event();
         // photoIds 를 보냈으면(빈 목록 포함) 명시 선택이다 — 빈 목록이 필터·전체로 떨어지면 안 된다(빈 선택은 EXPORT-003)
         if (request.photoIds() != null) {
             Map<Long, ComposeJob> found = composeJobRepository.findAllById(request.photoIds()).stream()
-                    .filter(job -> event.getId().equals(job.getEventId()) && usable(job))
+                    .filter(job -> event.getId().equals(job.getEventId()) && usable(job) && scope.covers(job.getCreatedAt()))
                     .collect(Collectors.toMap(ComposeJob::getId, Function.identity()));
             // 요청 순서를 지키고, 이 행사의 완성 사진이 아닌 id 는 조용히 뺀다
             return request.photoIds().stream().distinct().map(found::get).filter(Objects::nonNull).toList();
@@ -171,7 +179,7 @@ public class ExportService {
         ExportDtos.ExportFilter filter = request.filter();
         List<Object[]> rows = composeJobRepository.findEventPhotos(event.getId(), LocalDateTime.now(clock), ComposeStatus.DONE,
                 filter == null ? null : filter.channel(), filter == null ? null : filter.frameVersionId(),
-                filter == null ? null : local(filter.from()), filter == null ? null : local(filter.to()),
+                scope.from(filter == null ? null : local(filter.from())), filter == null ? null : local(filter.to()),
                 null, null, PageRequest.of(0, maxPhotos + 1));
         List<ComposeJob> jobs = new ArrayList<>();
         rows.forEach(row -> jobs.add((ComposeJob) row[0]));
@@ -203,8 +211,8 @@ public class ExportService {
     }
 
     /** 행사의 묶을 수 있는 완성 사진 전부(최대 maxPhotos + 1 장) — 여러 행사 묶음이 행사마다 부른다 */
-    List<ComposeJob> visiblePhotos(Event event) {
-        return targets(event, new ExportDtos.ExportRequest(null, null));
+    List<ComposeJob> visiblePhotos(EventAccessPolicy.PhotoScope scope) {
+        return targets(scope, new ExportDtos.ExportRequest(null, null));
     }
 
     int maxPhotos() {

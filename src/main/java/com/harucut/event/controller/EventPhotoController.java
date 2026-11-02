@@ -8,16 +8,19 @@ import com.harucut.event.service.PhotoService;
 import com.harucut.media.enums.ComposeStatus;
 import com.harucut.participant.enums.ParticipantChannel;
 import com.harucut.result.dto.DownloadUrlResponse;
+import com.harucut.result.dto.ResultAccessRevokeResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,6 +38,7 @@ public class EventPhotoController {
     @Operation(summary = "사진함",
             description = """
                     그 행사의 VIEW_PHOTOS 권한. 최신순 커서(limit 기본 30, 최대 100). 삭제 요청된 사진은 없다.
+                    사진 범위가 제한된 수신자(`photosFrom`)에게는 그 시각 전 사진이 없는 것처럼 보인다 — 다운로드·삭제·회수·묶음도 같다(404).
                     thumbnailUrl 은 5분 — 이미지가 깨지면 목록을 다시 받는다. 행사를 볼 수 없으면 404, 볼 수는 있지만 권한이 없으면 403 PHOTO-001.
                     """)
     @ApiErrors({"PHOTO-001: 사진 열람 권한 없음", "GEN-002: 잘못된 커서", "GEN-031: 없는 행사이거나 볼 수 없다"})
@@ -71,5 +75,19 @@ public class EventPhotoController {
                                  @Parameter(description = "사진 id") @PathVariable Long photoId) {
         photoService.delete(principal.publicId(), eventId, photoId);
         return Response.ok();
+    }
+
+    @Operation(summary = "사진의 결과 링크 전부 회수",
+            description = """
+                    DELETE_PHOTOS. 링크를 골라 끊지는 못한다. 회수한 링크는 401 `RESULT-001`.
+                    사진은 지우지 않는다. 사유는 감사 기록에 남는다.
+                    """)
+    @ApiErrors({"PHOTO-001: 회수 권한 없음", "GEN-003: 사유가 없거나 500자를 넘는다", "GEN-031: 없는 행사·사진이거나 볼 수 없다"})
+    @PostMapping("/{photoId}/result-access/revoke")
+    public Response<ResultAccessRevokeResponse> revokeResultAccess(@AuthenticationPrincipal AuthenticatedUser principal,
+                                                                   @Parameter(description = "행사 public id") @PathVariable String eventId,
+                                                                   @Parameter(description = "사진 id") @PathVariable Long photoId,
+                                                                   @RequestBody @Valid PhotoDtos.ResultAccessRevokeRequest request) {
+        return Response.ok(photoService.revokeResultAccess(principal.publicId(), eventId, photoId, request.reason()));
     }
 }

@@ -38,7 +38,8 @@ public record PageTheme(
     @Schema(name = "PageThemeCopy", description = "화면별 문구, 각 200자 이내 일반 텍스트(HTML 아님). 빠지면 FE 기본 문구. 부스 대기 화면은 welcome")
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Copy(String welcome, String consentIntro, String captureGuide, String composing, String done,
-                       String expired, String closed, String error) {
+                       String expired, String closed, String error,
+                       @Schema(description = "문의처 — 결과·종료 화면에 보여 준다(R5 L774)", example = "웨딩홀 1588-0000") String contact) {
     }
 
     @Schema(name = "PageThemeBranding")

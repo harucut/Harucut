@@ -187,6 +187,8 @@ AuthStatusController       @AuthenticationPrincipal CustomUserPrincipal
 | `DELETED_REQUESTED` | `ROLE_DELETED_REQUESTED` **하나만** |
 | `BLOCKED`, `DELETED` | 빈 목록 |
 
+정지(`BLOCKED`) 계정의 로그인·재발급·앱 코드 교환은 403 `AUTH-042` 다. 소셜 로그인은 리다이렉트라 본문을 줄 수 없어, 상태 조회만 되는 access 쿠키만 주고 refresh 세션은 만들지 않는다.
+
 `DELETED_REQUESTED`가 `ROLE_USER`를 잃는 이유는 **fail-closed**다.
 새 API를 만들 때마다 "탈퇴 요청한 사람 막아야지"를 기억할 필요 없이, 기본이 차단이고 허용할 것만 명시한다.
 `ROLE_USER`를 유지한 채 `ROLE_DELETED_REQUESTED`만 추가했다면 반대가 된다 — 기본이 허용이고, 막을 곳을 하나하나 기억해야 한다.

@@ -347,7 +347,7 @@ class ComposeServiceTest {
             // 확장자는 s3Key에서 파생된다(DisplayNames) — 결과물이 .jpg가 되면 표시 이름도 따라온다
             assertThat(captor.getValue().getDisplayName()).isEqualTo("harucut_20260720_100000.jpg");
             then(composeJobRepository).should().attachMedia(JOB_ID, 42L);
-            then(s3Deleter).should().deleteAfterCommit(SOURCE_KEYS);
+            then(s3Deleter).should().deleteAfterCommit(SOURCE_KEYS, ComposeService.INPUT_PUT_WINDOW);
             // 개인 작업 완료 푸시 — 전이를 이긴 이 트랜잭션에서만
             then(eventPublisher).should().publishEvent(new PushRequestedEvent(1L, PushMessage.composeDone(JOB_ID)));
         }
@@ -389,7 +389,7 @@ class ComposeServiceTest {
             given(composeJobRepository.findById(999L)).willReturn(Optional.empty());
 
             assertThat(composeService.failJob(JOB_ID, "원본을 읽을 수 없다")).isTrue();
-            then(s3Deleter).should().deleteAfterCommit(SOURCE_KEYS);
+            then(s3Deleter).should().deleteAfterCommit(SOURCE_KEYS, ComposeService.INPUT_PUT_WINDOW);
             // 실패한 작업의 결과·썸네일 자리는 지금 한 번, 늦은 실행이 쓸 수 있는 기간 뒤 한 번 더 지운다(R5 D09)
             then(s3Deleter).should().deleteAfterCommit(List.of(RESULT_KEY, THUMB_KEY), ComposeService.LATE_WRITE_WINDOW);
             then(eventPublisher).should().publishEvent(

@@ -1,5 +1,6 @@
 package com.harucut.frame.entity;
 
+import org.hibernate.annotations.OptimisticLock;
 import com.harucut.common.entity.BaseEntity;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.cell.PhotoCell;
@@ -82,6 +83,8 @@ public class Frame extends BaseEntity {
     @Column(nullable = false)
     private Long version;
 
+    // mappedBy 컬렉션은 기본으로 낙관적 잠금에서 빠진다 — 컴포넌트만 바뀐 저장도 version 이 올라야 두 기기 편집이 충돌로 잡힌다(R5 L258, F16)
+    @OptimisticLock(excluded = false)
     @OneToMany(mappedBy = "frame", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<FrameComponent> components = new ArrayList<>();
 

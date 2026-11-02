@@ -1,6 +1,7 @@
 package com.harucut.frame.workspace;
 
 import com.harucut.common.exception.BusinessException;
+import com.harucut.frame.exception.FrameErrorCode;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.dto.FrameCreateRequest;
@@ -63,6 +64,7 @@ class WorkspaceFrameIntegrationTest {
     @Autowired private WorkspaceMembershipRepository membershipRepository;
     @Autowired private UserRepository userRepository;
 
+    @Autowired private jakarta.persistence.EntityManager entityManager;
     @MockitoBean private FileStorageService fileStorageService;
 
     private User owner;
@@ -124,6 +126,26 @@ class WorkspaceFrameIntegrationTest {
 
         frameService.deleteFrame(designer.getPublicId(), frame.frameId());
         assertThat(frameRepository.findById(frame.frameId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("컴포넌트만 바꿔 저장해도 version 이 오른다(R5 L258, F16) — 다른 기기의 옛 version 저장은 FRAME-002")
+    void componentOnlySaveBumpsVersion() {
+        // 첫 저장으로 값 정규화를 끝낸 뒤 — 이 뒤의 저장은 컴포넌트 말고 바뀌는 칸이 없다
+        FrameResponse created = create(owner, org.workspaceId(), photo(owner, "a.png"));
+        FrameResponse frame = frameService.updateFrame(owner.getPublicId(), created.frameId(),
+                request(owner, org.workspaceId(), created.version(), photo(owner, "a.png")));
+        entityManager.flush();
+        entityManager.clear();
+
+        FrameResponse saved = frameService.updateFrame(owner.getPublicId(), frame.frameId(),
+                request(owner, org.workspaceId(), frame.version(), photo(owner, "a.png"), photo(owner, "b.png")));
+
+        assertThat(saved.version()).isGreaterThan(frame.version());
+        assertThatThrownBy(() -> frameService.updateFrame(owner.getPublicId(), frame.frameId(),
+                request(owner, org.workspaceId(), frame.version(), photo(owner, "c.png"))))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(FrameErrorCode.VERSION_CONFLICT);
     }
 
     @Test

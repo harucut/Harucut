@@ -48,6 +48,8 @@ public class EventCredentialFilter extends OncePerRequestFilter {
     public static final String BOOTH_HEADER = "X-Booth-Token";
     /** 틀린 결과 토큰이 같은 IP 에서 너무 잦을 때 표시 — 진입점이 401 대신 429 를 쓴다 */
     static final String RATE_LIMITED = EventCredentialFilter.class.getName() + ".RATE_LIMITED";
+    // 공유 IP 가 많아 IP 별 상한만으로는 분산 대입을 못 막는다(R5 O42) — 서비스 전체 상한을 함께 쓴다
+    private static final int GLOBAL_LIMIT_FACTOR = 10;
     private static final Duration RATE_WINDOW = Duration.ofMinutes(1);
     private static final String BEARER = "Bearer ";
 
@@ -90,7 +92,8 @@ public class EventCredentialFilter extends OncePerRequestFilter {
             authentication = resultAccess(header);
             // 토큰을 냈는데 틀렸다 — 같은 IP 의 틀린 시도를 센다(ADR-0007 §10). 토큰이 없는 요청은 세지 않는다
             if (authentication.isEmpty() && header != null
-                    && !rateLimiter.tryAcquire("result-token-miss", clientIpResolver.resolve(request), missesPerMinute, RATE_WINDOW)) {
+                    && (!rateLimiter.tryAcquire("result-token-miss", clientIpResolver.resolve(request), missesPerMinute, RATE_WINDOW)
+                    || !rateLimiter.tryAcquire("result-token-miss-all", "all", missesPerMinute * GLOBAL_LIMIT_FACTOR, RATE_WINDOW))) {
                 request.setAttribute(RATE_LIMITED, Boolean.TRUE);
             }
         } else if (path.startsWith("/api/booth/")) {

@@ -1,5 +1,9 @@
 package com.harucut.participant;
 
+import com.harucut.entitlement.enums.Feature;
+import com.harucut.event.service.EventFeatures;
+import com.harucut.participant.config.ParticipationProperties;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import com.harucut.config.RateLimiter;
 import com.harucut.event.batch.EventRetentionService;
 import com.harucut.event.dto.EventPatchRequest;
@@ -96,7 +100,10 @@ class ParticipantFlowIntegrationTest {
 
     @MockitoBean private FileStorageService fileStorageService;
     @MockitoBean private RateLimiter rateLimiter;
+    @MockitoSpyBean private ParticipationProperties participationProperties;
+    @MockitoSpyBean private EventFeatures eventFeatures;
 
+    private String operatorPublicId;
     private String slug;
     private String eventId;
     private Long frameVersionId;
@@ -114,6 +121,7 @@ class ParticipantFlowIntegrationTest {
         given(fileStorageService.downloadBytes(anyString())).willReturn(png);
 
         User operator = userRepository.save(User.localUser("op@harucut.com", "encoded", "운영자"));
+        operatorPublicId = operator.getPublicId();
         WorkspaceResponse org = workspaceService.createOrganization(operator.getPublicId(), "웨딩팀");
         TestEntitlements.grant(entitlementRepository, workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId());
         Long frameId = frameService.createFrame(operator.getPublicId(), new FrameCreateRequest("프레임", null,
@@ -290,6 +298,107 @@ class ParticipantFlowIntegrationTest {
     }
 
     @Test
+    @DisplayName("중지·종료된 행사에는 새 업로드 허가도 완료도 없다(R5 L302) — 이미 발급한 URL 의 업로드를 완료시키지 않는다")
+    void stoppedEventBlocksUploads() throws Exception {
+        String token = activeParticipant();
+        String runId = run(token);
+        String assetId = intent(token, runId, 0);
+
+        entityManager.flush();
+        jdbcTemplate.update("update event set status = 'ARCHIVED', archived_at = ? where public_id = ?", LocalDateTime.now(), eventId);
+        entityManager.clear();
+
+        assertCode(post("/api/participant/events/" + eventId + "/upload-intents", token,
+                Map.of("captureRunId", runId, "slotIndex", 1, "contentType", "PNG", "fileSize", png.length)), 409, "EVENT-001");
+        assertCode(mvc.post().uri("/api/participant/assets/{id}/complete", assetId).header(TOKEN_HEADER, token).exchange(), 409, "EVENT-001");
+    }
+
+    @Test
+    @DisplayName("끝난 회차의 늦은 업로드는 완료시키지 않는다(PART-003) — 이미 판정된 입력의 재확인은 그대로 답한다")
+    void endedRunBlocksCompletion() throws Exception {
+        String token = activeParticipant();
+        String runId = run(token);
+        String done = intent(token, runId, 0);
+        ok(mvc.post().uri("/api/participant/assets/{id}/complete", done).header(TOKEN_HEADER, token).exchange());
+        String late = intent(token, runId, 1);
+
+        entityManager.flush();
+        jdbcTemplate.update("update capture_run set expires_at = ? where public_id = ?", LocalDateTime.now().minusMinutes(1), runId);
+        entityManager.clear();
+
+        assertCode(mvc.post().uri("/api/participant/assets/{id}/complete", late).header(TOKEN_HEADER, token).exchange(), 409, "PART-003");
+        assertThat(ok(mvc.post().uri("/api/participant/assets/{id}/complete", done).header(TOKEN_HEADER, token).exchange())
+                .path("status").asString()).isEqualTo("VERIFIED");
+    }
+
+    @Test
+    @DisplayName("재게시로 새 필수 동의가 생기면 ACTIVE 세션도 제한된다(R5 L545) — 세션 화면이 RESTRICTED 로 보여 주고, 동의하면 풀린다")
+    void newRequiredConsentRestrictsActiveSession() throws Exception {
+        String token = activeParticipant();
+
+        entityManager.flush();
+        Integer version = jdbcTemplate.queryForObject("select settings_version from event where public_id = ?", Integer.class, eventId);
+        eventService.patch(operatorPublicId, eventId, new EventPatchRequest(version, objectMapper.valueToTree(Map.of(
+                "consentItems", List.of(
+                        Map.of("code", "photo-collection", "version", 1, "title", "사진 수집 동의", "required", true, "body", "신랑신부가 사진을 받습니다."),
+                        Map.of("code", "marketing", "version", 1, "title", "홍보 활용", "required", true, "body", "홍보에 씁니다."))))));
+        eventService.publish(operatorPublicId, eventId);
+
+        assertCode(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId).header(TOKEN_HEADER, token).exchange(), 403, "PART-002");
+        JsonNode session = ok(mvc.get().uri("/api/participant/session").header(TOKEN_HEADER, token).exchange());
+        assertThat(session.path("status").asString()).isEqualTo("RESTRICTED");
+        assertThat(session.path("pendingConsents").get(0).path("code").asString()).isEqualTo("marketing");
+
+        ok(post("/api/participant/events/" + eventId + "/consents", token,
+                Map.of("items", List.of(Map.of("code", "marketing", "version", 1, "decision", "AGREED")))));
+        run(token);
+    }
+
+    @Test
+    @DisplayName("접수 중단 스위치(R5 L694) — 새 세션을 막고, 이미 있는 세션의 조회는 그대로다")
+    void acceptSwitchStopsNewWork() throws Exception {
+        String token = activeParticipant();
+        given(participationProperties.acceptEnabled()).willReturn(false);
+
+        assertCode(mvc.post().uri("/api/public/events/{slug}/sessions", slug)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"channel\":\"BYOD\"}").exchange(), 409, "EVENT-001");
+        assertCode(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId).header(TOKEN_HEADER, token).exchange(), 409, "EVENT-001");
+        ok(mvc.get().uri("/api/participant/session").header(TOKEN_HEADER, token).exchange());
+    }
+
+    @Test
+    @DisplayName("세션 하나의 남용 상한(R5 L675) — 회차당 묶이지 않은 입력 16개, 회차·업로드 발급은 분당 상한")
+    void sessionAbuseLimits() throws Exception {
+        String token = activeParticipant();
+        String runId = run(token);
+        for (int i = 0; i < 16; i++) {
+            intent(token, runId, 0);
+        }
+        Map<String, Object> intent = Map.of("captureRunId", runId, "slotIndex", 0, "contentType", "PNG", "fileSize", png.length);
+        assertCode(post("/api/participant/events/" + eventId + "/upload-intents", token, intent), 429, "GEN-061");
+
+        given(rateLimiter.tryAcquire(eq("capture-run"), anyString(), anyInt(), any())).willReturn(false);
+        assertCode(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId).header(TOKEN_HEADER, token).exchange(), 429, "GEN-061");
+    }
+
+    @Test
+    @DisplayName("이용권의 디자인 기능이 회수되면 새 회차를 막는다(R5 L781, O32) — ENT-004")
+    void revokedFeatureBlocksNewRun() throws Exception {
+        org.mockito.BDDMockito.willReturn(true).given(eventFeatures).allows(any(), eq(Feature.CUSTOM_THEME));
+        entityManager.flush();
+        Integer version = jdbcTemplate.queryForObject("select settings_version from event where public_id = ?", Integer.class, eventId);
+        eventService.patch(operatorPublicId, eventId, new EventPatchRequest(version, objectMapper.valueToTree(Map.of(
+                "theme", Map.of("colors", Map.of("accent", "#112233"))))));
+        eventService.publish(operatorPublicId, eventId);
+        String token = activeParticipant();
+        run(token);
+
+        org.mockito.BDDMockito.willReturn(false).given(eventFeatures).allows(any(), eq(Feature.CUSTOM_THEME));
+
+        assertCode(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId).header(TOKEN_HEADER, token).exchange(), 403, "ENT-004");
+    }
+
+    @Test
     @DisplayName("보관 종료된 행사에는 합성을 접수하지 않는다 — 촬영 열림을 잠금으로 다시 읽은 값으로 본다")
     void composeRejectedAfterArchive() throws Exception {
         String token = activeParticipant();
@@ -355,6 +464,17 @@ class ParticipantFlowIntegrationTest {
     }
 
     // ── helpers ──────────────────────────────
+
+    private String run(String token) {
+        return data(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId)
+                .header(TOKEN_HEADER, token).exchange(), 201).path("captureRunId").asString();
+    }
+
+    private String intent(String token, String runId, int slot) {
+        return data(post("/api/participant/events/" + eventId + "/upload-intents", token,
+                Map.of("captureRunId", runId, "slotIndex", slot, "contentType", "PNG", "fileSize", png.length)), 201)
+                .path("assetId").asString();
+    }
 
     // 세션 발급 + 필수 동의 → ACTIVE 참가자 토큰
     private String activeParticipant() {

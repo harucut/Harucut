@@ -32,6 +32,7 @@ public class UserExitService {
     @Transactional
     public void requestExit(String publicId) {
         User user = findUser(publicId);
+        workspaceService.requireNotLastOwner(user.getId());
         user.deleteRequested(LocalDateTime.now(clock));
         refreshTokenService.revokeAll(publicId);
     }

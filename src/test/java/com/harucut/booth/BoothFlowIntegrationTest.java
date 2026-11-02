@@ -55,6 +55,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -89,6 +90,9 @@ class BoothFlowIntegrationTest {
     @Autowired private WorkspaceRepository workspaceRepository;
 
     @MockitoBean private FileStorageService fileStorageService;
+    @Autowired private com.harucut.asset.repository.AssetRepository assetRepository;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+    @Autowired private jakarta.persistence.EntityManager entityManager;
     @MockitoBean private RateLimiter rateLimiter;
 
     private User operator;
@@ -189,6 +193,65 @@ class BoothFlowIntegrationTest {
         // 다음 손님은 회차를 열 수 있다
         assertThat(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId)
                 .header(PARTICIPANT, other).exchange()).hasStatus(201);
+    }
+
+    @Test
+    @DisplayName("회차를 닫으면 묶이지 않은 입력을 치운다(R5 L223) — 행이 사라져 늦은 완료가 되살리지 못하고, 다음 손님은 이전 회차 작업을 못 본다")
+    void closeDiscardsUnboundInputs() {
+        String boothToken = data(redeem(boothDeviceService.create(operator.getPublicId(), eventId, "부스").pairingCode()), 200)
+                .path("boothToken").asString();
+        String guest = nextGuest(boothToken);
+        String runId = data(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId)
+                .header(PARTICIPANT, guest).exchange(), 201).path("captureRunId").asString();
+        String unbound = data(post("/api/participant/events/" + eventId + "/upload-intents", guest,
+                Map.of("captureRunId", runId, "slotIndex", 0, "contentType", "PNG", "fileSize", png.length)), 201)
+                .path("assetId").asString();
+
+        data(mvc.post().uri("/api/booth/capture-runs/{id}/close", runId).header(BOOTH, boothToken)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"stateVersion\":1}").exchange(), 200);
+
+        assertThat(assetRepository.findByPublicId(unbound)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("부스 세션은 기기의 지금 회차 작업만 본다(R5 L604, O25) — 만료된 회차를 다음 손님이 비우면 떠난 손님의 세션도 끝난다")
+    void boothSeesOnlyCurrentRunJob() {
+        String boothToken = data(redeem(boothDeviceService.create(operator.getPublicId(), eventId, "부스").pairingCode()), 200)
+                .path("boothToken").asString();
+        String left = nextGuest(boothToken);
+        String runId = data(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId)
+                .header(PARTICIPANT, left).exchange(), 201).path("captureRunId").asString();
+        long jobId = compose(left, runId);
+        assertThat(mvc.get().uri("/api/participant/compose-jobs/{id}", jobId).header(PARTICIPANT, left).exchange()).hasStatus(200);
+
+        entityManager.flush();
+        jdbcTemplate.update("update capture_run set expires_at = ? where public_id = ?", java.time.LocalDateTime.now().minusMinutes(1), runId);
+        entityManager.clear();
+        assertThat(mvc.get().uri("/api/participant/compose-jobs/{id}", jobId).header(PARTICIPANT, left).exchange()).hasStatus(404);
+
+        String next = nextGuest(boothToken);
+        assertThat(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId).header(PARTICIPANT, next).exchange()).hasStatus(201);
+        assertCode(mvc.get().uri("/api/participant/session").header(PARTICIPANT, left).exchange(), 401, "PART-001");
+    }
+
+    @Test
+    @DisplayName("연결 성공·잠금은 감사 기록에 남는다(R5 O29) — 서비스 전체 상한을 넘으면 429")
+    void pairingIsAudited() {
+        String code = boothDeviceService.create(operator.getPublicId(), eventId, "부스").pairingCode();
+        data(redeem(code), 200);
+        Integer paired = jdbcTemplate.queryForObject("select count(*) from audit_log where action = 'BOOTH_PAIRED'", Integer.class);
+        assertThat(paired).isEqualTo(1);
+
+        String locked = boothDeviceService.create(operator.getPublicId(), eventId, "부스2").pairingCode();
+        String wrong = locked.substring(0, 5) + flip(locked.substring(5));
+        for (int i = 0; i < 5; i++) {
+            redeem(wrong);
+        }
+        Integer lockouts = jdbcTemplate.queryForObject("select count(*) from audit_log where action = 'BOOTH_PAIRING_LOCKED'", Integer.class);
+        assertThat(lockouts).isEqualTo(1);
+
+        given(rateLimiter.tryAcquire(eq("booth-pairing-all"), anyString(), anyInt(), any())).willReturn(false);
+        assertCode(redeem("2222-2222"), 429, "GEN-061");
     }
 
     @Test

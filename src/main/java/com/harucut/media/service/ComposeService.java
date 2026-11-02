@@ -70,6 +70,9 @@ public class ComposeService {
     // 그 자리에 쓸 수 있는 동안. 실패 확정 때 한 번, 이 시간 뒤 한 번 더 지운다(R5 D09 지연 재삭제)
     public static final Duration LATE_WRITE_WINDOW = Duration.ofHours(6).plusMinutes(30);
 
+    // 입력을 지운 뒤 다시 지우기까지 — 조건부 PUT 도 지운 key 에는 다시 쓸 수 있고, 개인 원본 PUT URL 은 24시간 유효하다(R5 L679)
+    static final Duration INPUT_PUT_WINDOW = Duration.ofHours(24).plusMinutes(30);
+
     // ComposeJob.spec_json 컬럼 길이와 같아야 한다
     private static final int SPEC_JSON_MAX_CHARS = 8000;
 
@@ -222,7 +225,7 @@ public class ComposeService {
         }
         // 원본은 성공 시 삭제 — 결과만 보관함에 남는다.
         // 원본은 합성 재료일 뿐 사용자의 보관 대상이 아니라 저장 비용만 먹는다
-        s3Deleter.deleteAfterCommit(job.inputKeys());
+        s3Deleter.deleteAfterCommit(job.inputKeys(), INPUT_PUT_WINDOW);
         return true;
     }
 
@@ -258,7 +261,7 @@ public class ComposeService {
             eventPublisher.publishEvent(new PushRequestedEvent(job.get().getUser().getId(),
                     PushMessage.composeFailed(jobId, code.name())));
         }
-        s3Deleter.deleteAfterCommit(job.get().inputKeys());
+        s3Deleter.deleteAfterCommit(job.get().inputKeys(), INPUT_PUT_WINDOW);
         // 실패한 작업의 결과·썸네일 자리 — 비공개지만 실행이 일부라도 썼을 수 있다. 지금 한 번, 늦은 실행이 쓸 수 있는 기간 뒤 한 번 더
         s3Deleter.deleteAfterCommit(List.of(resultKeyFor(job.get()), thumbnailKeyFor(job.get())), LATE_WRITE_WINDOW);
         return true;

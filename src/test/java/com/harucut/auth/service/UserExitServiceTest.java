@@ -92,6 +92,20 @@ class UserExitServiceTest {
         }
 
         @Test
+        @DisplayName("조직 공간의 마지막 OWNER 면 MEMBER-004 — 탈퇴 상태로 넘어가지 않는다(R5 L561)")
+        void lastOwnerCannotExit() {
+            User user = givenActiveUser();
+            org.mockito.BDDMockito.willThrow(new com.harucut.common.exception.BusinessException(com.harucut.workspace.exception.MemberErrorCode.LAST_OWNER))
+                    .given(workspaceService).requireNotLastOwner(user.getId());
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.requestExit(PUBLIC_ID))
+                    .isInstanceOf(com.harucut.common.exception.BusinessException.class);
+
+            assertThat(user.getUserStatus()).isEqualTo(UserStatus.ACTIVE);
+            then(refreshTokenService).shouldHaveNoInteractions();
+        }
+
+        @Test
         @DisplayName("refresh 토큰이 삭제된다")
         void revokesRefreshToken() {
             givenActiveUser();

@@ -1,5 +1,6 @@
 package com.harucut.booth.service;
 
+import com.harucut.audit.service.AuditLogService;
 import com.harucut.booth.dto.BoothDtos;
 import com.harucut.booth.entity.BoothDevice;
 import com.harucut.booth.entity.BoothPairing;
@@ -47,6 +48,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class BoothService {
 
+    private static final int GLOBAL_LIMIT_FACTOR = 10;
     private static final Duration RATE_WINDOW = Duration.ofMinutes(1);
 
     private final BoothDeviceRepository deviceRepository;
@@ -59,6 +61,7 @@ public class BoothService {
     private final PublicEventService publicEventService;
     private final ResultService resultService;
     private final RateLimiter rateLimiter;
+    private final AuditLogService auditLogService;
     private final ParticipationProperties properties;
     private final Clock clock;
 
@@ -68,7 +71,9 @@ public class BoothService {
      */
     @Transactional(noRollbackFor = BusinessException.class)
     public BoothDtos.RedeemResponse redeem(String rawCode, String clientIp) {
-        if (!rateLimiter.tryAcquire("booth-pairing", clientIp, properties.publicRequestsPerMinute(), RATE_WINDOW)) {
+        // 코드만 있는 실패 요청은 거래를 알 수 없어 코드별 횟수로 못 막는다 — IP 와 서비스 전체 상한을 함께 쓴다(R5 L660)
+        if (!rateLimiter.tryAcquire("booth-pairing", clientIp, properties.publicRequestsPerMinute(), RATE_WINDOW)
+                || !rateLimiter.tryAcquire("booth-pairing-all", "all", properties.publicRequestsPerMinute() * GLOBAL_LIMIT_FACTOR, RATE_WINDOW)) {
             throw new BusinessException(GlobalErrorCode.TOO_MANY_REQUESTS);
         }
         String code = rawCode.replaceAll("[\\s-]", "").toUpperCase(Locale.ROOT);
@@ -89,8 +94,11 @@ public class BoothService {
         BoothPairing pairing = open.get();
         if (!OpaqueTokens.hash(code.substring(4)).equals(pairing.getSecretHash())) {
             pairing.fail(properties.pairingMaxAttempts());
-            throw new BusinessException(pairing.lockedOut(properties.pairingMaxAttempts())
-                    ? BoothErrorCode.PAIRING_LOCKED : BoothErrorCode.PAIRING_CODE_INVALID);
+            boolean locked = pairing.lockedOut(properties.pairingMaxAttempts());
+            if (locked) {
+                auditPairing("BOOTH_PAIRING_LOCKED", pairing.getBoothDeviceId());
+            }
+            throw new BusinessException(locked ? BoothErrorCode.PAIRING_LOCKED : BoothErrorCode.PAIRING_CODE_INVALID);
         }
         if (pairingRepository.redeem(pairing.getId()) != 1) {
             // 같은 코드가 동시에 두 번 들어와 다른 쪽이 먼저 소비했다
@@ -103,7 +111,15 @@ public class BoothService {
         device.pair(OpaqueTokens.hash(token));
         device.seen(now);
         Event event = eventRepository.findById(device.getEventId()).orElseThrow();
+        auditPairing("BOOTH_PAIRED", device.getId());
         return new BoothDtos.RedeemResponse(token, device.getPublicId(), event.getPublicId());
+    }
+
+    // 연결 코드는 로그인 없이 온다 — 행위자는 비운다(R5 O29)
+    private void auditPairing(String action, Long deviceId) {
+        deviceRepository.findById(deviceId).flatMap(device -> eventRepository.findById(device.getEventId()))
+                .ifPresent(event -> auditLogService.record(null, event.getWorkspaceId(), event.getId(), action,
+                        "BOOTH_DEVICE", String.valueOf(deviceId), null));
     }
 
     public BoothDtos.MeResponse me(BoothPrincipal principal) {
@@ -149,6 +165,7 @@ public class BoothService {
             run.close(now());
         }
         sessionRepository.revokeAllByParticipantId(run.getParticipantId());
+        participantService.discardUnboundInputs(run.getId());
         return view(run, false);
     }
 

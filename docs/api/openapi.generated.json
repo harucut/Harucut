@@ -1746,7 +1746,7 @@
           "operations" : {
             "description" : "운영 권한 — OPERATOR 에게 배정한 것. 행사 고객은 빈 목록",
             "items" : {
-              "enum" : [ "MANAGE_EVENT", "MANAGE_BOOTH", "INVITE_CUSTOMERS" ],
+              "enum" : [ "MANAGE_EVENT", "MANAGE_BOOTH", "INVITE_CUSTOMERS", "EDIT_THEME" ],
               "type" : "string"
             },
             "type" : "array",
@@ -1760,6 +1760,11 @@
             "type" : "array",
             "uniqueItems" : true
           },
+          "photosFrom" : {
+            "description" : "이 시각 이후 사진만 볼 수 있다. null 이면 제한 없음",
+            "format" : "date-time",
+            "type" : "string"
+          },
           "userId" : {
             "description" : "사용자 public id",
             "type" : "string"
@@ -1769,6 +1774,11 @@
       },
       "EventGrantRequest" : {
         "properties" : {
+          "includePast" : {
+            "description" : "true 면 과거 사진 제한을 푼다(감사에 남는다). 생략·false 면 이미 정한 범위를 바꾸지 않는다",
+            "example" : false,
+            "type" : "boolean"
+          },
           "permissions" : {
             "items" : {
               "enum" : [ "VIEW_PHOTOS", "DOWNLOAD_PHOTOS", "BULK_DOWNLOAD", "DELETE_PHOTOS" ],
@@ -1785,6 +1795,11 @@
       "EventInvitationRequest" : {
         "description" : "행사 고객 초대 — 수락하면 공간 멤버가 아니라 이 행사 권한만 생긴다",
         "properties" : {
+          "includePast" : {
+            "description" : "true 면 수락 전 사진도 볼 수 있다 — 같은 처리 주체 안의 담당자 교체일 때. 생략·false 면 수락한 뒤 사진만",
+            "example" : false,
+            "type" : "boolean"
+          },
           "note" : {
             "description" : "운영자 메모(예: 신랑신부)",
             "maxLength" : 200,
@@ -2985,6 +3000,10 @@
             "format" : "date-time",
             "type" : "string"
           },
+          "includePast" : {
+            "description" : "행사 초대만 — 수락하면 과거 사진까지 받는가",
+            "type" : "boolean"
+          },
           "invitationId" : {
             "type" : "string"
           },
@@ -3031,6 +3050,11 @@
             "type" : "array",
             "uniqueItems" : true
           },
+          "photosFrom" : {
+            "description" : "행사 초대만 — 이 시각 이후 사진만 볼 수 있다. 없으면 제한 없음",
+            "format" : "date-time",
+            "type" : "string"
+          },
           "role" : {
             "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER", "OPERATOR" ],
             "type" : "string"
@@ -3066,6 +3090,10 @@
           "expiresAt" : {
             "format" : "date-time",
             "type" : "string"
+          },
+          "includePast" : {
+            "description" : "행사 초대만 — true 면 수락 전 사진도 보이고, false 면 수락한 뒤 사진만 보인다",
+            "type" : "boolean"
           },
           "invitedByName" : {
             "type" : "string"
@@ -3461,7 +3489,7 @@
             "$ref" : "#/components/schemas/MyEventAccess"
           },
           "completedPhotoCount" : {
-            "description" : "완성된 사진 수 — 삭제했거나 보관 기한이 지난 사진은 세지 않는다",
+            "description" : "볼 수 있는 완성 사진 수 — 삭제했거나 보관 기한이 지난 사진과 photosFrom 전 사진은 세지 않는다. 테마 권한만 있으면 키가 없다",
             "example" : 128,
             "format" : "int64",
             "type" : "integer"
@@ -3475,17 +3503,21 @@
           "status" : {
             "enum" : [ "DRAFT", "LIVE", "CAPTURE_CLOSED", "ARCHIVED" ],
             "type" : "string"
+          },
+          "workspaceId" : {
+            "description" : "행사가 속한 공간 public id",
+            "type" : "string"
           }
         },
         "type" : "object"
       },
       "MyEventAccess" : {
-        "description" : "role 은 공간 멤버(OWNER·ADMIN·OPERATOR 등)일 때만. FE 는 operations 로만 버튼을 정한다",
+        "description" : "role 은 공간 멤버(OWNER·ADMIN·OPERATOR·DESIGNER 등)일 때만. FE 는 operations 로만 버튼을 정한다",
         "properties" : {
           "operations" : {
-            "description" : "합쳐진 운영 권한 — OWNER·ADMIN 은 셋 다",
+            "description" : "합쳐진 운영 권한 — OWNER·ADMIN 은 전부, DESIGNER 는 EDIT_THEME 만",
             "items" : {
-              "enum" : [ "MANAGE_EVENT", "MANAGE_BOOTH", "INVITE_CUSTOMERS" ],
+              "enum" : [ "MANAGE_EVENT", "MANAGE_BOOTH", "INVITE_CUSTOMERS", "EDIT_THEME" ],
               "type" : "string"
             },
             "type" : "array",
@@ -3498,6 +3530,11 @@
             },
             "type" : "array",
             "uniqueItems" : true
+          },
+          "photosFrom" : {
+            "description" : "이 시각 이후 사진만 볼 수 있다. 없으면 제한 없음",
+            "format" : "date-time",
+            "type" : "string"
           },
           "role" : {
             "enum" : [ "OWNER", "ADMIN", "DESIGNER", "VIEWER", "OPERATOR" ],
@@ -3717,7 +3754,7 @@
           "operations" : {
             "example" : [ "MANAGE_EVENT", "MANAGE_BOOTH" ],
             "items" : {
-              "enum" : [ "MANAGE_EVENT", "MANAGE_BOOTH", "INVITE_CUSTOMERS" ],
+              "enum" : [ "MANAGE_EVENT", "MANAGE_BOOTH", "INVITE_CUSTOMERS", "EDIT_THEME" ],
               "type" : "string"
             },
             "type" : "array",
@@ -4009,6 +4046,11 @@
             "type" : "string"
           },
           "consentIntro" : {
+            "type" : "string"
+          },
+          "contact" : {
+            "description" : "문의처 — 결과·종료 화면에 보여 준다(R5 L774)",
+            "example" : "웨딩홀 1588-0000",
             "type" : "string"
           },
           "done" : {
@@ -4417,7 +4459,7 @@
           },
           "operations" : {
             "items" : {
-              "enum" : [ "MANAGE_EVENT", "MANAGE_BOOTH", "INVITE_CUSTOMERS" ],
+              "enum" : [ "MANAGE_EVENT", "MANAGE_BOOTH", "INVITE_CUSTOMERS", "EDIT_THEME" ],
               "type" : "string"
             },
             "type" : "array",
@@ -4444,7 +4486,7 @@
           "operations" : {
             "example" : [ "MANAGE_EVENT" ],
             "items" : {
-              "enum" : [ "MANAGE_EVENT", "MANAGE_BOOTH", "INVITE_CUSTOMERS" ],
+              "enum" : [ "MANAGE_EVENT", "MANAGE_BOOTH", "INVITE_CUSTOMERS", "EDIT_THEME" ],
               "type" : "string"
             },
             "type" : "array",
@@ -14684,7 +14726,7 @@
         "tags" : [ "행사 운영" ]
       },
       "patch" : {
-        "description" : "`settings` 에 **보낸 필드만** 바뀐다. null 을 보내면 그 값을 비운다(촬영 기간 등).\n상속 가능한 필드(시간대·참가 채널·보관 일수·레이아웃·프레임·동의 항목·테마)는 null 이면 행사의 직접 값을 지우고\n공간·프로젝트 기본값을 따른다. 테마는 객체째 바꾸고, 그 안에서 빠진 키는 위 단계 값을, 문구·색 \"\" 는 FE 기본값을,\n로고·배경 \"\" 는 이미지 없음을 뜻한다(글꼴 \"\" 는 400). `projectId` 로 프로젝트를 지정·해제한다(게시 뒤 409 PROJECT-002,\n보관된 프로젝트 409 PROJECT-001).\n`settingsVersion` 이 서버와 다르면 409 `EVENT-005` + `data.currentSettingsVersion`.\n게시한 행사의 slug 는 바꿀 수 없다.\n",
+        "description" : "`settings` 에 **보낸 필드만** 바뀐다. null 을 보내면 그 값을 비운다(촬영 기간 등).\n상속 가능한 필드(시간대·참가 채널·보관 일수·레이아웃·프레임·동의 항목·테마)는 null 이면 행사의 직접 값을 지우고\n공간·프로젝트 기본값을 따른다. 테마는 객체째 바꾸고, 그 안에서 빠진 키는 위 단계 값을, 문구·색 \"\" 는 FE 기본값을,\n로고·배경 \"\" 는 이미지 없음을 뜻한다(글꼴 \"\" 는 400). `projectId` 로 프로젝트를 지정·해제한다(게시 뒤 409 PROJECT-002,\n보관된 프로젝트 409 PROJECT-001).\n`settingsVersion` 이 서버와 다르면 409 `EVENT-005` + `data.currentSettingsVersion`.\n게시한 행사의 slug 는 바꿀 수 없다.\nMANAGE_EVENT 가 필요하다. `EDIT_THEME` 만 있으면(공간 DESIGNER) `theme`·`frames` 만 받고, 다른 키가 하나라도 있으면\n아무것도 저장하지 않고 403 `GEN-021` 이다. `theme: null` 도 받는다.\n",
         "operationId" : "patch_1",
         "parameters" : [ {
           "description" : "행사 public id",
@@ -14789,7 +14831,7 @@
               "application/json" : {
                 "examples" : {
                   "GEN-021" : {
-                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 이 행사를 고칠 권한이 없거나, 테마 권한으로 theme·frames 밖의 키를 보냈다",
                     "value" : {
                       "code" : "GEN-021",
                       "message" : "Access denied.",
@@ -14810,7 +14852,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 이 행사를 고칠 권한이 없거나, 테마 권한으로 theme·frames 밖의 키를 보냈다 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           },
           "404" : {
             "content" : {
@@ -16402,7 +16444,7 @@
         "tags" : [ "행사 고객·권한" ]
       },
       "patch" : {
-        "description" : "INVITE_CUSTOMERS 권한. 사진 권한 집합을 통째로 바꾼다. OPERATOR 는 자기 사진 권한 안에서만, 다른 운영자의 행은 못 바꾼다.",
+        "description" : "INVITE_CUSTOMERS 권한. 사진 권한 집합을 통째로 바꾼다. OPERATOR 는 자기 사진 권한 안에서만, 다른 운영자의 행은 못 바꾼다.\n처음 사진 권한을 받으면 그 시각 이후 사진만 보인다. `includePast: true` 면 제한을 푼다(감사에 남는다).\n",
         "operationId" : "update_1",
         "parameters" : [ {
           "description" : "행사 public id",
@@ -16563,7 +16605,7 @@
     },
     "/api/auth/events/{eventId}/invitations" : {
       "post" : {
-        "description" : "INVITE_CUSTOMERS 권한(공간 OWNER·ADMIN 은 늘 가진다). OPERATOR 는 자기가 가진 사진 권한 안에서만 준다.\n수락하면 공간 멤버가 아니라 이 행사의 사진 권한만 생긴다 — 공간의 다른 행사는 보이지 않는다.\n토큰 원문은 이 응답에서만, 링크 `/invite#<token>`, 7일.\n",
+        "description" : "INVITE_CUSTOMERS 권한(공간 OWNER·ADMIN 은 늘 가진다). OPERATOR 는 자기가 가진 사진 권한 안에서만 준다.\n수락하면 공간 멤버가 아니라 이 행사의 사진 권한만 생긴다 — 공간의 다른 행사는 보이지 않는다.\n기본은 수락한 뒤 사진만 보인다. 같은 처리 주체 안의 담당자 교체면 `includePast: true` 로 준다(감사에 남는다).\nOPERATOR 는 자기 사진 범위가 제한돼 있으면 `includePast` 를 줄 수 없다.\n토큰 원문은 이 응답에서만, 링크 `/invite#<token>`, 7일.\n",
         "operationId" : "invite_1",
         "parameters" : [ {
           "description" : "행사 public id",
@@ -17021,7 +17063,7 @@
     },
     "/api/auth/events/{eventId}/photos" : {
       "get" : {
-        "description" : "그 행사의 VIEW_PHOTOS 권한. 최신순 커서(limit 기본 30, 최대 100). 삭제 요청된 사진은 없다.\nthumbnailUrl 은 5분 — 이미지가 깨지면 목록을 다시 받는다. 행사를 볼 수 없으면 404, 볼 수는 있지만 권한이 없으면 403 PHOTO-001.\n",
+        "description" : "그 행사의 VIEW_PHOTOS 권한. 최신순 커서(limit 기본 30, 최대 100). 삭제 요청된 사진은 없다.\n사진 범위가 제한된 수신자(`photosFrom`)에게는 그 시각 전 사진이 없는 것처럼 보인다 — 다운로드·삭제·회수·묶음도 같다(404).\nthumbnailUrl 은 5분 — 이미지가 깨지면 목록을 다시 받는다. 행사를 볼 수 없으면 404, 볼 수는 있지만 권한이 없으면 403 PHOTO-001.\n",
         "operationId" : "page",
         "parameters" : [ {
           "description" : "행사 public id",
@@ -18014,7 +18056,7 @@
               "application/json" : {
                 "examples" : {
                   "GEN-021" : {
-                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 테마 권한만 있거나 사진 범위가 제한된 수신자다",
                     "value" : {
                       "code" : "GEN-021",
                       "message" : "Access denied.",
@@ -18027,7 +18069,7 @@
                 }
               }
             },
-            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_"
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 / 테마 권한만 있거나 사진 범위가 제한된 수신자다 _(Access denied.)_"
           },
           "404" : {
             "content" : {
@@ -18383,7 +18425,7 @@
     },
     "/api/auth/me/events" : {
       "get" : {
-        "description" : "운영하는 공간(OWNER·ADMIN)의 행사, OPERATOR 로 운영 권한(행사·프로젝트)을 받은 행사, 사진 권한을 받은 행사. 최신순.\naccess.operations 로 운영 버튼을, permissions 로 사진 버튼을 정한다. OPERATOR 는 sources 로 권한마다 출처(EVENT·PROJECT·BOTH)를 준다.\n",
+        "description" : "운영하는 공간(OWNER·ADMIN)의 행사, 공간 DESIGNER 면 그 공간의 행사, OPERATOR 로 운영 권한(행사·프로젝트)을 받은 행사, 사진 권한을 받은 행사. 최신순.\naccess.operations 로 운영 버튼을, permissions 로 사진 버튼을 정한다. OPERATOR 는 sources 로 권한마다 출처(EVENT·PROJECT·BOTH)를 준다.\n테마 권한만 있으면(DESIGNER) `operations` 는 `EDIT_THEME` 하나고 `completedPhotoCount` 키가 없다.\n",
         "operationId" : "myEvents",
         "responses" : {
           "200" : {

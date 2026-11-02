@@ -5,6 +5,7 @@ import com.harucut.auth.email.VerificationCodeGenerator;
 import com.harucut.auth.exception.AuthErrorCode;
 import com.harucut.auth.service.RefreshTokenService;
 import com.harucut.common.exception.BusinessException;
+import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.common.mail.MailService;
 import com.harucut.user.entity.User;
 import com.harucut.user.enums.Provider;
@@ -51,6 +52,11 @@ public class PasswordResetService {
         context.setVariable("code", code);
         String html = templateEngine.process(TEMPLATE, context);
 
+        if (emailRateLimit.dailySendLimitExceeded()) {
+            emailRateLimit.releaseCooldown(email);
+            throw new BusinessException(GlobalErrorCode.TOO_MANY_REQUESTS);
+        }
+
         try {
             mailService.sendHtml(email, SUBJECT, html);
         } catch (MailException e) {
@@ -64,6 +70,10 @@ public class PasswordResetService {
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_VERIFICATION_CODE));
 
         if (!stored.equalsIgnoreCase(code)) {
+            if (emailRateLimit.codeAttemptsExceeded(email)) {
+                repository.removeCode(email);
+                throw new BusinessException(AuthErrorCode.TOO_MANY_REQUESTS);
+            }
             throw new BusinessException(AuthErrorCode.INVALID_VERIFICATION_CODE);
         }
 

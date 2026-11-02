@@ -266,4 +266,17 @@ class PasswordResetServiceTest {
     private void givenRegistered(boolean registered) {
         given(userRepository.existsByProviderAndEmail(Provider.HARUCUT, EMAIL)).willReturn(registered);
     }
+
+    @Test
+    @DisplayName("재설정 코드를 틀린 횟수가 상한을 넘으면 코드를 지우고 AUTH-040 — 대입으로 계정을 뺏지 못한다")
+    void removesResetCodeWhenMissesExceeded() {
+        org.mockito.BDDMockito.given(repository.findCode("a@b.c")).willReturn(java.util.Optional.of("ABCDEF"));
+        org.mockito.BDDMockito.given(emailRateLimit.codeAttemptsExceeded("a@b.c")).willReturn(true);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.verifyResetCode("a@b.c", "ZZZZZZ"))
+                .isInstanceOf(com.harucut.common.exception.BusinessException.class)
+                .hasMessageContaining("Too many");
+        org.mockito.BDDMockito.then(repository).should().removeCode("a@b.c");
+        org.mockito.BDDMockito.then(repository).should(org.mockito.Mockito.never()).saveToken(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+    }
 }

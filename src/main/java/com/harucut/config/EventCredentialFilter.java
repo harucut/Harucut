@@ -56,6 +56,7 @@ public class EventCredentialFilter extends OncePerRequestFilter {
     private final ResultAccessRepository resultAccessRepository;
     private final BoothDeviceRepository boothDeviceRepository;
     private final RateLimiter rateLimiter;
+    private final ClientIpResolver clientIpResolver;
     private final int missesPerMinute;
     private final TransactionTemplate readOnly;
     private final Clock clock;
@@ -64,13 +65,14 @@ public class EventCredentialFilter extends OncePerRequestFilter {
                                  ParticipantRepository participantRepository,
                                  ResultAccessRepository resultAccessRepository,
                                  BoothDeviceRepository boothDeviceRepository,
-                                 RateLimiter rateLimiter, int missesPerMinute,
+                                 RateLimiter rateLimiter, ClientIpResolver clientIpResolver, int missesPerMinute,
                                  TransactionTemplate readOnly, Clock clock) {
         this.sessionRepository = sessionRepository;
         this.participantRepository = participantRepository;
         this.resultAccessRepository = resultAccessRepository;
         this.boothDeviceRepository = boothDeviceRepository;
         this.rateLimiter = rateLimiter;
+        this.clientIpResolver = clientIpResolver;
         this.missesPerMinute = missesPerMinute;
         this.readOnly = readOnly;
         this.clock = clock;
@@ -88,7 +90,7 @@ public class EventCredentialFilter extends OncePerRequestFilter {
             authentication = resultAccess(header);
             // 토큰을 냈는데 틀렸다 — 같은 IP 의 틀린 시도를 센다(ADR-0007 §10). 토큰이 없는 요청은 세지 않는다
             if (authentication.isEmpty() && header != null
-                    && !rateLimiter.tryAcquire("result-token-miss", request.getRemoteAddr(), missesPerMinute, RATE_WINDOW)) {
+                    && !rateLimiter.tryAcquire("result-token-miss", clientIpResolver.resolve(request), missesPerMinute, RATE_WINDOW)) {
                 request.setAttribute(RATE_LIMITED, Boolean.TRUE);
             }
         } else if (path.startsWith("/api/booth/")) {

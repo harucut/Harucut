@@ -113,6 +113,8 @@ cookie:
 
 mail:
   from: ${MAIL_FROM:no-reply@harucut.com}
+  # 서비스 전체의 하루 발송 상한 — 넘으면 429. 기본은 Gmail SMTP 한도(500/일) 아래. 메일 서비스를 바꾸면 올린다
+  daily-limit: ${MAIL_DAILY_LIMIT:400}
 
 frontend:
   url: ${FRONTEND_URL:http://localhost:5173}
@@ -122,6 +124,11 @@ push:
   sender: ${PUSH_SENDER:log}
   expo:
     access-token: ${EXPO_ACCESS_TOKEN:}
+
+# BFF 가 자기를 증명하는 비밀 — 맞는 요청만 BFF 가 넘긴 클라이언트 IP 를 믿는다(ClientIpResolver). 비면 getRemoteAddr()
+security:
+  bff:
+    shared-secret: ${BFF_SHARED_SECRET:}
 
 # CORS 허용 출처이자 쿠키 인증 변경 요청의 출처 검사(OriginCheckFilter) 허용 목록. 쉼표로 구분한다
 cors:

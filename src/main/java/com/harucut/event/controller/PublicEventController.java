@@ -3,6 +3,7 @@ package com.harucut.event.controller;
 import com.harucut.common.response.Response;
 import com.harucut.config.openapi.ApiErrors;
 import com.harucut.event.dto.PublicEventResponse;
+import com.harucut.config.ClientIpResolver;
 import com.harucut.event.service.PublicEventService;
 import com.harucut.participant.dto.ParticipantDtos;
 import com.harucut.participant.enums.ParticipantChannel;
@@ -32,6 +33,7 @@ public class PublicEventController {
 
     private final PublicEventService publicEventService;
     private final ParticipantService participantService;
+    private final ClientIpResolver clientIpResolver;
 
     @Operation(summary = "행사 참가 정보", description = "로그인 없이 연다. 게시 전·보관 종료 행사는 404.")
     @ApiErrors("GEN-031: 없는 행사이거나 게시 전")
@@ -61,6 +63,6 @@ public class PublicEventController {
             // 부스 참가자는 등록된 기기 자격으로만 만든다(/api/booth/participant-sessions)
             throw new BusinessException(EventErrorCode.CHANNEL_NOT_ALLOWED);
         }
-        return Response.ok(participantService.createByodSession(slug, servletRequest.getRemoteAddr()));
+        return Response.ok(participantService.createByodSession(slug, clientIpResolver.resolve(servletRequest)));
     }
 }

@@ -247,4 +247,30 @@ class EmailVerificationServiceTest {
     private void givenCooldownAcquired(String email) {
         given(emailRateLimit.tryAcquireCooldown(email)).willReturn(true);
     }
+
+    @Test
+    @DisplayName("코드를 틀린 횟수가 상한을 넘으면 코드를 지우고 AUTH-040 — 대입으로 뚫지 못한다")
+    void removesCodeWhenMissesExceeded() {
+        org.mockito.BDDMockito.given(repository.findCode("a@b.c")).willReturn(java.util.Optional.of("ABCDEF"));
+        org.mockito.BDDMockito.given(emailRateLimit.codeAttemptsExceeded("a@b.c")).willReturn(true);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.verifyCode("a@b.c", "ZZZZZZ"))
+                .isInstanceOf(com.harucut.common.exception.BusinessException.class)
+                .hasMessageContaining("Too many");
+        org.mockito.BDDMockito.then(repository).should().removeCode("a@b.c");
+    }
+
+    @Test
+    @DisplayName("일일 발송 상한을 넘으면 보내지 않고 GEN-061 — 그 주소의 쿨다운은 풀어 준다")
+    void stopsAtDailyLimit() {
+        org.mockito.BDDMockito.given(emailRateLimit.tryAcquireCooldown("a@b.c")).willReturn(true);
+        org.mockito.BDDMockito.given(emailRateLimit.dailySendLimitExceeded()).willReturn(true);
+        org.mockito.BDDMockito.given(generator.generate()).willReturn("ABCDEF");
+        org.mockito.BDDMockito.given(templateEngine.process(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(org.thymeleaf.context.IContext.class))).willReturn("<html/>");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.sendVerificationCode("a@b.c"))
+                .isInstanceOf(com.harucut.common.exception.BusinessException.class);
+        org.mockito.BDDMockito.then(mailService).shouldHaveNoInteractions();
+        org.mockito.BDDMockito.then(emailRateLimit).should().releaseCooldown("a@b.c");
+    }
 }

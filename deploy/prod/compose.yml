@@ -74,8 +74,8 @@ services:
       DB_URL: "jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?characterEncoding=UTF-8&serverTimezone=Asia/Seoul"
       REDIS_HOST: redis
       # 힙을 컨테이너 상한의 비율로 준다 — 상한을 바꾸면 힙도 따라온다.
-      # 60% 인 이유: 나머지 40% 는 메타스페이스·스레드 스택·다이렉트 버퍼 몫이다
-      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60"
+      # non-heap 이 약 240MB 라 60% 면 힙이 찰 때 600MB 를 넘어 OOM kill 이 났다(2026-11-02 실측, 45% 도 재현). 값의 원본은 Dockerfile
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=40 -XX:ReservedCodeCacheSize=64m -Xss512k"
     # nginx 가 같은 호스트에서 localhost:8080 으로 넘긴다. 바깥에는 nginx(443)만 보인다
     ports:
       - "127.0.0.1:8080:8080"

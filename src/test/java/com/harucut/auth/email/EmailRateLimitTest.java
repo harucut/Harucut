@@ -27,13 +27,16 @@ class EmailRateLimitTest {
     private StringRedisTemplate redisTemplate;
 
     @Mock
+    private com.harucut.config.RateLimiter rateLimiter;
+
+    @Mock
     private ValueOperations<String, String> valueOperations;
 
     private EmailRateLimit rateLimit;
 
     @BeforeEach
     void setUp() {
-        rateLimit = new EmailRateLimit(redisTemplate);
+        rateLimit = new EmailRateLimit(redisTemplate, rateLimiter, 400);
     }
 
     @Nested
@@ -105,5 +108,17 @@ class EmailRateLimitTest {
     private void givenSetIfAbsentReturns(Boolean result) {
         givenValueOperations();
         given(valueOperations.setIfAbsent(COOLDOWN_KEY, "1", COOLDOWN_TTL)).willReturn(result);
+    }
+
+    @org.junit.jupiter.api.Test
+    @org.junit.jupiter.api.DisplayName("코드 실패는 소문자 이메일로 10분에 5회까지 — 넘으면 true, 일일 발송 상한은 서비스 전체 한 버킷")
+    void missesAndDailyLimit() {
+        org.mockito.BDDMockito.given(rateLimiter.tryAcquire("email-code-miss", "a@b.c", 5, java.time.Duration.ofMinutes(10))).willReturn(true, false);
+        org.assertj.core.api.Assertions.assertThat(rateLimit.codeAttemptsExceeded("A@B.c")).isFalse();
+        org.assertj.core.api.Assertions.assertThat(rateLimit.codeAttemptsExceeded("A@B.c")).isTrue();
+
+        org.mockito.BDDMockito.given(rateLimiter.tryAcquire("mail-daily", "all", 400, java.time.Duration.ofDays(1))).willReturn(true, false);
+        org.assertj.core.api.Assertions.assertThat(rateLimit.dailySendLimitExceeded()).isFalse();
+        org.assertj.core.api.Assertions.assertThat(rateLimit.dailySendLimitExceeded()).isTrue();
     }
 }

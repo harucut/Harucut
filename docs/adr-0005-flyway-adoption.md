@@ -24,6 +24,9 @@
    migration 을 추가하는 PR 은 이 결과를 본문에 적는다.
 5. **자동 baseline 을 쓰지 않는다** — `baseline-on-migrate: false`. 잘못된 DB 를 조용히 기준선으로 삼는다.
 
+> **갱신(2026-11-02):** prod 프로파일 기본을 Flyway 켬 + `ddl-auto: validate` 로 바꿨다. V7 부터는 Flyway 없이 배포할 수 없고(행사 합성이 깨진다),
+> update 로 한 번 뜨면 V2+ 의 표를 먼저 만들어 그 뒤 migration 이 영영 실패한다. baseline 전에 배포하면 기동에서 죽는다 — 스키마가 망가지는 것보다 낫다.
+
 ## 3. 운영 편입 절차 (사용자 승인 후)
 
 1. 운영 백업, 복원 리허설.

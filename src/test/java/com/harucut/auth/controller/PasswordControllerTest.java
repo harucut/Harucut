@@ -51,6 +51,9 @@ class PasswordControllerTest extends SecurityBeansMockSupport {
     private JwtTokenService jwtTokenService;
 
     @MockitoBean
+    private com.harucut.auth.service.AuthRateLimits authRateLimits;
+
+    @MockitoBean
     private PasswordResetService passwordResetService;
 
     @MockitoBean

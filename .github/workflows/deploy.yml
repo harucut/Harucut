@@ -90,16 +90,18 @@ jobs:
             set -euo pipefail
             cd /home/ubuntu/harucut
 
-            # 패키지가 private 이라 로그인이 필요하다. 이 토큰은 이 실행이 끝나면 죽는다
+            # 패키지가 private 이라 로그인이 필요하다. 이 토큰은 이 실행이 끝나면 죽는다.
+            # 로그아웃은 스크립트가 끝날 때 — 아래 자동 복귀가 직전 이미지를 다시 받을 수 있어야 한다
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
 
             # 어느 버전이 떠 있는지는 .env 의 IMAGE_TAG 가 말해준다.
-            # 롤백: 이 값을 이전 SHA 로 되돌리고 docker compose up -d
+            # 수동 롤백: 이 값을 이전 SHA 로 되돌리고 docker compose up -d
+            PREVIOUS_TAG=$(grep '^IMAGE_TAG=' .env | cut -d= -f2- || true)
             sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${IMAGE_TAG}|" .env
 
             docker compose pull app
             docker compose up -d
-            docker logout ghcr.io
 
             # 컨테이너가 떴다 ≠ 앱이 떴다. 기동 중 죽으면(환경변수 누락·DB 접속 실패) 여기서 잡는다.
             # 서버 메모리가 빠듯해 기동이 느리다 — 3분까지 기다린다.
@@ -108,7 +110,8 @@ jobs:
             for i in $(seq 1 36); do
               if docker compose exec -T app wget -q -O /dev/null http://127.0.0.1:8081/actuator/health; then
                 echo "앱 기동 확인 (${i}번째 시도)"
-                docker image prune -af
+                # 직전 이미지는 남긴다 — 레지스트리 로그인 없이 수동 롤백이 되게. 일주일 넘은 것만 지운다
+                docker image prune -af --filter until=168h
                 exit 0
               fi
               sleep 5
@@ -116,4 +119,11 @@ jobs:
 
             echo "앱이 3분 안에 뜨지 않았다" >&2
             docker compose logs --tail 80 app
+            # 실패한 이미지를 재시작 고리에 남겨 두지 않는다. 스키마는 되돌리지 않는다 — Flyway 를 지나 죽었으면 사람이 봐야 한다
+            if [ -n "$PREVIOUS_TAG" ] && [ "$PREVIOUS_TAG" != "$IMAGE_TAG" ]; then
+              echo "이전 이미지(${PREVIOUS_TAG})로 되돌린다" >&2
+              sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${PREVIOUS_TAG}|" .env
+              docker compose pull app || true
+              docker compose up -d
+            fi
             exit 1

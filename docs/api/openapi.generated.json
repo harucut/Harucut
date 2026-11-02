@@ -3443,6 +3443,16 @@
             "format" : "date-time",
             "type" : "string"
           },
+          "expiresAt" : {
+            "description" : "이 결과의 보관 기한 — 지나면 받을 수 없다",
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "failureCode" : {
+            "description" : "FAILED 일 때만 — 실패 종류(ComposeJobResponse.failureCode 와 같은 값). 화면 문구를 고른다",
+            "enum" : [ "SOURCE_MISSING", "SOURCE_UNREADABLE", "ASSET_MISSING", "ASSET_UNREADABLE", "TIMED_OUT", "RENDER_FAILED", "OUTPUT_CONFLICT", "DISPATCH_EXHAUSTED", "UNKNOWN" ],
+            "type" : "string"
+          },
           "jobId" : {
             "format" : "int64",
             "type" : "integer"
@@ -3558,6 +3568,13 @@
       "OfferedFrame" : {
         "description" : "제공 프레임",
         "properties" : {
+          "cells" : {
+            "description" : "자유 사진 칸일 때만 — 칸별 위치·크기·회전·모양·촬영 순번(발행본 기준). 칸마다 촬영 비율을 맞출 때 쓴다",
+            "items" : {
+              "$ref" : "#/components/schemas/PhotoCell"
+            },
+            "type" : "array"
+          },
           "frameVersionId" : {
             "description" : "프레임 발행본 ID",
             "format" : "int64",
@@ -20504,6 +20521,15 @@
           "example" : "new",
           "in" : "query",
           "name" : "frameId",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "이 공간의 초안만(공간 public id). 생략하면 내 초안 전부",
+          "example" : "Ws1aB2cD3eF4",
+          "in" : "query",
+          "name" : "workspaceId",
           "required" : false,
           "schema" : {
             "type" : "string"

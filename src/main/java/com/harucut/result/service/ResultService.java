@@ -78,6 +78,11 @@ public class ResultService {
         return new ResultStatusResponse(status, event.getName(), thumbnailUrl, imageUrl, offset(retainUntil), theme(job));
     }
 
+    /** 이 결과의 보관 기한 */
+    public OffsetDateTime expiresAt(ComposeJob job, Event event) {
+        return offset(retentionEnd(job, event));
+    }
+
     /** 재방문 목록의 미리보기 — 끝난 작업만. 삭제·보관 종료된 작업은 호출자가 이미 뺐다 */
     public String thumbnailUrl(ComposeJob job) {
         return job.getStatus() == ComposeStatus.DONE ? shortGetUrl(ComposeService.thumbnailKeyFor(job)) : null;

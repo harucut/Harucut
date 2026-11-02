@@ -456,9 +456,32 @@ class ParticipantFlowIntegrationTest {
 
         assertThat(ok(mvc.get().uri("/api/participant/events/{id}/results", eventId).header(TOKEN_HEADER, token).exchange()).get(0).has("thumbnailUrl")).isFalse();
 
+        assertThat(ok(mvc.get().uri("/api/participant/events/{id}/results", eventId).header(TOKEN_HEADER, token).exchange()).get(0)
+                .path("expiresAt").asString()).isNotBlank();
         assertThat(composeService.completeJob(jobId, "uploads/r/thumb.jpg", "uploads/r/thumb_thumb.jpg")).isTrue();
         assertThat(ok(mvc.get().uri("/api/participant/events/{id}/results", eventId).header(TOKEN_HEADER, token).exchange()).get(0)
                 .path("thumbnailUrl").asString()).isEqualTo("https://s3/get-short");
+    }
+
+    @Test
+    @DisplayName("재방문 목록 — 실패한 작업은 실패 종류가 있어 화면 문구를 고를 수 있다")
+    void myResultsFailureCode() throws Exception {
+        String token = activeParticipant();
+        String runId = run(token);
+        List<String> assetIds = new ArrayList<>();
+        for (int slot = 0; slot < 4; slot++) {
+            String assetId = intent(token, runId, slot);
+            ok(mvc.post().uri("/api/participant/assets/{id}/complete", assetId).header(TOKEN_HEADER, token).exchange());
+            assetIds.add(assetId);
+        }
+        long jobId = data(post("/api/participant/events/" + eventId + "/compose-jobs", token, Map.of("captureRunId", runId,
+                "frameVersionId", frameVersionId, "sourceAssetIds", assetIds, "idempotencyKey", "key-failed")), 202).path("jobId").asLong();
+
+        assertThat(composeService.failJob(jobId, "렌더 실패", com.harucut.media.compose.ComposeFailureCode.RENDER_FAILED)).isTrue();
+
+        JsonNode row = ok(mvc.get().uri("/api/participant/events/{id}/results", eventId).header(TOKEN_HEADER, token).exchange()).get(0);
+        assertThat(row.path("failureCode").asString()).isEqualTo("RENDER_FAILED");
+        assertThat(row.has("thumbnailUrl")).isFalse();
     }
 
     @Test

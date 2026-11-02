@@ -427,6 +427,41 @@ class ParticipantFlowIntegrationTest {
     }
 
     @Test
+    @DisplayName("설정 응답의 hasUnpublishedChanges — 게시 직후 false, 저장하면 true, 다시 게시하면 false")
+    void unpublishedChangesFlag() {
+        assertThat(eventService.get(operatorPublicId, eventId).hasUnpublishedChanges()).isFalse();
+
+        int version = eventService.get(operatorPublicId, eventId).settingsVersion();
+        eventService.patch(operatorPublicId, eventId, new EventPatchRequest(version, objectMapper.valueToTree(Map.of(
+                "consentItems", List.of(Map.of("code", "photo-collection", "version", 2, "title", "사진 수집 동의", "required", true, "body", "문구를 고쳤습니다."))))));
+        assertThat(eventService.get(operatorPublicId, eventId).hasUnpublishedChanges()).isTrue();
+
+        eventService.publish(operatorPublicId, eventId);
+        assertThat(eventService.get(operatorPublicId, eventId).hasUnpublishedChanges()).isFalse();
+    }
+
+    @Test
+    @DisplayName("재방문 목록 — 끝난 작업에만 미리보기 URL 이 있다")
+    void myResultsThumbnail() throws Exception {
+        String token = activeParticipant();
+        String runId = run(token);
+        List<String> assetIds = new ArrayList<>();
+        for (int slot = 0; slot < 4; slot++) {
+            String assetId = intent(token, runId, slot);
+            ok(mvc.post().uri("/api/participant/assets/{id}/complete", assetId).header(TOKEN_HEADER, token).exchange());
+            assetIds.add(assetId);
+        }
+        long jobId = data(post("/api/participant/events/" + eventId + "/compose-jobs", token, Map.of("captureRunId", runId,
+                "frameVersionId", frameVersionId, "sourceAssetIds", assetIds, "idempotencyKey", "key-thumb")), 202).path("jobId").asLong();
+
+        assertThat(ok(mvc.get().uri("/api/participant/events/{id}/results", eventId).header(TOKEN_HEADER, token).exchange()).get(0).has("thumbnailUrl")).isFalse();
+
+        assertThat(composeService.completeJob(jobId, "uploads/r/thumb.jpg", "uploads/r/thumb_thumb.jpg")).isTrue();
+        assertThat(ok(mvc.get().uri("/api/participant/events/{id}/results", eventId).header(TOKEN_HEADER, token).exchange()).get(0)
+                .path("thumbnailUrl").asString()).isEqualTo("https://s3/get-short");
+    }
+
+    @Test
     @DisplayName("보관 종료된 행사에는 합성을 접수하지 않는다 — 촬영 열림을 잠금으로 다시 읽은 값으로 본다")
     void composeRejectedAfterArchive() throws Exception {
         String token = activeParticipant();

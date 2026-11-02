@@ -94,7 +94,8 @@ public final class MemberDtos {
     }
 
     @Schema(name = "MyEvent", description = "내가 접근할 수 있는 행사")
-    public record MyEvent(String eventId, String name, EventStatus status, Access access) {
+    public record MyEvent(String eventId, String name, EventStatus status, Access access,
+                          @Schema(description = "완성된 사진 수 — 삭제·보관 종료된 사진은 세지 않는다", example = "128") long completedPhotoCount) {
 
         @Schema(name = "MyEventAccess", description = "role 은 공간 멤버(OWNER·ADMIN·OPERATOR 등)일 때만. FE 는 operations 로만 버튼을 정한다")
         @JsonInclude(JsonInclude.Include.NON_NULL)

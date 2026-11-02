@@ -573,10 +573,26 @@ public class EventService {
                 : experienceVersionRepository.findById(event.getCurrentExperienceVersionId())
                 .map(EventExperienceVersion::getVersionNo).orElse(null);
         // 설정 = 지금 게시하면 들어갈 유효값(공간 ⊕ 프로젝트 ⊕ 행사). 어디서 왔는지는 effective-settings 가 준다
-        EventSettings settings = settings(event, effective(event, workspace));
+        Resolved resolved = effective(event, workspace);
         return new EventResponse(event.getPublicId(), workspace.getPublicId(), event.getStatus(), event.isPaused(),
-                event.captureOpen(LocalDateTime.now(clock)), event.getSettingsVersion(), settings, currentVersion,
-                "/e/" + event.getSlug());
+                event.captureOpen(LocalDateTime.now(clock)), event.getSettingsVersion(), settings(event, resolved), currentVersion,
+                "/e/" + event.getSlug(), hasUnpublishedChanges(event, resolved.effective()));
+    }
+
+    // 지금 게시하면 들어갈 값과 게시본을 그대로 견준다. 브라우저에 저장해 두고 비교하면 다른 기기에서 게시했을 때 틀린다.
+    // 컬럼(시간대·참가 방식·보관 일수)은 게시 때 유효값으로 맞춰지므로 상위 기본값이 바뀌면 여기서도 다르다
+    private Boolean hasUnpublishedChanges(Event event, EffectiveSettingsResolver.Effective effective) {
+        if (event.getCurrentExperienceVersionId() == null) {
+            return null;
+        }
+        boolean columnsChanged = !Objects.equals(effective.timezone(), event.getTimezone())
+                || effective.byodEnabled() != event.isByodEnabled()
+                || effective.boothEnabled() != event.isBoothEnabled()
+                || effective.resultRetentionDays() != event.getResultRetentionDays();
+        return columnsChanged || experienceVersionRepository.findById(event.getCurrentExperienceVersionId())
+                .map(version -> !objectMapper.readTree(version.getSettingsJson())
+                        .equals(objectMapper.readTree(write(document(effective).published()))))
+                .orElse(true);
     }
 
     private record Resolved(Project project, EffectiveSettingsResolver.Effective effective) {

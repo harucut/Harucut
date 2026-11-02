@@ -221,6 +221,22 @@ class PhotoBoxIntegrationTest {
     }
 
     @Test
+    @DisplayName("내 행사 목록의 완성 사진 수 — 완성된 것만 세고, 삭제한 사진은 빠진다")
+    void myEventsCountsCompletedPhotos() {
+        long before = eventGrantService.myEvents(owner.getPublicId()).stream()
+                .filter(row -> row.eventId().equals(event.getPublicId())).findFirst().orElseThrow().completedPhotoCount();
+        assertThat(before).isPositive();
+
+        photoService.delete(owner.getPublicId(), event.getPublicId(), byodDone.getId());
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(eventGrantService.myEvents(owner.getPublicId()).stream()
+                .filter(row -> row.eventId().equals(event.getPublicId())).findFirst().orElseThrow().completedPhotoCount())
+                .isEqualTo(before - 1);
+    }
+
+    @Test
     @DisplayName("복제: 설정 초안·참가 방식만 새 DRAFT, 복제한 사람에게 권한, slug 중복은 EVENT-004")
     void cloneEvent() {
         EventResponse copy = eventService.cloneEvent(owner.getPublicId(), event.getPublicId(), "다음 결혼식", "photo-box-2");

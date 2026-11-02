@@ -271,7 +271,7 @@ public class ParticipantService {
         return composeJobRepository.findAllByParticipantIdAndEventIdOrderByIdDesc(principal.participantId(), event.getId())
                 .stream()
                 .filter(job -> !job.isDeleted())   // 사진함에서 삭제된 결과는 재방문 목록에도 없다
-                .map(job -> new ParticipantDtos.MyResult(job.getId(), job.getStatus(), offset(job.getCreatedAt())))
+                .map(job -> new ParticipantDtos.MyResult(job.getId(), job.getStatus(), offset(job.getCreatedAt()), resultService.thumbnailUrl(job)))
                 .toList();
     }
 

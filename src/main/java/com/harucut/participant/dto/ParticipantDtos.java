@@ -163,6 +163,7 @@ public final class ParticipantDtos {
     }
 
     @Schema(description = "이 행사에서 만든 내 결과")
-    public record MyResult(Long jobId, ComposeStatus status, OffsetDateTime createdAt) {
+    public record MyResult(Long jobId, ComposeStatus status, OffsetDateTime createdAt,
+                           @Schema(description = "DONE 일 때만 — 작은 미리보기의 짧은 URL. 재방문 목록에서 어느 사진인지 구별한다") String thumbnailUrl) {
     }
 }

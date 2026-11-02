@@ -12,6 +12,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -93,6 +94,14 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
 
     @Query("SELECT j FROM ComposeJob j WHERE j.user.id = :userId")
     List<ComposeJob> findAllByUserId(Long userId);
+
+    // 행사별 완성 사진 수 — 보이는 결과만. [eventId, count]
+    @Query("""
+            SELECT j.eventId, COUNT(j) FROM ComposeJob j
+            WHERE j.eventId IN :eventIds AND j.status = ComposeStatus.DONE AND j.deletedAt IS NULL AND j.purgedAt IS NULL
+            GROUP BY j.eventId
+            """)
+    List<Object[]> countCompletedByEventIds(Collection<Long> eventIds);
 
     // spec_json 은 변환기 칸이라 JPQL 로 LIKE 를 걸 수 없다 — 네이티브. PENDING 은 적어 스캔이 짧다. '_' 는 넓게 걸릴 뿐(지우지 않는 쪽)이다
     @Query(value = "select count(*) from compose_job where status = 'PENDING' and spec_json like :pattern", nativeQuery = true)

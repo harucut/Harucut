@@ -156,6 +156,7 @@ class ComposeResultConsumerTest {
         @DisplayName("출력 계약 2 성공인데 입력 지문이 이 작업의 것이 아니면 공개하지 않고 OUTPUT_CONFLICT 최종 실패(R5 L492, O41)")
         void otherInputFails() throws Exception {
             given(composeService.sameInput(eq(JOB_ID), any())).willReturn(false);
+            given(outputVerifier.verified(any(), any())).willReturn(true);   // 저장된 쌍은 맞아도 다른 입력의 실행이면 받지 않는다
             CountDownLatch deleted = runWith(verifiedNotification("Success", 2, """
                     "responsePayload": { "ok": true, "resultSha256": "UkVT", "thumbnailSha256": "VEhVTUI=", "attemptNo": 2, "inputFingerprint": "other" }"""));
 

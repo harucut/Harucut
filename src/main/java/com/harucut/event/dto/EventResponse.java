@@ -13,6 +13,7 @@ public record EventResponse(
         @Schema(description = "PATCH 에 그대로 보낼 낙관적 잠금 값", example = "3") int settingsVersion,
         @Schema(description = "설정 초안") EventSettings settings,
         @Schema(description = "현재 게시된 경험 버전 번호 — 게시 전이면 null", example = "2") Integer currentExperienceVersion,
-        @Schema(description = "참가 링크 경로", example = "/e/wedding-1027") String joinUrlPath
+        @Schema(description = "참가 링크 경로", example = "/e/wedding-1027") String joinUrlPath,
+        @Schema(description = "지금 저장된 설정(상위 기본값 포함)이 게시본과 다른가 — 다시 게시해야 참가자에게 적용된다. 게시 전이면 키 없음", example = "false") Boolean hasUnpublishedChanges
 ) {
 }

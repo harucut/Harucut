@@ -236,6 +236,27 @@ jobs:
 
 ---
 
+## S3 버킷 CORS (배포 전 확인 — 실환경 미확인)
+
+브라우저가 S3 presigned URL 을 직접 부른다. 빠지면 화면에서 업로드·저장이 조용히 실패한다.
+
+| 메서드 | 쓰는 곳 | 헤더 | 없으면 |
+|---|---|---|---|
+| PUT | 자산·촬영 입력·합성 원본 업로드 | `Content-Type`, `If-None-Match` | 업로드 전부 실패. `If-None-Match` 만 없으면 `STORAGE_UPLOAD_CONDITIONAL_PUT=false` 로 배포할 수 있다 |
+| GET | 결과를 `fetch` 로 받아 `navigator.share({files})` 로 넘긴다(iOS 사진첩 저장) | 없음(`Authorization` 을 보내지 않는다) | FE 가 attachment 링크로 내려받기로 넘어간다 |
+
+```json
+[{
+  "AllowedOrigins": ["https://harucut.com", "https://www.harucut.com"],
+  "AllowedMethods": ["PUT", "GET", "HEAD"],
+  "AllowedHeaders": ["Content-Type", "If-None-Match"],
+  "ExposeHeaders": ["ETag"],
+  "MaxAgeSeconds": 3000
+}]
+```
+
+확인: `aws s3api get-bucket-cors --bucket <버킷>` (읽기 전용, 사용자 허락 후).
+
 ## 4. 평소 배포
 
 ```

@@ -191,7 +191,7 @@ class MembersAndGrantsIntegrationTest {
         Long customerGrant = eventGrantService.grants(owner.getPublicId(), event.eventId()).stream()
                 .filter(g -> g.userId().equals(customer.getPublicId())).findFirst().orElseThrow().grantId();
         assertThat(eventGrantService.update(owner.getPublicId(), event.eventId(), customerGrant,
-                Set.of(PhotoPermission.VIEW_PHOTOS), false).permissions()).containsExactly(PhotoPermission.VIEW_PHOTOS);
+                Set.of(PhotoPermission.VIEW_PHOTOS)).permissions()).containsExactly(PhotoPermission.VIEW_PHOTOS);
 
         join(designer, WorkspaceRole.ADMIN);
         invitationService.accept(designer.getPublicId(), eventGrantService.inviteCustomer(owner.getPublicId(), event.eventId(),

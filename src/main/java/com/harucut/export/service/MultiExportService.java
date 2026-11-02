@@ -102,7 +102,7 @@ public class MultiExportService {
         requirePermissions(actorId, events);
         List<ComposeJob> targets = new ArrayList<>();
         for (Event event : events) {
-            targets.addAll(exportService.visiblePhotos(new EventAccessPolicy.PhotoScope(event, policy.accessOf(event, actorId).photosFrom())));
+            targets.addAll(exportService.visiblePhotos(event));
             if (targets.size() > exportService.maxPhotos()) {
                 break;
             }
@@ -152,12 +152,9 @@ public class MultiExportService {
             case DONE -> {
             }
         }
-        List<Event> events = eventRepository.findAllById(countByEvent(export).keySet());
-        requirePermissions(actorId, events);
+        requirePermissions(actorId, eventRepository.findAllById(countByEvent(export).keySet()));
         LocalDateTime now = LocalDateTime.now(clock);
-        if (!now.isBefore(export.getExpiresAt()) || itemRepository.containsUnavailable(export.getId(), now)
-                || events.stream().anyMatch(event -> exportService.outOfScope(export,
-                        new EventAccessPolicy.PhotoScope(event, policy.accessOf(event, actorId).photosFrom())))) {
+        if (!now.isBefore(export.getExpiresAt()) || itemRepository.containsUnavailable(export.getId(), now)) {
             exportService.expire(export);
             throw new BusinessException(ExportErrorCode.GONE);
         }

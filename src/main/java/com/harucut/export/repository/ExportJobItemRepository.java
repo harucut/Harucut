@@ -18,11 +18,6 @@ public interface ExportJobItemRepository extends JpaRepository<ExportJobItem, Lo
             + "or (j.retainUntil is not null and j.retainUntil <= :now))")
     boolean containsUnavailable(@Param("exportJobId") Long exportJobId, @Param("now") LocalDateTime now);
 
-    // 담긴 사진 중 이 행사의 이 시각 전 사진이 있는가 — 받는 사람의 지금 사진 범위로 수령 때 다시 본다
-    @Query("select count(i) > 0 from ExportJobItem i, ComposeJob j where i.exportJobId = :exportJobId "
-            + "and j.id = i.composeJobId and j.eventId = :eventId and j.createdAt < :from")
-    boolean containsBefore(@Param("exportJobId") Long exportJobId, @Param("eventId") Long eventId, @Param("from") LocalDateTime from);
-
     // 담긴 사진의 행사별 장수 — [eventId, count]
     @Query("select j.eventId, count(i) from ExportJobItem i, ComposeJob j where i.exportJobId = :exportJobId "
             + "and j.id = i.composeJobId group by j.eventId")

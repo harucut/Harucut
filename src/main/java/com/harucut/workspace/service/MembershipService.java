@@ -13,7 +13,6 @@ import com.harucut.workspace.dto.MemberDtos;
 import com.harucut.workspace.entity.Workspace;
 import com.harucut.workspace.entity.WorkspaceInvitation;
 import com.harucut.workspace.entity.WorkspaceMembership;
-import com.harucut.workspace.enums.InvitationKind;
 import com.harucut.workspace.enums.InvitationStatus;
 import com.harucut.workspace.enums.MembershipStatus;
 import com.harucut.workspace.enums.WorkspaceRole;
@@ -107,8 +106,7 @@ public class MembershipService {
                 .map(invitation -> new MemberDtos.Invitation(invitation.getPublicId(), invitation.getKind(),
                         invitation.getEventId() == null ? null : eventIds.get(invitation.getEventId()),
                         invitation.getRole(), invitation.getPermissions().isEmpty() ? null : invitation.getPermissions(),
-                        invitation.getEmail(), invitation.getNote(), offset(invitation.getExpiresAt()), invitation.getStatus(),
-                        invitation.getKind() == InvitationKind.EVENT ? invitation.isIncludePast() : null))
+                        invitation.getEmail(), invitation.getNote(), offset(invitation.getExpiresAt()), invitation.getStatus()))
                 .toList();
     }
 

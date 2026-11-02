@@ -66,11 +66,11 @@ public class PhotoService {
     public PhotoDtos.PhotoPage page(String actorPublicId, String eventPublicId, String cursor, Integer limit,
                                     OffsetDateTime from, OffsetDateTime to, ParticipantChannel channel,
                                     Long frameVersionId, ComposeStatus status) {
-        EventAccessPolicy.PhotoScope scope = policy.requirePhotoScope(userId(actorPublicId), eventPublicId, PhotoPermission.VIEW_PHOTOS);
+        Event event = policy.requirePhoto(userId(actorPublicId), eventPublicId, PhotoPermission.VIEW_PHOTOS);
         int size = limit == null ? DEFAULT_LIMIT : Math.clamp(limit, 1, MAX_LIMIT);
         Cursor after = Cursor.decode(cursor);
-        List<Object[]> rows = composeJobRepository.findEventPhotos(scope.event().getId(), LocalDateTime.now(clock), status, channel, frameVersionId,
-                scope.from(local(from)), local(to), after == null ? null : after.createdAt(), after == null ? null : after.id(),
+        List<Object[]> rows = composeJobRepository.findEventPhotos(event.getId(), LocalDateTime.now(clock), status, channel, frameVersionId,
+                local(from), local(to), after == null ? null : after.createdAt(), after == null ? null : after.id(),
                 PageRequest.of(0, size + 1));
         boolean more = rows.size() > size;
         List<PhotoDtos.Photo> items = new ArrayList<>();
@@ -84,9 +84,8 @@ public class PhotoService {
 
     @Transactional(readOnly = true)
     public DownloadUrlResponse download(String actorPublicId, String eventPublicId, Long photoId) {
-        EventAccessPolicy.PhotoScope scope = policy.requirePhotoScope(userId(actorPublicId), eventPublicId, PhotoPermission.DOWNLOAD_PHOTOS);
-        Event event = scope.event();
-        ComposeJob job = photoOf(scope, photoId);
+        Event event = policy.requirePhoto(userId(actorPublicId), eventPublicId, PhotoPermission.DOWNLOAD_PHOTOS);
+        ComposeJob job = photoOf(event, photoId);
         if (job.getStatus() != ComposeStatus.DONE || job.getResultKey() == null) {
             throw new BusinessException(ResultErrorCode.NOT_READY);
         }
@@ -99,9 +98,8 @@ public class PhotoService {
     /** 삭제 요청 — 목록·ZIP·결과 링크에서 즉시 빠지고 결과·썸네일은 커밋 후 지운다 */
     public void delete(String actorPublicId, String eventPublicId, Long photoId) {
         Long actorId = userId(actorPublicId);
-        EventAccessPolicy.PhotoScope scope = policy.requirePhotoScope(actorId, eventPublicId, PhotoPermission.DELETE_PHOTOS);
-        Event event = scope.event();
-        ComposeJob job = photoOf(scope, photoId);
+        Event event = policy.requirePhoto(actorId, eventPublicId, PhotoPermission.DELETE_PHOTOS);
+        ComposeJob job = photoOf(event, photoId);
         // deleted_at 만 원자적으로 — 엔티티를 고쳐 저장하면 그사이 커밋된 완료(DONE·resultKey)를 낡은 값으로 덮는다
         if (composeJobRepository.markDeleted(job.getId(), LocalDateTime.now(clock)) != 1) {
             throw new BusinessException(GlobalErrorCode.NOT_FOUND);   // 동시에 다른 삭제가 먼저 했다
@@ -124,20 +122,18 @@ public class PhotoService {
     /** 결과 링크 회수 — 그 사진의 링크를 전부 끊는다. 사진은 지우지 않는다. 사유는 감사에 남는다 */
     public ResultAccessRevokeResponse revokeResultAccess(String actorPublicId, String eventPublicId, Long photoId, String reason) {
         Long actorId = userId(actorPublicId);
-        EventAccessPolicy.PhotoScope scope = policy.requirePhotoScope(actorId, eventPublicId, PhotoPermission.DELETE_PHOTOS);
-        Event event = scope.event();
-        ComposeJob job = photoOf(scope, photoId);
+        Event event = policy.requirePhoto(actorId, eventPublicId, PhotoPermission.DELETE_PHOTOS);
+        ComposeJob job = photoOf(event, photoId);
         int revoked = resultService.revokeAccess(job);
         auditLogService.record(actorId, event.getWorkspaceId(), event.getId(), "RESULT_ACCESS_REVOKED", "PHOTO",
                 job.getId().toString(), Map.of("reason", reason, "revokedCount", revoked));
         return new ResultAccessRevokeResponse(revoked);
     }
 
-    private ComposeJob photoOf(EventAccessPolicy.PhotoScope scope, Long photoId) {
+    private ComposeJob photoOf(Event event, Long photoId) {
         return composeJobRepository.findById(photoId)
-                .filter(job -> scope.event().getId().equals(job.getEventId()) && !job.isDeleted()
-                        && !job.retentionEndedAt(LocalDateTime.now(clock))   // 정리 배치 전이어도 보관 기한이 지난 사진은 없는 것처럼
-                        && scope.covers(job.getCreatedAt()))   // 받은 범위 밖 사진도 없는 것처럼(R5 L347)
+                .filter(job -> event.getId().equals(job.getEventId()) && !job.isDeleted()
+                        && !job.retentionEndedAt(LocalDateTime.now(clock)))   // 정리 배치 전이어도 보관 기한이 지난 사진은 없는 것처럼
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
     }
 

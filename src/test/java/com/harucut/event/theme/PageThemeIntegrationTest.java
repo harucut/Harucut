@@ -96,7 +96,7 @@ class PageThemeIntegrationTest {
                 "colors", Map.of("bg", "#FFF8F3", "accent", "#C8553D"),
                 "font", "PRETENDARD",
                 "logoAssetId", logo.getPublicId(),
-                "copy", Map.of("welcome", "민지 ♥ 준호 결혼식에 오신 것을 환영해요")));
+                "copy", Map.of("welcome", "민지 ♥ 준호 결혼식에 오신 것을 환영해요", "contact", "웨딩홀 1588-0000")));
 
         eventService.publish(owner.getPublicId(), event.eventId());
         PublicEventResponse view = publicEventService.getBySlug("theme-ok");
@@ -108,6 +108,7 @@ class PageThemeIntegrationTest {
         assertThat(view.theme().logoUrl()).isEqualTo("https://s3/" + logo.getS3Key());
         assertThat(view.theme().backgroundUrl()).isNull();
         assertThat(view.theme().copy().welcome()).startsWith("민지");
+        assertThat(view.theme().copy().contact()).isEqualTo("웨딩홀 1588-0000");
         assertThat(view.theme().branding().hideHarucutBranding()).isFalse();
         assertThat(view.theme().branding().outputLogo()).isEqualTo("NONE");
     }
@@ -134,7 +135,7 @@ class PageThemeIntegrationTest {
                 "colors", Map.of("bg", "red"),
                 "font", "COMIC_SANS",
                 "backgroundAssetId", foreign.getPublicId(),
-                "copy", Map.of("done", "가".repeat(201)),
+                "copy", Map.of("done", "가".repeat(201), "contact", "가".repeat(201)),
                 "branding", Map.of("hideHarucutBranding", true, "outputLogo", "WATERMARK")));
 
         assertThatThrownBy(() -> eventService.publish(owner.getPublicId(), event.eventId()))
@@ -143,7 +144,7 @@ class PageThemeIntegrationTest {
                     @SuppressWarnings("unchecked")
                     List<Map<String, String>> violations = (List<Map<String, String>>) ((Map<?, ?>) e.getData()).get("violations");
                     assertThat(violations).extracting(v -> v.get("field")).contains(
-                            "theme.colors.bg", "theme.font", "theme.backgroundAssetId", "theme.copy.done",
+                            "theme.colors.bg", "theme.font", "theme.backgroundAssetId", "theme.copy.done", "theme.copy.contact",
                             "theme.branding.hideHarucutBranding", "theme.branding.outputLogo");
                 });
     }

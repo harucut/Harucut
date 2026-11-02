@@ -40,7 +40,7 @@ public class EffectiveSettingsResolver {
             "theme.colors.bg", "theme.colors.card", "theme.colors.text", "theme.colors.muted", "theme.colors.border",
             "theme.colors.accent", "theme.colors.accentContrast",
             "theme.copy.welcome", "theme.copy.consentIntro", "theme.copy.captureGuide", "theme.copy.composing",
-            "theme.copy.done", "theme.copy.expired", "theme.copy.closed", "theme.copy.error",
+            "theme.copy.done", "theme.copy.expired", "theme.copy.closed", "theme.copy.error", "theme.copy.contact",
             "theme.font", "theme.logoAssetId", "theme.backgroundAssetId",
             "theme.branding.hideHarucutBranding", "theme.branding.outputLogo");
 

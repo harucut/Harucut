@@ -118,6 +118,7 @@ public class ThemeResolver {
             texts.put("expired", copy.expired());
             texts.put("closed", copy.closed());
             texts.put("error", copy.error());
+            texts.put("contact", copy.contact());
             texts.forEach((name, value) -> {
                 if (value != null && value.length() > COPY_MAX) {
                     violations.add(violation("theme.copy." + name, COPY_MAX + "자 이내여야 한다"));

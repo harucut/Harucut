@@ -32,13 +32,16 @@ class PasswordChangeServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private com.harucut.auth.service.RefreshTokenService refreshTokenService;
+
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
 
     private PasswordChangeService service;
 
     @BeforeEach
     void setUp() {
-        service = new PasswordChangeService(userRepository, passwordEncoder);
+        service = new PasswordChangeService(userRepository, passwordEncoder, refreshTokenService);
     }
 
     @Nested
@@ -101,5 +104,26 @@ class PasswordChangeServiceTest {
         User user = UserFixtures.localUser("user@harucut.com", passwordEncoder.encode(OLD_PASSWORD));
         given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
         return user;
+    }
+
+    @Test
+    @DisplayName("비밀번호를 바꾸면 모든 기기 세션을 끊는다")
+    void revokesAllSessions() {
+        givenLocalUser();
+
+        service.changePassword(PUBLIC_ID, OLD_PASSWORD, NEW_PASSWORD);
+
+        org.mockito.BDDMockito.then(refreshTokenService).should().revokeAll(PUBLIC_ID);
+    }
+
+    @Test
+    @DisplayName("옛 비밀번호가 틀리면 세션을 건드리지 않는다")
+    void wrongOldPasswordKeepsSessions() {
+        givenLocalUser();
+
+        assertThatThrownBy(() -> service.changePassword(PUBLIC_ID, "wrong-password", NEW_PASSWORD))
+                .isInstanceOf(com.harucut.common.exception.BusinessException.class);
+
+        org.mockito.BDDMockito.then(refreshTokenService).shouldHaveNoInteractions();
     }
 }

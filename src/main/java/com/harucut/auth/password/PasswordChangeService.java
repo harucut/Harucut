@@ -1,6 +1,7 @@
 package com.harucut.auth.password;
 
 import com.harucut.auth.exception.AuthErrorCode;
+import com.harucut.auth.service.RefreshTokenService;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.user.entity.User;
 import com.harucut.user.enums.Provider;
@@ -16,6 +17,7 @@ public class PasswordChangeService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final RefreshTokenService refreshTokenService;
 
     @Transactional
     public void changePassword(String publicId, String oldPassword, String newPassword) {
@@ -31,5 +33,7 @@ public class PasswordChangeService {
         }
 
         user.changePassword(passwordEncoder.encode(newPassword));
+        // 비밀번호를 바꾼 이유가 탈취일 수 있다 — 이 기기를 포함해 모든 기기의 세션을 끊는다(재로그인)
+        refreshTokenService.revokeAll(publicId);
     }
 }

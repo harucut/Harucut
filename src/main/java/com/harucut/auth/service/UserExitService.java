@@ -34,7 +34,7 @@ public class UserExitService {
     public void requestExit(String publicId) {
         User user = findUser(publicId);
         user.deleteRequested(LocalDateTime.now(clock));
-        refreshTokenService.revoke(publicId);
+        refreshTokenService.revokeAll(publicId);
     }
 
     @Transactional
@@ -43,7 +43,7 @@ public class UserExitService {
         if (user.getUserStatus() != UserStatus.DELETED_REQUESTED) {
             throw new BusinessException(AuthErrorCode.NOT_DELETION_TARGET);
         }
-        refreshTokenService.revoke(publicId);
+        refreshTokenService.revokeAll(publicId);
         user.reActivate();
     }
 
@@ -76,7 +76,7 @@ public class UserExitService {
                 .findFirst()
                 .ifPresent(service -> service.unlink(managedUser));
 
-        refreshTokenService.revoke(publicId);
+        refreshTokenService.revokeAll(publicId);
         managedUser.delete();
 
         if (S3Keys.isManagedKey(profileImageKey)) {

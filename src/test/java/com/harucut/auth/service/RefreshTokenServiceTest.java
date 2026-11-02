@@ -26,16 +26,24 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Instant;
+import java.util.Date;
 import java.time.Duration;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.never;
 import static org.mockito.BDDMockito.willThrow;
 
 @ExtendWith(MockitoExtension.class)
@@ -74,13 +82,22 @@ class RefreshTokenServiceTest {
     class Save {
 
         @Test
-        @DisplayName("저장소에 그대로 위임한다")
-        void delegates() {
-            IssuedToken token = new IssuedToken("refresh-value", REFRESH_TTL);
+        @DisplayName("토큰에 실린 기기 세션으로 저장한다")
+        void savesUnderItsSession() {
+            IssuedToken token = jwtTokenService.createRefreshToken(PUBLIC_ID);
+            String sessionId = jwtTokenService.parse(token.value()).sessionId();
 
             refreshTokenService.save(PUBLIC_ID, token);
 
-            then(repository).should().save(PUBLIC_ID, token);
+            assertThat(sessionId).isNotBlank();
+            then(repository).should().save(PUBLIC_ID, sessionId, token);
+        }
+
+        @Test
+        @DisplayName("로그인마다 새 세션이다 — 앱 로그인이 웹 세션을 밀어내지 않는다")
+        void everyLoginIsNewSession() {
+            assertThat(jwtTokenService.parse(jwtTokenService.createRefreshToken(PUBLIC_ID).value()).sessionId())
+                    .isNotEqualTo(jwtTokenService.parse(jwtTokenService.createRefreshToken(PUBLIC_ID).value()).sessionId());
         }
     }
 
@@ -111,8 +128,11 @@ class RefreshTokenServiceTest {
 
             refreshTokenService.reissue(presented);
 
+            String sessionId = jwtTokenService.parse(presented).sessionId();
             ArgumentCaptor<IssuedToken> candidate = ArgumentCaptor.forClass(IssuedToken.class);
-            then(repository).should().rotate(eq(PUBLIC_ID), eq(presented), candidate.capture());
+            then(repository).should().rotate(eq(PUBLIC_ID), eq(sessionId), eq(presented), candidate.capture());
+            // 회전해도 같은 기기 세션이다
+            assertThat(jwtTokenService.parse(candidate.getValue().value()).sessionId()).isEqualTo(sessionId);
 
             assertThat(candidate.getValue().value()).isNotEqualTo(presented);
             assertThat(candidate.getValue().ttl()).isEqualTo(REFRESH_TTL);
@@ -233,26 +253,58 @@ class RefreshTokenServiceTest {
     class Revoke {
 
         @Test
-        @DisplayName("저장소에 삭제를 위임한다")
-        void delegates() {
-            refreshTokenService.revoke(PUBLIC_ID);
+        @DisplayName("한 기기 로그아웃은 그 세션만 지운다")
+        void revokesOneSession() {
+            String token = jwtTokenService.createRefreshToken(PUBLIC_ID).value();
+            String sessionId = jwtTokenService.parse(token).sessionId();
 
-            then(repository).should().delete(PUBLIC_ID);
+            refreshTokenService.revokeSession(jwtTokenService.parse(token));
+
+            then(repository).should().delete(PUBLIC_ID, sessionId);
+            then(repository).should(never()).deleteAll(anyString());
+        }
+
+        @Test
+        @DisplayName("전체 회수는 저장소의 전체 삭제로 간다")
+        void revokesAll() {
+            refreshTokenService.revokeAll(PUBLIC_ID);
+
+            then(repository).should().deleteAll(PUBLIC_ID);
         }
 
         @Test
         @DisplayName("삭제가 실패하면 예외를 그대로 던진다")
         void propagatesRedisFailure() {
             willThrow(new RedisConnectionFailureException("down"))
-                    .given(repository).delete(PUBLIC_ID);
+                    .given(repository).deleteAll(PUBLIC_ID);
 
-            assertThatThrownBy(() -> refreshTokenService.revoke(PUBLIC_ID))
+            assertThatThrownBy(() -> refreshTokenService.revokeAll(PUBLIC_ID))
                     .isInstanceOf(RedisConnectionFailureException.class);
         }
     }
 
+    @Test
+    @DisplayName("기기 세션이 없는 refresh 토큰은 AUTH-011 — 저장소를 보지 않는다")
+    void tokenWithoutSessionRejected() {
+        Instant now = CLOCK.instant();
+        String noSession = Jwts.builder()
+                .subject(PUBLIC_ID)
+                .issuer("Harucut")
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plus(REFRESH_TTL)))
+                .claim("type", TokenType.REFRESH.name())
+                .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+                .compact();
+
+        assertThatThrownBy(() -> refreshTokenService.reissue(noSession))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(AuthErrorCode.INVALID_TOKEN);
+        then(repository).shouldHaveNoInteractions();
+    }
+
     private void givenRotation(String presented, RotationResult result) {
-        given(repository.rotate(eq(PUBLIC_ID), eq(presented), any(IssuedToken.class)))
+        given(repository.rotate(eq(PUBLIC_ID), eq(jwtTokenService.parse(presented).sessionId()), eq(presented), any(IssuedToken.class)))
                 .willReturn(result);
     }
 

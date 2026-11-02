@@ -93,7 +93,7 @@ public class PasswordResetService {
         User user = userRepository.findByProviderAndEmail(Provider.HARUCUT, email)
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.USER_NOT_FOUND));
 
-        refreshTokenService.revoke(user.getPublicId());
+        refreshTokenService.revokeAll(user.getPublicId());
         user.changePassword(passwordEncoder.encode(newPassword));
     }
 }

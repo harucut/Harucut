@@ -220,7 +220,7 @@ class PasswordResetServiceTest {
 
             service.resetPassword(TOKEN, RAW_PASSWORD);
 
-            then(refreshTokenService).should().revoke(user.getPublicId());
+            then(refreshTokenService).should().revokeAll(user.getPublicId());
         }
 
         @Test

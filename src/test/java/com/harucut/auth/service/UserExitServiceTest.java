@@ -100,7 +100,7 @@ class UserExitServiceTest {
 
             service.requestExit(PUBLIC_ID);
 
-            then(refreshTokenService).should().revoke(PUBLIC_ID);
+            then(refreshTokenService).should().revokeAll(PUBLIC_ID);
         }
 
         @Test
@@ -138,7 +138,7 @@ class UserExitServiceTest {
 
             service.reActivate(PUBLIC_ID);
 
-            then(refreshTokenService).should().revoke(PUBLIC_ID);
+            then(refreshTokenService).should().revokeAll(PUBLIC_ID);
         }
 
         @Test
@@ -233,7 +233,7 @@ class UserExitServiceTest {
 
             service.exit(USER_ID);
 
-            then(refreshTokenService).should().revoke(user.getPublicId());
+            then(refreshTokenService).should().revokeAll(user.getPublicId());
         }
 
         @Test

@@ -31,8 +31,9 @@ public class UserExitService {
 
     @Transactional
     public void requestExit(String publicId) {
-        User user = findUser(publicId);
-        // 살아 있는 access 토큰으로 탈퇴 요청 → 복구를 거쳐 정지를 풀지 못하게
+        // 잠금 읽기 — 살아 있는 access 토큰으로 탈퇴 요청 → 복구를 거쳐 정지를 풀지 못하게, 동시에 커밋되는 정지도 여기서 본다
+        User user = userRepository.lockByPublicId(publicId)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.USER_NOT_FOUND));
         if (user.getUserStatus() == UserStatus.BLOCKED) {
             throw new BusinessException(AuthErrorCode.ACCOUNT_BLOCKED);
         }

@@ -1,7 +1,9 @@
 package com.harucut.support.mysql;
 
 import com.harucut.admin.service.AdminUserService;
+import com.harucut.auth.exception.AuthErrorCode;
 import com.harucut.auth.service.RefreshTokenRepository;
+import com.harucut.auth.service.UserExitService;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.user.entity.User;
@@ -16,6 +18,8 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
@@ -50,6 +54,8 @@ class AccountBlockRaceMysqlTest {
     @Autowired private AdminUserService adminUserService;
     @Autowired private UserRepository userRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private UserExitService userExitService;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     @MockitoBean private RefreshTokenRepository refreshTokenRepository;
 
@@ -67,6 +73,66 @@ class AccountBlockRaceMysqlTest {
             assertThat(List.of(first.get(), second.get())).containsExactlyInAnyOrder("BLOCKED", GlobalErrorCode.FORBIDDEN.getCode());
             assertThat(List.of(status(a), status(b))).containsExactlyInAnyOrder(UserStatus.ACTIVE, UserStatus.BLOCKED);
         }
+    }
+
+    @Test
+    @DisplayName("정지와 동시에 커밋되는 프로필 저장이 정지를 되돌리지 않는다 — 바뀐 열만 쓴다")
+    void profileSaveDoesNotUndoBlock() {
+        User admin = admin();
+        User member = member();
+
+        transactions().executeWithoutResult(status -> {
+            User stale = userRepository.findByPublicId(member.getPublicId()).orElseThrow();
+            stale.changeUsername("새 이름");
+            // 이 트랜잭션이 읽은 뒤, 커밋하기 전에 다른 트랜잭션에서 정지가 커밋된다
+            CompletableFuture.runAsync(() -> adminUserService.block(admin.getPublicId(), member.getPublicId(), "신고")).join();
+        });
+
+        User after = userRepository.findByPublicId(member.getPublicId()).orElseThrow();
+        assertThat(after.getUserStatus()).isEqualTo(UserStatus.BLOCKED);
+        assertThat(after.getUsername()).isEqualTo("새 이름");
+    }
+
+    @Test
+    @DisplayName("탈퇴 요청과 정지가 동시에 — 어느 쪽이 먼저든 한쪽만 된다. 탈퇴 요청이 정지를 덮지 않는다")
+    void exitRequestAndBlockRace() throws Exception {
+        for (int round = 0; round < 20; round++) {
+            User admin = admin();
+            User member = member();
+            CountDownLatch start = new CountDownLatch(1);
+            CompletableFuture<String> block = attempt(start, admin, member);
+            CompletableFuture<String> exit = CompletableFuture.supplyAsync(() -> {
+                try {
+                    start.await();
+                    userExitService.requestExit(member.getPublicId());
+                    return "EXIT";
+                } catch (BusinessException e) {
+                    return e.getErrorCode().getCode();
+                } catch (InterruptedException e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+            start.countDown();
+
+            String blockResult = block.get();
+            String exitResult = exit.get();
+            if ("BLOCKED".equals(blockResult)) {
+                assertThat(exitResult).isEqualTo(AuthErrorCode.ACCOUNT_BLOCKED.getCode());
+                assertThat(status(member)).isEqualTo(UserStatus.BLOCKED);
+            } else {
+                assertThat(blockResult).isEqualTo(AuthErrorCode.ACCOUNT_PENDING_DELETION.getCode());
+                assertThat(exitResult).isEqualTo("EXIT");
+                assertThat(status(member)).isEqualTo(UserStatus.DELETED_REQUESTED);
+            }
+        }
+    }
+
+    private TransactionTemplate transactions() {
+        return new TransactionTemplate(transactionManager);
+    }
+
+    private User member() {
+        return userRepository.save(User.localUser(UUID.randomUUID() + "@harucut.com", "e", "회원"));
     }
 
     private CompletableFuture<String> attempt(CountDownLatch start, User actor, User target) {

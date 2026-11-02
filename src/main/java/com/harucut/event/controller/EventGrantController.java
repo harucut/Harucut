@@ -35,6 +35,8 @@ public class EventGrantController {
             description = """
                     INVITE_CUSTOMERS 권한(공간 OWNER·ADMIN 은 늘 가진다). OPERATOR 는 자기가 가진 사진 권한 안에서만 준다.
                     수락하면 공간 멤버가 아니라 이 행사의 사진 권한만 생긴다 — 공간의 다른 행사는 보이지 않는다.
+                    기본은 수락한 뒤 사진만 보인다. 같은 처리 주체 안의 담당자 교체면 `includePast: true` 로 준다(감사에 남는다).
+                    OPERATOR 는 자기 사진 범위가 제한돼 있으면 `includePast` 를 줄 수 없다.
                     토큰 원문은 이 응답에서만, 링크 `/invite#<token>`, 7일.
                     """)
     @ApiErrors({"GEN-031: 없는 행사이거나 볼 수 없다", "GEN-021: INVITE_CUSTOMERS 가 없거나 자기 사진 권한 밖"})
@@ -56,14 +58,18 @@ public class EventGrantController {
     }
 
     @Operation(summary = "행사 사진 권한 바꾸기",
-            description = "INVITE_CUSTOMERS 권한. 사진 권한 집합을 통째로 바꾼다. OPERATOR 는 자기 사진 권한 안에서만, 다른 운영자의 행은 못 바꾼다.")
+            description = """
+                    INVITE_CUSTOMERS 권한. 사진 권한 집합을 통째로 바꾼다. OPERATOR 는 자기 사진 권한 안에서만, 다른 운영자의 행은 못 바꾼다.
+                    처음 사진 권한을 받으면 그 시각 이후 사진만 보인다. `includePast: true` 면 제한을 푼다(감사에 남는다).
+                    """)
     @ApiErrors({"GEN-031: 없는 행사·권한이거나 볼 수 없다", "GEN-021: 권한 밖"})
     @PatchMapping("/api/auth/events/{eventId}/grants/{grantId}")
     public Response<MemberDtos.EventGrantView> update(@AuthenticationPrincipal AuthenticatedUser principal,
                                                       @Parameter(description = "행사 public id") @PathVariable String eventId,
                                                       @Parameter(description = "권한 ID") @PathVariable Long grantId,
                                                       @RequestBody @Valid MemberDtos.EventGrantRequest request) {
-        return Response.ok(eventGrantService.update(principal.publicId(), eventId, grantId, request.permissions()));
+        return Response.ok(eventGrantService.update(principal.publicId(), eventId, grantId, request.permissions(),
+                Boolean.TRUE.equals(request.includePast())));
     }
 
     @Operation(summary = "행사 사진 권한 회수", description = "INVITE_CUSTOMERS 권한. OPERATOR 는 다른 운영자의 행을 지울 수 없다.")

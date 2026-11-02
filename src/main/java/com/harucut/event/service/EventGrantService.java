@@ -87,14 +87,15 @@ public class EventGrantService {
         User actor = user(actorPublicId);
         Event event = eventRepository.findByPublicId(eventPublicId)
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
-        requireWithinOwn(policy.requireOperation(event, actor.getId(), OperationPermission.INVITE_CUSTOMERS), request.permissions());
+        boolean includePast = Boolean.TRUE.equals(request.includePast());
+        requireWithinOwn(policy.requireOperation(event, actor.getId(), OperationPermission.INVITE_CUSTOMERS), request.permissions(), includePast);
         String token = OpaqueTokens.generate();
         LocalDateTime expiresAt = LocalDateTime.now(clock).plus(invitationTtl);
         WorkspaceInvitation invitation = invitationRepository.save(WorkspaceInvitation.eventCustomer(event.getWorkspaceId(),
-                event.getId(), request.permissions(), blankToNull(request.note()), OpaqueTokens.hash(token), expiresAt,
+                event.getId(), request.permissions(), includePast, blankToNull(request.note()), OpaqueTokens.hash(token), expiresAt,
                 actor.getId()));
         auditLogService.record(actor.getId(), event.getWorkspaceId(), event.getId(), "CUSTOMER_INVITED", "INVITATION",
-                invitation.getPublicId(), Map.of("permissions", sorted(request.permissions())));
+                invitation.getPublicId(), Map.of("permissions", sorted(request.permissions()), "includePast", includePast));
         return new MemberDtos.InvitationIssued(invitation.getPublicId(), token, offset(expiresAt));
     }
 
@@ -111,18 +112,18 @@ public class EventGrantService {
     }
 
     public MemberDtos.EventGrantView update(String actorPublicId, String eventPublicId, Long grantId,
-                                            Set<PhotoPermission> permissions) {
+                                            Set<PhotoPermission> permissions, boolean includePast) {
         User actor = user(actorPublicId);
         Event event = eventRepository.findByPublicId(eventPublicId)
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
         EventAccessPolicy.Access access = policy.requireOperation(event, actor.getId(), OperationPermission.INVITE_CUSTOMERS);
         EventGrant grant = grantOf(event, grantId);
         requireCustomerGrant(access, event, grant);
-        requireWithinOwn(access, permissions);
-        grant.replace(permissions);
+        requireWithinOwn(access, permissions, includePast);
+        grant.replace(permissions, includePast, LocalDateTime.now(clock));
         User target = userRepository.findById(grant.getUserId()).orElseThrow();
         auditLogService.record(actor.getId(), event.getWorkspaceId(), event.getId(), "GRANT_CHANGED", "USER",
-                target.getPublicId(), Map.of("permissions", sorted(permissions)));
+                target.getPublicId(), Map.of("permissions", sorted(permissions), "includePast", includePast));
         return view(grant, target);
     }
 
@@ -205,15 +206,18 @@ public class EventGrantService {
                     return new MemberDtos.MyEvent(entry.getKey().getPublicId(), workspaceIds.get(entry.getKey().getWorkspaceId()),
                             entry.getKey().getName(), entry.getKey().getStatus(),
                             new MemberDtos.MyEvent.Access(access.role(), access.permissions(), access.operations(),
-                                    sources.isEmpty() ? null : sources),
-                            access.themeOnly() ? null : completed.getOrDefault(entry.getKey().getId(), 0L));
+                                    sources.isEmpty() ? null : sources, offset(access.photosFrom())),
+                            access.themeOnly() ? null : access.photosFrom() == null
+                                    ? completed.getOrDefault(entry.getKey().getId(), 0L)
+                                    // 범위 밖 사진 수는 알리지 않는다 — 빈 목록과 어긋나지 않게
+                                    : composeJobRepository.countCompletedSince(entry.getKey().getId(), access.photosFrom(), LocalDateTime.now(clock)));
                 })
                 .toList();
     }
 
-    // OPERATOR 는 자기가 가진 사진 권한 안에서만 고객에게 준다(OWNER·ADMIN 은 제한 없음)
-    private static void requireWithinOwn(EventAccessPolicy.Access access, Set<PhotoPermission> permissions) {
-        if (!access.admin() && !access.permissions().containsAll(permissions)) {
+    // OPERATOR 는 자기가 가진 사진 권한·범위 안에서만 고객에게 준다(OWNER·ADMIN 은 제한 없음)
+    private static void requireWithinOwn(EventAccessPolicy.Access access, Set<PhotoPermission> permissions, boolean includePast) {
+        if (!access.admin() && (!access.permissions().containsAll(permissions) || (includePast && access.photosFrom() != null))) {
             throw new BusinessException(GlobalErrorCode.FORBIDDEN, "자기가 가진 사진 권한 안에서만 줄 수 있습니다.");
         }
     }
@@ -234,7 +238,7 @@ public class EventGrantService {
 
     private MemberDtos.EventGrantView view(EventGrant grant, User user) {
         return new MemberDtos.EventGrantView(grant.getId(), user.getPublicId(), user.getUsername(), grant.getPermissions(),
-                grant.getOperations(), offset(grant.getCreatedAt()));
+                grant.getOperations(), offset(grant.getCreatedAt()), offset(grant.getPhotosFrom()));
     }
 
     private User user(String publicId) {

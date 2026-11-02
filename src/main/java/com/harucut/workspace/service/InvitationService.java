@@ -28,6 +28,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 초대 미리보기·수락 — 수락 검사의 한 곳 (ADR-0008 §2-4).
@@ -59,7 +60,8 @@ public class InvitationService {
         String invitedBy = userRepository.findById(invitation.getInvitedByUserId()).map(User::getUsername).orElse(null);
         return new MemberDtos.InvitationPreview(invitation.getKind(), workspace.getName(), eventName, invitation.getRole(),
                 invitation.getKind() == InvitationKind.EVENT ? invitation.getPermissions() : null, invitedBy,
-                invitation.getExpiresAt().atZone(clock.getZone()).toOffsetDateTime());
+                invitation.getExpiresAt().atZone(clock.getZone()).toOffsetDateTime(),
+                invitation.getKind() == InvitationKind.EVENT ? invitation.isIncludePast() : null);
     }
 
     public MemberDtos.InvitationAccepted accept(String actorPublicId, String token) {
@@ -80,21 +82,24 @@ public class InvitationService {
             auditLogService.record(actor.getId(), workspace.getId(), null, "MEMBER_JOINED", "INVITATION",
                     invitation.getPublicId(), Map.of("role", invitation.getRole().name()));
             return new MemberDtos.InvitationAccepted(InvitationKind.WORKSPACE, workspace.getPublicId(), null,
-                    invitation.getRole(), null);
+                    invitation.getRole(), null, null);
         }
 
         Event event = eventRepository.findById(invitation.getEventId()).orElseThrow();
         Optional<EventGrant> existing = grantRepository.findByEventIdAndUserId(event.getId(), actor.getId());
-        if (existing.filter(grant -> grant.getPermissions().containsAll(invitation.getPermissions())).isPresent()) {
+        // 권한이 같아도 과거 사진 제한을 푸는 초대면 받는다
+        if (existing.filter(grant -> grant.getPermissions().containsAll(invitation.getPermissions())
+                && !(invitation.isIncludePast() && grant.getPhotosFrom() != null)).isPresent()) {
             throw new BusinessException(MemberErrorCode.ALREADY_MEMBER);
         }
         consume(invitation, actor);
         EventGrant grant = grantRepository.findByEventIdAndUserId(event.getId(), actor.getId()).orElseGet(() -> grantRepository.save(
-                new EventGrant(event.getId(), actor.getId(), invitation.getPermissions(), invitation.getInvitedByUserId())));
-        grant.merge(invitation.getPermissions());
+                new EventGrant(event.getId(), actor.getId(), Set.of(), invitation.getInvitedByUserId())));
+        grant.merge(invitation.getPermissions(), invitation.isIncludePast(), LocalDateTime.now(clock));
         auditLogService.record(actor.getId(), workspace.getId(), event.getId(), "CUSTOMER_JOINED", "INVITATION",
-                invitation.getPublicId(), null);
-        return new MemberDtos.InvitationAccepted(InvitationKind.EVENT, null, event.getPublicId(), null, grant.getPermissions());
+                invitation.getPublicId(), Map.of("includePast", invitation.isIncludePast()));
+        return new MemberDtos.InvitationAccepted(InvitationKind.EVENT, null, event.getPublicId(), null, grant.getPermissions(),
+                grant.getPhotosFrom() == null ? null : grant.getPhotosFrom().atZone(clock.getZone()).toOffsetDateTime());
     }
 
     // 수락할 수 있는 초대인가. 없거나 이미 쓴·회수된 것은 MEMBER-002, 기한이 지난 것은 MEMBER-001

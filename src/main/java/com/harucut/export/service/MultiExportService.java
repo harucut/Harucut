@@ -102,7 +102,7 @@ public class MultiExportService {
         requirePermissions(actorId, events);
         List<ComposeJob> targets = new ArrayList<>();
         for (Event event : events) {
-            targets.addAll(exportService.visiblePhotos(event));
+            targets.addAll(exportService.visiblePhotos(new EventAccessPolicy.PhotoScope(event, policy.accessOf(event, actorId).photosFrom())));
             if (targets.size() > exportService.maxPhotos()) {
                 break;
             }

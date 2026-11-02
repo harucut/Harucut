@@ -45,17 +45,18 @@ public class PasswordResetService {
             throw new BusinessException(AuthErrorCode.USER_NOT_FOUND);
         }
 
+        // 코드를 바꾸기 전에 본다 — 상한에 걸려 메일을 못 보내면서 이미 보낸 유효 코드를 덮어쓰지 않게
+        if (emailRateLimit.dailySendLimitExceeded()) {
+            emailRateLimit.releaseCooldown(email);
+            throw new BusinessException(GlobalErrorCode.TOO_MANY_REQUESTS);
+        }
+
         String code = generator.generate();
         repository.saveCode(email, code);
 
         Context context = new Context();
         context.setVariable("code", code);
         String html = templateEngine.process(TEMPLATE, context);
-
-        if (emailRateLimit.dailySendLimitExceeded()) {
-            emailRateLimit.releaseCooldown(email);
-            throw new BusinessException(GlobalErrorCode.TOO_MANY_REQUESTS);
-        }
 
         try {
             mailService.sendHtml(email, SUBJECT, html);

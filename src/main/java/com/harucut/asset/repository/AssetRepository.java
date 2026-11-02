@@ -1,5 +1,7 @@
 package com.harucut.asset.repository;
 
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
 import com.harucut.asset.entity.Asset;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -59,7 +61,9 @@ public interface AssetRepository extends JpaRepository<Asset, Long> {
 
     long countByCaptureRunIdAndBoundComposeJobIdIsNull(Long captureRunId);
 
-    List<Asset> findAllByCaptureRunIdAndBoundComposeJobIdIsNull(Long captureRunId);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from Asset a where a.captureRunId = :captureRunId and a.boundComposeJobId is null")
+    List<Asset> lockUnboundCaptureInputs(@Param("captureRunId") Long captureRunId);
 
     // 끝내 합성에 쓰이지 않은 촬영 입력 — 얼굴 사진이라 다른 자산보다 짧게 둔다. 회차·PUT 수명보다 길면 진행 중인 촬영을 건드리지 않는다
     @Query("""

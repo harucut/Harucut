@@ -160,13 +160,17 @@ public class AssetService {
      * 발급한 PUT 이 아직 유효해 지운 뒤 다시 올라올 수 있어 그 수명 뒤 한 번 더 지운다(R5 L679)
      */
     public void discardUnboundInputs(Long captureRunId) {
-        List<Asset> inputs = assetRepository.findAllByCaptureRunIdAndBoundComposeJobIdIsNull(captureRunId);
-        if (inputs.isEmpty()) {
-            return;
-        }
-        s3Deleter.deleteAfterCommit(inputs.stream().map(Asset::getS3Key).toList(),
-                properties.upload().putTtl().plus(PUT_LATE_MARGIN));
-        assetRepository.deleteAllInBatch(inputs);
+        transactions.executeWithoutResult(status -> {
+            // 잠금 읽기 — 합성 접수가 입력을 묶는 것과 줄을 선다. 접수가 먼저면 커밋을 기다렸다가 묶인 입력을 빼고 보고,
+            // 이쪽이 먼저면 접수의 bindToJob 이 지워진 행을 못 찾아 진다(접수 전체가 롤백된다)
+            List<Asset> inputs = assetRepository.lockUnboundCaptureInputs(captureRunId);
+            if (inputs.isEmpty()) {
+                return;
+            }
+            s3Deleter.deleteAfterCommit(inputs.stream().map(Asset::getS3Key).toList(),
+                    properties.upload().putTtl().plus(PUT_LATE_MARGIN));
+            assetRepository.deleteAllInBatch(inputs);
+        });
     }
 
     /**

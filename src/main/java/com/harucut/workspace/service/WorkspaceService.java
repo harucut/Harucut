@@ -165,11 +165,13 @@ public class WorkspaceService {
 
     /**
      * 탈퇴 요청 전에 — 조직 공간의 마지막 OWNER 면 먼저 넘겨야 한다. 그대로 탈퇴하면 OWNER 없는 공간이 남아 고객의 행사·사진을 아무도 관리하지 못한다(R5 L561, O18).
+     * 개인 공간은 빼고 본다 — 언제나 본인이 유일한 OWNER 이고 탈퇴와 함께 지워진다(deleteForUser).
      * 잠금 읽기로 세므로 두 OWNER 가 동시에 탈퇴해도 뒤쪽은 앞쪽 커밋을 본다
      */
     public void requireNotLastOwner(Long userId) {
         for (WorkspaceMembership membership : membershipRepository.findAllByUserIdAndStatus(userId, MembershipStatus.ACTIVE)) {
             if (membership.getRole() == WorkspaceRole.OWNER
+                    && organization(membership.getWorkspaceId()).isPresent()
                     && membershipRepository.lockActiveOwnerIds(membership.getWorkspaceId()).size() <= 1) {
                 throw new BusinessException(MemberErrorCode.LAST_OWNER);
             }

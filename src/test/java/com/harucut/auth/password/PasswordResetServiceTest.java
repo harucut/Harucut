@@ -279,4 +279,17 @@ class PasswordResetServiceTest {
         org.mockito.BDDMockito.then(repository).should().removeCode("a@b.c");
         org.mockito.BDDMockito.then(repository).should(org.mockito.Mockito.never()).saveToken(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
     }
+
+    @Test
+    @DisplayName("일일 발송 상한을 넘으면 이미 보낸 재설정 코드를 덮어쓰지 않고 GEN-061")
+    void dailyLimitKeepsExistingResetCode() {
+        org.mockito.BDDMockito.given(emailRateLimit.tryAcquireCooldown("a@b.c")).willReturn(true);
+        org.mockito.BDDMockito.given(userRepository.existsByProviderAndEmail(com.harucut.user.enums.Provider.HARUCUT, "a@b.c")).willReturn(true);
+        org.mockito.BDDMockito.given(emailRateLimit.dailySendLimitExceeded()).willReturn(true);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.sendResetCode("a@b.c"))
+                .isInstanceOf(com.harucut.common.exception.BusinessException.class);
+        org.mockito.BDDMockito.then(repository).should(org.mockito.Mockito.never()).saveCode(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+        org.mockito.BDDMockito.then(emailRateLimit).should().releaseCooldown("a@b.c");
+    }
 }

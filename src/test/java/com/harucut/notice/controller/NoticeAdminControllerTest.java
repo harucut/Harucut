@@ -1,5 +1,6 @@
 package com.harucut.notice.controller;
 
+import com.harucut.auth.security.AccountStateGuard;
 import com.harucut.terms.service.TermsConsentGuard;
 import com.harucut.notice.service.NoticeAdminService;
 import org.assertj.core.api.Assertions;
@@ -28,6 +29,9 @@ class NoticeAdminControllerTest {
     // WebMvcConfig 의 약관 동의 인터셉터가 요구한다 — 기본값 false 라 동의 강제는 걸리지 않는다
     @MockitoBean
     private TermsConsentGuard termsConsentGuard;
+
+    @MockitoBean
+    private AccountStateGuard accountStateGuard;
 
     @Autowired
     private MockMvcTester mockMvc;

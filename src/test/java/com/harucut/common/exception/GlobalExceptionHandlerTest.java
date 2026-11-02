@@ -1,5 +1,6 @@
 package com.harucut.common.exception;
 
+import com.harucut.auth.security.AccountStateGuard;
 import com.harucut.terms.service.TermsConsentGuard;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.assertj.core.api.Assertions;
@@ -25,6 +26,9 @@ class GlobalExceptionHandlerTest {
     // WebMvcConfig 의 약관 동의 인터셉터가 요구한다 — 기본값 false 라 동의 강제는 걸리지 않는다
     @MockitoBean
     private TermsConsentGuard termsConsentGuard;
+
+    @MockitoBean
+    private AccountStateGuard accountStateGuard;
 
     @Autowired
     private MockMvcTester mockMvc;

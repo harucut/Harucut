@@ -60,6 +60,19 @@ public final class SecurityPaths {
     public static final String ADMIN = "/api/admin/**";
 
     /**
+     * access 토큰을 믿지 않고 요청마다 역할·상태를 DB 에서 다시 보는 경로 — 플랫폼 관리와 사진·행사 관리(R5 L636, AccountStateInterceptor).
+     */
+    public static final String[] ACCOUNT_CHECKED = {
+            ADMIN,
+            "/api/auth/events/**",
+            "/api/auth/me/events",
+            "/api/auth/projects/**",
+            "/api/auth/workspaces/**",
+            "/api/auth/booth-devices/**",
+            "/api/auth/invitations/**"
+    };
+
+    /**
      * 로그인만 되어 있으면 되는 경로 ({@code authenticated}). 나머지 경로는 전부
      * {@code hasAnyRole("USER","ADMIN")} 이라 탈퇴 요청·정지 상태에서 403 이 난다.
      *
@@ -113,6 +126,14 @@ public final class SecurityPaths {
     public static RequestMatcher publicMatcher() {
         return new OrRequestMatcher(
                 Arrays.stream(PUBLIC)
+                        .map(PathPatternRequestMatcher::pathPattern)
+                        .toArray(RequestMatcher[]::new));
+    }
+
+    /** 계정 상태를 다시 보는 경로 매처. */
+    public static RequestMatcher accountCheckedMatcher() {
+        return new OrRequestMatcher(
+                Arrays.stream(ACCOUNT_CHECKED)
                         .map(PathPatternRequestMatcher::pathPattern)
                         .toArray(RequestMatcher[]::new));
     }

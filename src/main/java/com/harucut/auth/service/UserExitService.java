@@ -32,6 +32,10 @@ public class UserExitService {
     @Transactional
     public void requestExit(String publicId) {
         User user = findUser(publicId);
+        // 살아 있는 access 토큰으로 탈퇴 요청 → 복구를 거쳐 정지를 풀지 못하게
+        if (user.getUserStatus() == UserStatus.BLOCKED) {
+            throw new BusinessException(AuthErrorCode.ACCOUNT_BLOCKED);
+        }
         workspaceService.requireNotLastOwner(user.getId());
         user.deleteRequested(LocalDateTime.now(clock));
         refreshTokenService.revokeAll(publicId);

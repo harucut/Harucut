@@ -175,6 +175,23 @@ class CustomOAuth2SuccessHandlerTest {
         then(refreshTokenService).should().save(PUBLIC_ID, REFRESH);
     }
 
+    @Test
+    @DisplayName("정지 계정 — 상태 조회만 되는 access 쿠키로 콜백에 보내고 refresh 세션은 만들지 않는다")
+    void blockedAccount() throws IOException {
+        given(jwtTokenService.createAccessToken(PUBLIC_ID, UserRole.ROLE_USER, UserStatus.BLOCKED)).willReturn(ACCESS);
+        CustomOAuth2User blocked = new CustomOAuth2User(
+                new DefaultOAuth2User(List.of(new SimpleGrantedAuthority("PROVIDER")), Map.of("sub", "google-sub-1"), "sub"),
+                new AuthenticatedUser(PUBLIC_ID, UserRole.ROLE_USER, UserStatus.BLOCKED));
+
+        handler.onAuthenticationSuccess(request, response, authentication(blocked));
+
+        assertThat(response.getHeaders(HttpHeaders.SET_COOKIE)).singleElement()
+                .satisfies(cookie -> assertThat(cookie).startsWith("accessToken=access-token-value"));
+        assertThat(response.getRedirectedUrl()).isEqualTo(FRONTEND_URL + "/oauth2/callback");
+        then(refreshTokenService).should(never()).save(any(), any());
+        then(jwtTokenService).should(never()).createRefreshToken(any());
+    }
+
     @Nested
     @DisplayName("앱 로그인(client=app)")
     class AppLogin {

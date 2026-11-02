@@ -5,6 +5,7 @@ import com.harucut.auth.oauth2.CustomOAuth2SuccessHandler;
 import com.harucut.auth.oauth2.CustomOAuth2UserService;
 import com.harucut.auth.oauth2.CustomOidcUserService;
 import com.harucut.terms.service.TermsConsentGuard;
+import com.harucut.auth.security.AccountStateGuard;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
@@ -31,4 +32,8 @@ public abstract class SecurityBeansMockSupport {
     // 개별 컨트롤러 테스트는 동의 강제와 무관하게 돈다. 강제 자체는 TermsConsentInterceptorTest 가 본다
     @MockitoBean
     protected TermsConsentGuard termsConsentGuard;
+
+    // 같은 인터셉터 구성 — mock 기본값 false = "막지 않음". 재확인 자체는 AccountBlockIntegrationTest 가 본다
+    @MockitoBean
+    protected AccountStateGuard accountStateGuard;
 }

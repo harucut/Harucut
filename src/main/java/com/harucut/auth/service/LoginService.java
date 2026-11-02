@@ -8,6 +8,7 @@ import com.harucut.auth.exception.CustomAuthenticationException;
 import com.harucut.auth.jwt.IssuedToken;
 import com.harucut.auth.security.CustomUserPrincipal;
 import com.harucut.common.exception.BusinessException;
+import com.harucut.user.enums.UserStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -27,6 +28,10 @@ public class LoginService {
 
     public LoginResult login(LoginRequest request) {
         CustomUserPrincipal principal = authenticate(request);
+        // 비밀번호를 맞힌 뒤에 알린다 — 틀린 비밀번호로 정지 여부를 캐지 못하게
+        if (principal.getUserStatus() == UserStatus.BLOCKED) {
+            throw new BusinessException(AuthErrorCode.ACCOUNT_BLOCKED);
+        }
 
         IssuedToken accessToken = jwtTokenService.createAccessToken(
                 principal.getPublicId(), principal.getUserRole(), principal.getUserStatus());

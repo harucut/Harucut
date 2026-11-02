@@ -106,13 +106,17 @@ class LoginServiceTest {
         }
 
         @Test
-        @DisplayName("차단된 사용자도 로그인은 성공하고 BLOCKED를 돌려준다")
-        void blockedUserCanStillLogIn() {
+        @DisplayName("정지 계정은 비밀번호가 맞으면 AUTH-042 이고 세션을 만들지 않는다 — 틀리면 AUTH-001 로 정지 여부를 캐지 못한다")
+        void blockedUserCannotLogIn() {
             givenLocalUser(UserStatus.BLOCKED);
 
-            LoginResult result = loginService.login(new LoginRequest(EMAIL, RAW_PASSWORD));
-
-            assertThat(result.userStatus()).isEqualTo(UserStatus.BLOCKED);
+            assertThatThrownBy(() -> loginService.login(new LoginRequest(EMAIL, RAW_PASSWORD)))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode").isEqualTo(AuthErrorCode.ACCOUNT_BLOCKED);
+            assertThatThrownBy(() -> loginService.login(new LoginRequest(EMAIL, "wrong-password")))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode").isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
+            then(refreshTokenService).shouldHaveNoInteractions();
         }
 
         @Test

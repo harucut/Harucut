@@ -106,6 +106,20 @@ class UserExitServiceTest {
         }
 
         @Test
+        @DisplayName("정지 계정은 탈퇴 요청으로 정지를 벗어나지 못한다 — 살아 있는 access 토큰이어도 AUTH-042")
+        void blockedCannotRequestExit() {
+            User user = givenActiveUser();
+            user.block();
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.requestExit(PUBLIC_ID))
+                    .isInstanceOf(com.harucut.common.exception.BusinessException.class)
+                    .extracting("errorCode").isEqualTo(com.harucut.auth.exception.AuthErrorCode.ACCOUNT_BLOCKED);
+
+            assertThat(user.getUserStatus()).isEqualTo(UserStatus.BLOCKED);
+            then(refreshTokenService).shouldHaveNoInteractions();
+        }
+
+        @Test
         @DisplayName("refresh 토큰이 삭제된다")
         void revokesRefreshToken() {
             givenActiveUser();

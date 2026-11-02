@@ -110,6 +110,14 @@ public class User extends BaseEntity {
         this.deleteRequestedAt = null;
     }
 
+    public void block() {
+        this.userStatus = UserStatus.BLOCKED;
+    }
+
+    public void unblock() {
+        this.userStatus = UserStatus.ACTIVE;
+    }
+
     public void delete() {
         this.userStatus = UserStatus.DELETED;
         this.email = "deleted_" + id + "@harucut.local";

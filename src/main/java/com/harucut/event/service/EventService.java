@@ -74,6 +74,7 @@ public class EventService {
     private static final Pattern SLUG = Pattern.compile("^[a-z0-9-]{3,40}$");
 
     private final EventRepository eventRepository;
+    private final com.harucut.media.repository.ComposeJobRepository composeJobRepository;
     private final EventExperienceVersionRepository experienceVersionRepository;
     private final EventFrameRepository eventFrameRepository;
     private final FrameVersionRepository frameVersionRepository;
@@ -213,7 +214,7 @@ public class EventService {
         // 게시 = 지금의 유효 설정(공간 ⊕ 프로젝트 ⊕ 행사)을 발행본에 굳힌다. 컬럼(지금 적용되는 값)도 유효값으로 맞춘다 —
         // 그 뒤 상위 기본값이 바뀌어도 이 행사는 다시 게시하기 전까지 그대로다(ADR-0009 원칙 2)
         EffectiveSettingsResolver.Effective effective = effective(event, operated.workspace()).effective();
-        event.configure(effective.timezone(), effective.byodEnabled(), effective.boothEnabled(), effective.resultRetentionDays());
+        configure(event, effective.timezone(), effective.byodEnabled(), effective.boothEnabled(), effective.resultRetentionDays());
         EventExperienceDocument draft = document(effective);
 
         List<Map<String, String>> violations = new ArrayList<>();
@@ -337,7 +338,16 @@ public class EventService {
         }
         event.assignProject(projectId);
         event.replaceSettingsDraft(directJson);
+        configure(event, timezone, byod, booth, retention);
+    }
+
+    // 보관 약정은 작업마다 접수 때 굳는다. 늘리면 이미 찍은 결과까지 늘고, 줄이면 앞으로 찍는 것부터다 — 약속한 기간을 소급해 줄이지 않는다(R5 L330, O31)
+    private void configure(Event event, String timezone, boolean byod, boolean booth, int retention) {
+        int previous = event.getResultRetentionDays();
         event.configure(timezone, byod, booth, retention);
+        if (retention > previous) {
+            composeJobRepository.extendRetention(event.getId(), retention);
+        }
     }
 
     // 행사의 프로젝트 지정·해제 검사 — 같은 공간·보관되지 않은 프로젝트만, 게시 뒤에는 바꾸지 않는다. 지정할 프로젝트(해제면 null)

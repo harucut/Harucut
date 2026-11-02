@@ -121,15 +121,13 @@ public class EventRetentionService {
         int total = 0;
         while (true) {
             Integer done = transaction.execute(status -> {
-                // 잠금 읽기 — 실행 처음에 읽은 행사로 계산하면, 그 뒤 운영자가 보관 일수를 늘려도 예전 기준으로 지운다.
-                // 이 배치가 커밋할 때까지 설정 저장이 기다리고, 먼저 커밋된 저장은 여기서 보인다
+                // 잠금 읽기 — 이 배치가 커밋할 때까지 보관 일수 저장(약정 연장)이 기다리고, 먼저 커밋된 연장은 여기서 보인다
                 Integer retentionDays = eventRepository.lockRetentionDays(eventId).stream().findFirst().orElse(null);
                 if (retentionDays == null) {
                     return 0;
                 }
                 LocalDateTime now = now();
-                LocalDateTime cutoff = now.minusDays(retentionDays);
-                List<ComposeJob> jobs = composeJobRepository.findPurgeable(eventId, cutoff, PageRequest.of(0, batchSize));
+                List<ComposeJob> jobs = composeJobRepository.findPurgeable(eventId, now, PageRequest.of(0, batchSize));
                 for (ComposeJob job : jobs) {
                     // purged_at 만 원자적으로 — 엔티티를 고쳐 저장하면 그사이 커밋된 삭제 요청(deleted_at)을 덮는다
                     if (composeJobRepository.markPurged(job.getId(), now) == 1) {

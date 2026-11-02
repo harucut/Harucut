@@ -16,6 +16,8 @@ import java.util.Collection;
 @RequiredArgsConstructor
 public class FrameAssetManager {
 
+    private static final java.time.Duration IN_USE_RETENTION = java.time.Duration.ofHours(2);
+
     private final FileStorageService fileStorageService;
     private final S3Deleter s3Deleter;
 
@@ -67,6 +69,11 @@ public class FrameAssetManager {
     // 커밋 후 삭제 예약 — 거르기와 발행은 storage 공용 부품이 한다 (media와 공유)
     public void deleteAfterCommit(Collection<String> keys) {
         s3Deleter.deleteAfterCommit(keys);
+    }
+
+    /** 끝나지 않은 합성이 쓰는 key — 재접수 총 기한(ComposeRetryPolicy)이 지난 뒤에 지운다. 삭제 기록이 남아 재시도 배치가 맡는다 */
+    public void deleteLater(Collection<String> keys) {
+        keys.forEach(key -> s3Deleter.holdForUpload(key, IN_USE_RETENTION));
     }
 
     private String presignIfManaged(String source) {

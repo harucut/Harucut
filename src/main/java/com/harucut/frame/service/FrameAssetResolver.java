@@ -26,6 +26,7 @@ import java.util.stream.Collectors;
 public class FrameAssetResolver {
 
     private final AssetRepository assetRepository;
+    private final com.harucut.media.repository.ComposeJobRepository composeJobRepository;
     private final WorkspaceService workspaceService;
 
     public Asset require(String assetPublicId, AssetPurpose purpose, Long ownerUserId) {
@@ -61,6 +62,18 @@ public class FrameAssetResolver {
 
     public java.util.Set<String> assetBackedKeys(Collection<String> keys) {
         return keys.isEmpty() ? java.util.Set.of() : java.util.Set.copyOf(assetRepository.findExistingKeys(keys));
+    }
+
+    /** 자산 행이 있는 이미지의 픽셀 합 — 예전 key 만 있는 이미지는 크기를 몰라 세지 않는다 */
+    public long totalPixels(Collection<String> keys) {
+        return keys.isEmpty() ? 0 : assetRepository.sumPixelsByKeys(keys);
+    }
+
+    /** 끝나지 않은 합성의 스냅샷이 가리키는 key */
+    public java.util.Set<String> keysUsedByPendingJobs(Collection<String> keys) {
+        return keys.stream()
+                .filter(key -> composeJobRepository.countPendingWithSpecLike("%" + key + "%") > 0)
+                .collect(java.util.stream.Collectors.toSet());
     }
 
     /** 이 key 가 그 공간의 검증된 자산인가 — 조직 공간 프레임은 다른 멤버가 올린 자산 key 를 문자열로도 받는다 */

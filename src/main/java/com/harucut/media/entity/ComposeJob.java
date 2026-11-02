@@ -129,6 +129,14 @@ public class ComposeJob extends BaseEntity {
     @Column(name = "attempt_no", nullable = false)
     private int attemptNo;
 
+    // 결과 보관 약정 — 접수 때 굳는다. 행사 보관 일수를 늘리면 함께 늘고, 줄여도 이미 약속한 기간은 줄지 않는다(R5 L330, O31). 개인 작업은 NULL
+    @Column(name = "retain_until")
+    private LocalDateTime retainUntil;
+
+    // 입력 지문 — spec·입력 key·출력 계약의 SHA-256. 재시도가 같은 입력으로 돌았는지 출력 검증에 쓴다(R5 L484·L490)
+    @Column(name = "input_fingerprint", length = 64)
+    private String inputFingerprint;
+
     // 이 시각 전에는 다시 던지지 않는다(claim 때 백오프·지터로 정한다). 쓰는 곳은 claim 쿼리뿐이라 값을 읽을 일이 없다
     @Column(name = "next_attempt_at")
     private LocalDateTime nextAttemptAt;
@@ -227,6 +235,14 @@ public class ComposeJob extends BaseEntity {
 
     public boolean verifiedPairContract() {
         return renderContract != null && renderContract >= com.harucut.media.compose.ComposeOutputContract.VERIFIED_PAIR;
+    }
+
+    public void fixRetention(LocalDateTime retainUntil) {
+        this.retainUntil = retainUntil;
+    }
+
+    public void fixInputFingerprint(String inputFingerprint) {
+        this.inputFingerprint = inputFingerprint;
     }
 
     public List<String> sourceKeys() {

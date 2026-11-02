@@ -54,7 +54,7 @@ class ComposeWorkerTest {
         // "접수가 실제로 세어졌는가"를 확인할 수 있다
         registry = new SimpleMeterRegistry();
         worker = new ComposeWorker(composeExecutor, composeService,
-                new ComposeMetrics(registry), STALE_AFTER);
+                new ComposeMetrics(registry), STALE_AFTER, Runnable::run);
     }
 
     @Test

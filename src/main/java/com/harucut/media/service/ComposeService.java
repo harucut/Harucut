@@ -8,6 +8,7 @@ import com.harucut.frame.cell.FreeCellsGate;
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.exception.FrameErrorCode;
 import com.harucut.frame.service.FrameService;
+import com.harucut.media.compose.ComposeInputFingerprint;
 import com.harucut.media.compose.ComposeMetrics;
 import com.harucut.media.compose.ComposeOutputPolicy;
 import com.harucut.media.compose.ComposeRequestedEvent;
@@ -113,6 +114,8 @@ public class ComposeService {
         assertSpecFits(prepared.getSpec());
         // 출력 계약은 접수 때 고정한다 — 같은 작업의 재시도가 다른 계약으로 실행되지 않게
         prepared.fixRenderContract(outputPolicy.contractForNewJobs());
+        prepared.fixInputFingerprint(ComposeInputFingerprint.of(objectMapper.writeValueAsString(prepared.getSpec()),
+                prepared.sourceKeys(), prepared.getRenderContract()));
         ComposeJob job = composeJobRepository.save(prepared);
 
         // 실행은 커밋 후에 시작된다(AFTER_COMMIT 리스너) — 커밋 전에 실행 스레드가 뜨면
@@ -311,6 +314,15 @@ public class ComposeService {
     public record ExpiredDispatch(Long jobId, int attemptNo) {
     }
 
+    /** 통지가 이 작업의 지금 입력으로 돈 실행인가 — 작업 지문과 대조한다(R5 L492). 지문이 없는 작업(이 값이 생기기 전)은 대조하지 않는다 */
+    @Transactional(readOnly = true)
+    public boolean sameInput(Long jobId, String reportedFingerprint) {
+        return composeJobRepository.findById(jobId)
+                .map(ComposeJob::getInputFingerprint)
+                .map(stored -> stored.equals(reportedFingerprint))
+                .orElse(true);
+    }
+
     /**
      * 통지가 왔는데 작업 행이 없다 — 탈퇴로 함께 지워졌다. 늦게 끝난 실행이 다시 만든 결과를 지운다(되살리지 않는다, R5 L498~499).
      * 예외로 두면 통지가 재전달을 돌다 DLQ 로 간다
@@ -327,7 +339,7 @@ public class ComposeService {
 
     private static ComposeRequestedEvent requested(ComposeJob job) {
         return new ComposeRequestedEvent(job.getId(), job.getSpec(), job.sourceKeys(),
-                resultKeyFor(job), thumbnailKeyFor(job), RESULT_FORMAT, job.getRenderContract(), null);
+                resultKeyFor(job), thumbnailKeyFor(job), RESULT_FORMAT, job.getRenderContract(), null, job.getInputFingerprint());
     }
 
     // 결과물 저장 포맷의 유일한 출처. 키 확장자와 Lambda로 보내는 지시가 **둘 다 여기서** 나온다.

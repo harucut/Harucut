@@ -186,7 +186,9 @@ public class ComposeResultConsumer implements SmartLifecycle {
             if (payload.verifiedPair()) {
                 // 출력 계약 2(R5 D09) — 저장된 한 쌍을 대조한 뒤에만 확정한다. 다르거나 검증할 수 없으면 공개하지 않고 최종 실패
                 ComposeLambdaResult result = notification.result();
-                if (!outputVerifier.verified(payload, result)) {
+                // 실행이 돌려준 입력 지문이 이 작업의 것이어야 한다 — 구형 writer·다른 입력의 실행을 신형 성공으로 보지 않는다(R5 L492, O41)
+                if (!composeService.sameInput(jobId, result == null ? null : result.inputFingerprint())
+                        || !outputVerifier.verified(payload, result)) {
                     composeService.failJob(jobId, "출력 쌍 검증 실패 — 저장된 결과·썸네일이 통지한 체크섬과 다르거나 없다",
                             ComposeFailureCode.OUTPUT_CONFLICT);
                     metrics.notifiedFailed();

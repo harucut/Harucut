@@ -55,12 +55,11 @@ public class ResultService {
     private final ThemeResolver themeResolver;
     private final Clock clock;
 
-    /** 행사 작업의 결과 토큰 발급. 만료는 작업 접수 시각 + 행사 보관 일수다 */
+    /** 행사 작업의 결과 토큰 발급. 만료는 작업의 보관 약정을 따른다 */
     public ResultTokenResponse issue(ComposeJob job, Event event) {
         String token = OpaqueTokens.generate();
-        LocalDateTime expiresAt = retentionEnd(job, event);
-        resultAccessRepository.save(new ResultAccess(OpaqueTokens.hash(token), job.getId(), expiresAt));
-        return new ResultTokenResponse(token, offset(expiresAt));
+        resultAccessRepository.save(new ResultAccess(OpaqueTokens.hash(token), job.getId()));
+        return new ResultTokenResponse(token, offset(retentionEnd(job, event)));
     }
 
     @Transactional(readOnly = true)
@@ -69,13 +68,14 @@ public class ResultService {
         ComposeJob job = job(access.getComposeJobId());
         Event event = event(job);
         // 사진함에서 삭제된 결과도 참가자에게는 「만료」로 보인다 — 삭제 사실을 따로 알리지 않는다(ADR-0008 §3)
-        boolean expired = access.expiredAt(LocalDateTime.now(clock)) || job.isDeleted();
+        LocalDateTime retainUntil = retentionEnd(job, event);
+        boolean expired = !LocalDateTime.now(clock).isBefore(retainUntil) || job.isDeleted();
         String status = expired ? "EXPIRED" : job.getStatus().name();
         boolean ready = !expired && job.getStatus() == ComposeStatus.DONE;
         String thumbnailUrl = ready ? shortGetUrl(ComposeService.thumbnailKeyFor(job)) : null;
         // 썸네일은 긴 변 512px 라 세로 4컷이면 폭이 170px 이다 — 처음 보는 화면은 원본으로 그린다
         String imageUrl = ready && job.getResultKey() != null ? shortGetUrl(job.getResultKey()) : null;
-        return new ResultStatusResponse(status, event.getName(), thumbnailUrl, imageUrl, offset(access.getExpiresAt()), theme(job));
+        return new ResultStatusResponse(status, event.getName(), thumbnailUrl, imageUrl, offset(retainUntil), theme(job));
     }
 
     private String shortGetUrl(String key) {
@@ -84,12 +84,12 @@ public class ResultService {
 
     @Transactional(readOnly = true)
     public DownloadUrlResponse download(ResultPrincipal principal) {
-        ResultAccess access = access(principal);
-        ComposeJob job = job(access.getComposeJobId());
-        if (access.expiredAt(LocalDateTime.now(clock)) || job.isDeleted()) {
+        ComposeJob job = job(access(principal).getComposeJobId());
+        Event event = event(job);
+        if (!LocalDateTime.now(clock).isBefore(retentionEnd(job, event)) || job.isDeleted()) {
             throw new BusinessException(ResultErrorCode.EXPIRED);
         }
-        return downloadUrl(job, event(job));
+        return downloadUrl(job, event);
     }
 
     /** 참가자 재방문 다운로드(BYOD) — 결과 토큰 없이 세션으로. 같은 보관·준비 검사 */
@@ -122,7 +122,11 @@ public class ResultService {
         return (part.isEmpty() ? "harucut" : part) + "-" + takenAt.format(DOWNLOAD_TIME) + S3Keys.extensionOf(resultKey);
     }
 
+    // 작업에 굳은 약정 — 토큰마다 따로 두지 않는다. 약정을 늘리면 이전에 발급한 링크도 함께 늘어난다(R5 L330, O31)
     private LocalDateTime retentionEnd(ComposeJob job, Event event) {
+        if (job.getRetainUntil() != null) {
+            return job.getRetainUntil();
+        }
         LocalDateTime base = job.getCreatedAt() != null ? job.getCreatedAt() : LocalDateTime.now(clock);
         return base.plusDays(event.getResultRetentionDays());
     }

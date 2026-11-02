@@ -568,4 +568,20 @@ class ComposeServiceTest {
         assertThat(composeService.discardIfJobGone(99L, "uploads/r.jpg", "uploads/t.jpg")).isTrue();
         then(s3Deleter).should().deleteAfterCommit(java.util.Arrays.asList("uploads/r.jpg", "uploads/t.jpg"), ComposeService.LATE_WRITE_WINDOW);
     }
+
+    @Test
+    @DisplayName("입력 지문 대조 — 같으면 통과, 다르면 거절. 지문이 없는 작업·없는 작업은 대조하지 않는다")
+    void sameInputCompares() {
+        ComposeJob job = ComposeJob.create(user, FRAME_ID, IDEM_KEY, SOURCE_KEYS, spec());
+        job.fixInputFingerprint("fp");
+        given(composeJobRepository.findById(1L)).willReturn(java.util.Optional.of(job));
+        given(composeJobRepository.findById(2L)).willReturn(java.util.Optional.of(ComposeJob.create(user, FRAME_ID, IDEM_KEY, SOURCE_KEYS, spec())));
+        given(composeJobRepository.findById(3L)).willReturn(java.util.Optional.empty());
+
+        assertThat(composeService.sameInput(1L, "fp")).isTrue();
+        assertThat(composeService.sameInput(1L, "other")).isFalse();
+        assertThat(composeService.sameInput(1L, null)).isFalse();
+        assertThat(composeService.sameInput(2L, "anything")).isTrue();
+        assertThat(composeService.sameInput(3L, "anything")).isTrue();
+    }
 }

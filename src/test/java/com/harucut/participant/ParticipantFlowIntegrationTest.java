@@ -399,6 +399,34 @@ class ParticipantFlowIntegrationTest {
     }
 
     @Test
+    @DisplayName("발행본에 촬영 입력 정책(CAMERA_ONLY)이 남는다(R5 L545, F46)")
+    void publishedDocumentRecordsInputPolicy() {
+        entityManager.flush();
+        String json = jdbcTemplate.queryForObject("""
+                select v.settings_json from event_experience_version v
+                join event e on e.current_experience_version_id = v.event_experience_version_id
+                where e.public_id = ?""", String.class, eventId);
+        assertThat(json).contains("\"inputPolicy\":\"CAMERA_ONLY\"");
+    }
+
+    @Test
+    @DisplayName("저장소에서 사라진 입력으로는 합성을 접수하지 않는다(R5 L552·L680) — 사용량을 예약하지 않고 PART-005")
+    void missingObjectIsNotAccepted() throws Exception {
+        String token = activeParticipant();
+        String runId = run(token);
+        List<String> assetIds = new ArrayList<>();
+        for (int slot = 0; slot < 4; slot++) {
+            String assetId = intent(token, runId, slot);
+            ok(mvc.post().uri("/api/participant/assets/{id}/complete", assetId).header(TOKEN_HEADER, token).exchange());
+            assetIds.add(assetId);
+        }
+        given(fileStorageService.head(anyString())).willReturn(Optional.empty());
+
+        assertCode(post("/api/participant/events/" + eventId + "/compose-jobs", token, Map.of("captureRunId", runId,
+                "frameVersionId", frameVersionId, "sourceAssetIds", assetIds, "idempotencyKey", "key-missing")), 409, "PART-005");
+    }
+
+    @Test
     @DisplayName("보관 종료된 행사에는 합성을 접수하지 않는다 — 촬영 열림을 잠금으로 다시 읽은 값으로 본다")
     void composeRejectedAfterArchive() throws Exception {
         String token = activeParticipant();

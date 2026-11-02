@@ -346,7 +346,7 @@ class ComposeHandlerTest {
         ComposeSpec spec = new ComposeSpec(40, 40, new BackgroundAttributes.Color("#FFFFFF"), fourSlots(),
                 List.of(false, false, false, false), List.of());
         String json = MAPPER.writeValueAsString(new ComposeLambdaPayload(BUCKET, JOB_ID, spec, SOURCE_KEYS, RESULT_KEY,
-                THUMB_KEY, ImageFormat.JPEG, attemptNo, ComposeOutputContract.VERIFIED_PAIR));
+                THUMB_KEY, ImageFormat.JPEG, attemptNo, ComposeOutputContract.VERIFIED_PAIR, "fingerprint-1"));
         return new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8));
     }
 

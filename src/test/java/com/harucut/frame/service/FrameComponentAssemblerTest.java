@@ -62,7 +62,7 @@ class FrameComponentAssemblerTest {
     @BeforeEach
     void setUp() {
         assembler = new FrameComponentAssembler(frameAssetManager, frameAssetResolver,
-                new FrameLimitsProperties(40, 7000, 200), JsonMapper.builder().build());
+                new FrameLimitsProperties(40, 7000, 200, 150_000_000L), JsonMapper.builder().build());
     }
 
     @Nested
@@ -290,7 +290,7 @@ class FrameComponentAssemblerTest {
         @DisplayName("조직 공간 프레임 수가 상한에 닿으면 FRAME-007")
         void workspaceFrameLimit() {
             FrameComponentAssembler capped = new FrameComponentAssembler(frameAssetManager, frameAssetResolver,
-                    new FrameLimitsProperties(40, 7000, 2), JsonMapper.builder().build());
+                    new FrameLimitsProperties(40, 7000, 2, 150_000_000L), JsonMapper.builder().build());
 
             capped.assertWorkspaceRoom(1);
             org.assertj.core.api.Assertions.assertThatThrownBy(() -> capped.assertWorkspaceRoom(2))
@@ -302,7 +302,7 @@ class FrameComponentAssemblerTest {
         @DisplayName("합성 스펙이 상한을 넘으면 400 FRAME-004 — 합성 때 DB 오류로 죽기 전에")
         void specTooLarge() {
             FrameComponentAssembler tight = new FrameComponentAssembler(frameAssetManager, frameAssetResolver,
-                    new FrameLimitsProperties(40, 300, 200), JsonMapper.builder().build());
+                    new FrameLimitsProperties(40, 300, 200, 150_000_000L), JsonMapper.builder().build());
             given(frameAssetManager.normalizeSource(any(), anyString(), any()))
                     .willAnswer(invocation -> invocation.getArgument(1));
             List<FrameCreateRequest.ComponentRequest> layers = java.util.stream.IntStream.range(0, 5)
@@ -664,5 +664,29 @@ class FrameComponentAssemblerTest {
     private static FrameComponent componentWithZIndex(String source, int zIndex) {
         return FrameComponent.builder()
                 .source(source).type(ComponentType.TEXT).zIndex(zIndex).build();
+    }
+
+    @org.junit.jupiter.api.Test
+    @org.junit.jupiter.api.DisplayName("진행 중인 합성이 가리키는 key 는 지금 지우지 않고 나중으로 미룬다(R5 L307, O17) — 나머지는 바로 지운다")
+    void keepsKeysUsedByPendingJobs() {
+        org.mockito.BDDMockito.given(frameAssetResolver.assetBackedKeys(org.mockito.ArgumentMatchers.anyCollection())).willReturn(java.util.Set.of());
+        org.mockito.BDDMockito.given(frameAssetResolver.keysUsedByPendingJobs(org.mockito.ArgumentMatchers.anyCollection())).willReturn(java.util.Set.of("uploads/in-use.png"));
+
+        assembler.scheduleDeletion(java.util.List.of("uploads/in-use.png", "uploads/free.png"));
+
+        org.mockito.BDDMockito.then(frameAssetManager).should().deleteAfterCommit(java.util.List.of("uploads/free.png"));
+        org.mockito.BDDMockito.then(frameAssetManager).should().deleteLater(java.util.Set.of("uploads/in-use.png"));
+    }
+
+    @org.junit.jupiter.api.Test
+    @org.junit.jupiter.api.DisplayName("레이어 이미지 픽셀 합이 상한을 넘으면 FRAME-004 — 렌더가 메모리에서 터지기 전에 거부한다(R5 L305, O09)")
+    void rejectsTooManyPixels() {
+        org.mockito.BDDMockito.given(frameAssetResolver.totalPixels(org.mockito.ArgumentMatchers.anyCollection())).willReturn(150_000_001L);
+        com.harucut.frame.entity.Frame frame = com.harucut.frame.entity.Frame.system("t", "d", "uploads/p.png", com.harucut.frame.enums.FrameType.CLASSIC,
+                new com.harucut.frame.attributes.BackgroundAttributes.Color("#FFFFFF"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> assembler.assertComposable(frame))
+                .isInstanceOf(com.harucut.common.exception.BusinessException.class)
+                .extracting("errorCode").isEqualTo(com.harucut.frame.exception.FrameErrorCode.SPEC_TOO_LARGE);
     }
 }

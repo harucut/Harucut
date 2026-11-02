@@ -50,10 +50,17 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
                                    @Param("cursorId") Long cursorId,
                                    Pageable pageable);
 
-    // 보관 종료 대상 — 그 행사에서 기한(cutoff) 전에 만든, 아직 보이는 결과
-    @Query("select j from ComposeJob j where j.eventId = :eventId and j.createdAt < :cutoff "
+    // 보관 종료 대상 — 그 행사에서 약정 기한이 지난, 아직 보이는 결과
+    @Query("select j from ComposeJob j where j.eventId = :eventId and j.retainUntil < :now "
             + "and j.purgedAt is null and j.deletedAt is null and j.resultKey is not null")
-    List<ComposeJob> findPurgeable(@Param("eventId") Long eventId, @Param("cutoff") LocalDateTime cutoff, Pageable pageable);
+    List<ComposeJob> findPurgeable(@Param("eventId") Long eventId, @Param("now") LocalDateTime now, Pageable pageable);
+
+    // 행사 보관 일수를 늘렸다 — 이미 찍은 결과의 약정도 함께 늘린다. 줄일 때는 부르지 않는다(이미 약속한 기간은 줄지 않는다)
+    @Modifying(flushAutomatically = true)
+    @Query(value = "update compose_job set retain_until = timestampadd(DAY, :days, created_at) "
+            + "where event_id = :eventId and purged_at is null and deleted_at is null "
+            + "and retain_until < timestampadd(DAY, :days, created_at)", nativeQuery = true)
+    int extendRetention(@Param("eventId") Long eventId, @Param("days") int days);
 
     // 행사에 아직 보일 결과·진행 중 작업이 남았는가 — 없으면 보관 종료할 수 있다.
     // 잠금 읽기(FOR UPDATE)라 스냅샷이 아니라 최신 커밋을 보고, 아직 커밋되지 않은 접수가 있으면 끝날 때까지 기다린다
@@ -86,6 +93,10 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
 
     @Query("SELECT j FROM ComposeJob j WHERE j.user.id = :userId")
     List<ComposeJob> findAllByUserId(Long userId);
+
+    // spec_json 은 변환기 칸이라 JPQL 로 LIKE 를 걸 수 없다 — 네이티브. PENDING 은 적어 스캔이 짧다. '_' 는 넓게 걸릴 뿐(지우지 않는 쪽)이다
+    @Query(value = "select count(*) from compose_job where status = 'PENDING' and spec_json like :pattern", nativeQuery = true)
+    long countPendingWithSpecLike(@Param("pattern") String pattern);
 
     @Modifying(clearAutomatically = true)
     @Query("DELETE FROM ComposeJob j WHERE j.user.id = :userId")

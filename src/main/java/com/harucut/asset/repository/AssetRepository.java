@@ -54,6 +54,9 @@ public interface AssetRepository extends JpaRepository<Asset, Long> {
             + "and j.createdAt < :cutoff)")
     int deleteSettledCaptureInputs(@Param("cutoff") LocalDateTime cutoff);
 
+    @Query("select coalesce(sum(1L * a.width * a.height), 0) from Asset a where a.s3Key in :keys and a.width is not null")
+    long sumPixelsByKeys(@Param("keys") Collection<String> keys);
+
     long countByCaptureRunIdAndBoundComposeJobIdIsNull(Long captureRunId);
 
     List<Asset> findAllByCaptureRunIdAndBoundComposeJobIdIsNull(Long captureRunId);

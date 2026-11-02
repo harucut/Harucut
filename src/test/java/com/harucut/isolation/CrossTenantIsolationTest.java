@@ -226,6 +226,8 @@ class CrossTenantIsolationTest {
         bodies.put("POST /api/auth/events/{eventId}/booth-devices", "{\"name\":\"침입\"}");
         bodies.put("POST /api/auth/events/{eventId}/clone", "{\"name\":\"침입\",\"slug\":\"intrude-clone\"}");
         bodies.put("POST /api/auth/events/{eventId}/exports", "{}");
+        bodies.put("POST /api/auth/events/{eventId}/photos/{photoId}/result-access/revoke", "{\"reason\":\"침입\"}");
+        bodies.put("POST /api/auth/user/frame/{frameId}/versions/{versionNo}/revoke", "{\"reason\":\"침입\"}");
         bodies.put("PATCH /api/auth/events/{eventId}/grants/{grantId}", "{\"permissions\":[\"VIEW_PHOTOS\"]}");
         bodies.put("POST /api/auth/events/{eventId}/invitations", "{\"permissions\":[\"VIEW_PHOTOS\"]}");
         bodies.put("PUT /api/auth/events/{eventId}/operators/{userId}", "{\"operations\":[\"MANAGE_EVENT\"]}");

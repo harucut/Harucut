@@ -94,13 +94,16 @@ public final class MemberDtos {
     }
 
     @Schema(name = "MyEvent", description = "내가 접근할 수 있는 행사")
-    public record MyEvent(String eventId, String name, EventStatus status, Access access,
-                          @Schema(description = "완성된 사진 수 — 삭제했거나 보관 기한이 지난 사진은 세지 않는다", example = "128") long completedPhotoCount) {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record MyEvent(String eventId,
+                          @Schema(description = "행사가 속한 공간 public id") String workspaceId,
+                          String name, EventStatus status, Access access,
+                          @Schema(description = "완성된 사진 수 — 삭제했거나 보관 기한이 지난 사진은 세지 않는다. 테마 권한만 있으면 키가 없다", example = "128") Long completedPhotoCount) {
 
-        @Schema(name = "MyEventAccess", description = "role 은 공간 멤버(OWNER·ADMIN·OPERATOR 등)일 때만. FE 는 operations 로만 버튼을 정한다")
+        @Schema(name = "MyEventAccess", description = "role 은 공간 멤버(OWNER·ADMIN·OPERATOR·DESIGNER 등)일 때만. FE 는 operations 로만 버튼을 정한다")
         @JsonInclude(JsonInclude.Include.NON_NULL)
         public record Access(WorkspaceRole role, Set<PhotoPermission> permissions,
-                             @Schema(description = "합쳐진 운영 권한 — OWNER·ADMIN 은 셋 다") Set<OperationPermission> operations,
+                             @Schema(description = "합쳐진 운영 권한 — OWNER·ADMIN 은 전부, DESIGNER 는 EDIT_THEME 만") Set<OperationPermission> operations,
                              @Schema(description = "OPERATOR 일 때만 — 권한마다 EVENT·PROJECT·BOTH. PROJECT·BOTH 는 행사 화면에서 뺄 수 없다",
                                      example = "{\"MANAGE_EVENT\":\"PROJECT\",\"VIEW_PHOTOS\":\"EVENT\"}")
                              Map<String, String> sources) {

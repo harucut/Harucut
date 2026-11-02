@@ -13,12 +13,14 @@ import com.harucut.event.repository.EventRepository;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.dto.MemberDtos;
+import com.harucut.workspace.entity.Workspace;
 import com.harucut.workspace.entity.WorkspaceInvitation;
 import com.harucut.workspace.entity.WorkspaceMembership;
 import com.harucut.workspace.enums.MembershipStatus;
 import com.harucut.workspace.enums.WorkspaceRole;
 import com.harucut.workspace.repository.WorkspaceInvitationRepository;
 import com.harucut.workspace.repository.WorkspaceMembershipRepository;
+import com.harucut.workspace.repository.WorkspaceRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +51,7 @@ public class EventGrantService {
     private final com.harucut.media.repository.ComposeJobRepository composeJobRepository;
     private final WorkspaceInvitationRepository invitationRepository;
     private final WorkspaceMembershipRepository membershipRepository;
+    private final WorkspaceRepository workspaceRepository;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
     private final Clock clock;
@@ -57,7 +60,8 @@ public class EventGrantService {
     public EventGrantService(EventAccessPolicy policy, EventGrantRepository grantRepository, EventRepository eventRepository,
                              com.harucut.media.repository.ComposeJobRepository composeJobRepository,
                              WorkspaceInvitationRepository invitationRepository,
-                             WorkspaceMembershipRepository membershipRepository, UserRepository userRepository,
+                             WorkspaceMembershipRepository membershipRepository, WorkspaceRepository workspaceRepository,
+                             UserRepository userRepository,
                              AuditLogService auditLogService, Clock clock,
                              @Value("${workspace.invitation-ttl:7d}") Duration invitationTtl) {
         this.policy = policy;
@@ -66,6 +70,7 @@ public class EventGrantService {
         this.composeJobRepository = composeJobRepository;
         this.invitationRepository = invitationRepository;
         this.membershipRepository = membershipRepository;
+        this.workspaceRepository = workspaceRepository;
         this.userRepository = userRepository;
         this.auditLogService = auditLogService;
         this.clock = clock;
@@ -166,8 +171,8 @@ public class EventGrantService {
     }
 
     /**
-     * 내가 접근할 수 있는 행사 — 운영하는 공간(OWNER·ADMIN)의 행사, OPERATOR 로 운영 권한(행사·프로젝트)이 있는 행사,
-     * 사진 권한(행사·프로젝트)이 있는 행사. 최신순. access 는 EventAccessPolicy 와 같은 판정이다
+     * 내가 접근할 수 있는 행사 — 운영하는 공간(OWNER·ADMIN)의 행사, 테마를 고칠 수 있는 공간(DESIGNER)의 행사,
+     * OPERATOR 로 운영 권한(행사·프로젝트)이 있는 행사, 사진 권한(행사·프로젝트)이 있는 행사. 최신순. access 는 EventAccessPolicy 와 같은 판정이다
      */
     @Transactional(readOnly = true)
     public List<MemberDtos.MyEvent> myEvents(String actorPublicId) {
@@ -178,7 +183,7 @@ public class EventGrantService {
 
         Map<Long, Event> candidates = new LinkedHashMap<>();
         roles.forEach((workspaceId, role) -> {
-            if (EventAccessPolicy.OPERATOR_ROLES.contains(role) || role == WorkspaceRole.OPERATOR) {
+            if (EventAccessPolicy.OPERATOR_ROLES.contains(role) || role == WorkspaceRole.OPERATOR || role == WorkspaceRole.DESIGNER) {
                 eventRepository.findAllByWorkspaceIdOrderByCreatedAtDesc(workspaceId).forEach(e -> candidates.put(e.getId(), e));
             }
         });
@@ -187,6 +192,8 @@ public class EventGrantService {
         Map<Long, Long> completed = candidates.isEmpty() ? Map.of()
                 : composeJobRepository.countCompletedByEventIds(candidates.keySet(), LocalDateTime.now(clock)).stream()
                 .collect(Collectors.toMap(row -> (Long) row[0], row -> (Long) row[1]));
+        Map<Long, String> workspaceIds = workspaceRepository.findAllById(candidates.values().stream().map(Event::getWorkspaceId).distinct().toList())
+                .stream().collect(Collectors.toMap(Workspace::getId, Workspace::getPublicId));
         return candidates.values().stream()
                 .sorted(Comparator.comparing(Event::getCreatedAt).reversed())
                 .map(e -> Map.entry(e, policy.accessOf(e, actor.getId())))
@@ -195,10 +202,11 @@ public class EventGrantService {
                     EventAccessPolicy.Access access = entry.getValue();
                     Map<String, String> sources = new LinkedHashMap<>();
                     access.sources().forEach((name, source) -> sources.put(name, source.name()));
-                    return new MemberDtos.MyEvent(entry.getKey().getPublicId(), entry.getKey().getName(), entry.getKey().getStatus(),
+                    return new MemberDtos.MyEvent(entry.getKey().getPublicId(), workspaceIds.get(entry.getKey().getWorkspaceId()),
+                            entry.getKey().getName(), entry.getKey().getStatus(),
                             new MemberDtos.MyEvent.Access(access.role(), access.permissions(), access.operations(),
                                     sources.isEmpty() ? null : sources),
-                            completed.getOrDefault(entry.getKey().getId(), 0L));
+                            access.themeOnly() ? null : completed.getOrDefault(entry.getKey().getId(), 0L));
                 })
                 .toList();
     }

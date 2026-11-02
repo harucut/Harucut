@@ -26,7 +26,7 @@ import java.util.Set;
 /**
  * 행사 권한 판정의 한 곳 (ADR-0008 §2-4, ADR-0009 §3).
  *
- * <p>운영 권한: 공간 OWNER·ADMIN 은 셋 다. OPERATOR 는 행사 권한(EventGrant.operations) ∪ 그 행사 프로젝트의 멤버 권한 —
+ * <p>운영 권한: 공간 OWNER·ADMIN 은 전부. DESIGNER 는 그 공간 행사에 EDIT_THEME 만(게시·기기·사진은 자동으로 주지 않는다, R5 L368). OPERATOR 는 행사 권한(EventGrant.operations) ∪ 그 행사 프로젝트의 멤버 권한 —
  * 공간 역할이 OPERATOR 일 때만 효력이 있다(역할을 내리면 운영 권한도 사라진다).
  * <p>사진 권한: EventGrant ∪ 프로젝트 멤버 권한(공간 역할이 OWNER·ADMIN·OPERATOR 일 때 — OPERATOR 를 ADMIN 으로 올려도 남고,
  * VIEWER·DESIGNER 로 내리거나 멤버가 아니면 프로젝트 쪽은 빠진다). (a) 공간 OWNER·ADMIN 도 사진은 이 둘로만 본다 — 결정이 바뀌면 여기만 고친다.
@@ -58,6 +58,11 @@ public class EventAccessPolicy {
         public boolean canSee() {
             return admin() || !operations.isEmpty() || !permissions.isEmpty();
         }
+
+        /** 테마만 고칠 수 있는 사람 — 사진 수·사용량을 주지 않는다 */
+        public boolean themeOnly() {
+            return permissions.isEmpty() && operations.equals(EnumSet.of(OperationPermission.EDIT_THEME));
+        }
     }
 
     @Transactional(readOnly = true)
@@ -75,6 +80,9 @@ public class EventAccessPolicy {
 
         if (role != null && OPERATOR_ROLES.contains(role)) {
             return new Access(role, OperationPermission.all(), permissions, Map.of());
+        }
+        if (role == WorkspaceRole.DESIGNER) {
+            return new Access(role, EnumSet.of(OperationPermission.EDIT_THEME), permissions, Map.of());
         }
         if (role != WorkspaceRole.OPERATOR) {
             return new Access(role, EnumSet.noneOf(OperationPermission.class), permissions, Map.of());

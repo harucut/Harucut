@@ -154,7 +154,7 @@ class OperatorIntegrationTest {
             assertThat(mine.access().operations()).containsExactly(OperationPermission.MANAGE_EVENT);
             assertThat(mine.access().sources()).containsExactly(Map.entry("MANAGE_EVENT", "EVENT"));
         });
-        // OWNER 는 셋 다, sources 없음
+        // OWNER 는 전부, sources 없음
         assertThat(eventGrantService.myEvents(owner.getPublicId())).allSatisfy(mine -> {
             assertThat(mine.access().operations()).containsExactlyInAnyOrder(OperationPermission.values());
             assertThat(mine.access().sources()).isNull();
@@ -180,7 +180,8 @@ class OperatorIntegrationTest {
         assertThat(projectService.list(operator.getPublicId(), org.workspaceId())).extracting(ProjectDtos.Project::projectId)
                 .containsExactly(project.projectId());
         assertThat(eventGrantService.myEvents(operator.getPublicId())).singleElement().satisfies(mine -> {
-            assertThat(mine.access().operations()).containsExactlyInAnyOrder(OperationPermission.values());
+            assertThat(mine.access().operations()).containsExactlyInAnyOrder(
+                    OperationPermission.MANAGE_EVENT, OperationPermission.MANAGE_BOOTH, OperationPermission.INVITE_CUSTOMERS);
             assertThat(mine.access().permissions()).containsExactly(PhotoPermission.VIEW_PHOTOS);
             assertThat(mine.access().sources()).containsEntry("MANAGE_EVENT", "BOTH").containsEntry("MANAGE_BOOTH", "PROJECT")
                     .containsEntry("VIEW_PHOTOS", "PROJECT");

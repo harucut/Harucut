@@ -92,8 +92,9 @@ public class EventGrantController {
 
     @Operation(summary = "내가 접근할 수 있는 행사",
             description = """
-                    운영하는 공간(OWNER·ADMIN)의 행사, OPERATOR 로 운영 권한(행사·프로젝트)을 받은 행사, 사진 권한을 받은 행사. 최신순.
+                    운영하는 공간(OWNER·ADMIN)의 행사, 공간 DESIGNER 면 그 공간의 행사, OPERATOR 로 운영 권한(행사·프로젝트)을 받은 행사, 사진 권한을 받은 행사. 최신순.
                     access.operations 로 운영 버튼을, permissions 로 사진 버튼을 정한다. OPERATOR 는 sources 로 권한마다 출처(EVENT·PROJECT·BOTH)를 준다.
+                    테마 권한만 있으면(DESIGNER) `operations` 는 `EDIT_THEME` 하나고 `completedPhotoCount` 키가 없다.
                     """)
     @GetMapping("/api/auth/me/events")
     public Response<List<MemberDtos.MyEvent>> myEvents(@AuthenticationPrincipal AuthenticatedUser principal) {

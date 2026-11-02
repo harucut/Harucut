@@ -45,6 +45,7 @@ import com.harucut.participant.repository.ParticipantRepository;
 import com.harucut.participant.repository.ParticipantSessionRepository;
 import com.harucut.participant.security.ParticipantPrincipal;
 import com.harucut.result.dto.DownloadUrlResponse;
+import com.harucut.result.dto.ResultAccessRevokeResponse;
 import com.harucut.result.dto.ResultTokenResponse;
 import com.harucut.result.service.ResultService;
 import jakarta.persistence.EntityManager;
@@ -287,6 +288,12 @@ public class ParticipantService {
         requireByod(principal);
         ComposeJob job = ownJob(principal, jobId);
         return resultService.issue(job, event(job.getEventId()));
+    }
+
+    /** 수령 권한(결과 토큰)으로는 회수하지 못한다 — 원 참가자 세션만(R5 L208) */
+    public ResultAccessRevokeResponse revokeResultAccess(ParticipantPrincipal principal, Long jobId) {
+        requireByod(principal);
+        return new ResultAccessRevokeResponse(resultService.revokeAccess(ownJob(principal, jobId)));
     }
 
     // ── 관문 ──────────────────────

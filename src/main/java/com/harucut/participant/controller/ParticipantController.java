@@ -13,6 +13,7 @@ import com.harucut.participant.security.ParticipantPrincipal;
 import com.harucut.participant.service.ParticipantComposeService;
 import com.harucut.participant.service.ParticipantService;
 import com.harucut.result.dto.DownloadUrlResponse;
+import com.harucut.result.dto.ResultAccessRevokeResponse;
 import com.harucut.result.dto.ResultTokenResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -188,5 +189,17 @@ public class ParticipantController {
     public Response<ResultTokenResponse> resultAccess(@AuthenticationPrincipal ParticipantPrincipal principal,
                                                       @Parameter(description = "작업 ID") @PathVariable Long jobId) {
         return Response.ok(participantService.newResultAccess(principal, jobId));
+    }
+
+    @Operation(summary = "이 작업의 공유 링크 전부 회수",
+            description = """
+                    개인 휴대폰 세션만. 링크를 골라 끊지는 못한다. 회수한 링크는 401 `RESULT-001`.
+                    사진은 지우지 않고, 새 링크는 `result-access` 로 다시 받는다.
+                    """)
+    @ApiErrors({"PART-006: 부스 세션", "GEN-031: 내 작업이 아니다"})
+    @PostMapping("/compose-jobs/{jobId}/result-access/revoke")
+    public Response<ResultAccessRevokeResponse> revokeResultAccess(@AuthenticationPrincipal ParticipantPrincipal principal,
+                                                                   @Parameter(description = "작업 ID") @PathVariable Long jobId) {
+        return Response.ok(participantService.revokeResultAccess(principal, jobId));
     }
 }

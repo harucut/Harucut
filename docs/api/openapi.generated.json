@@ -6371,6 +6371,31 @@
         },
         "type" : "object"
       },
+      "ResponseResultAccessRevokeResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ResultAccessRevokeResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseResultStatusResponse" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -6764,6 +6789,31 @@
           "status" : {
             "description" : "HTTP 상태 코드",
             "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResultAccessRevokeRequest" : {
+        "description" : "결과 링크 회수 — 사유는 감사에 남는다",
+        "properties" : {
+          "reason" : {
+            "example" : "오발송",
+            "maxLength" : 500,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "reason" ],
+        "type" : "object"
+      },
+      "ResultAccessRevokeResponse" : {
+        "description" : "결과 링크 회수 결과",
+        "properties" : {
+          "revokedCount" : {
+            "description" : "이번에 회수한 링크 수. 이미 회수했으면 0",
+            "example" : 2,
             "format" : "int32",
             "type" : "integer"
           }
@@ -16511,6 +16561,175 @@
           "bearerAuth" : [ ]
         } ],
         "summary" : "사진 한 장 다운로드",
+        "tags" : [ "행사 사진함" ]
+      }
+    },
+    "/api/auth/events/{eventId}/photos/{photoId}/result-access/revoke" : {
+      "post" : {
+        "description" : "DELETE_PHOTOS. 링크를 골라 끊지는 못한다. 회수한 링크는 401 `RESULT-001`.\n사진은 지우지 않는다. 사유는 감사 기록에 남는다.\n",
+        "operationId" : "revokeResultAccess_1",
+        "parameters" : [ {
+          "description" : "행사 public id",
+          "in" : "path",
+          "name" : "eventId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "사진 id",
+          "in" : "path",
+          "name" : "photoId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ResultAccessRevokeRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseResultAccessRevokeResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-003" : {
+                    "summary" : "GEN-003 — 사유가 없거나 500자를 넘는다 / 요청 본문 검증 실패",
+                    "value" : {
+                      "code" : "GEN-003",
+                      "data" : [ {
+                        "field" : "title",
+                        "message" : "제목은 필수입니다."
+                      } ],
+                      "message" : "Validation failed.",
+                      "status" : 400
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-003` — 사유가 없거나 500자를 넘는다 / 요청 본문 검증 실패 _(Validation failed.)_"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  },
+                  "PHOTO-001" : {
+                    "summary" : "PHOTO-001 — 회수 권한 없음",
+                    "value" : {
+                      "code" : "PHOTO-001",
+                      "message" : "You do not have this photo permission for the event.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자 _(Access denied.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `PHOTO-001` — 회수 권한 없음 _(You do not have this photo permission for the event.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 행사·사진이거나 볼 수 없다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 행사·사진이거나 볼 수 없다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "사진의 결과 링크 전부 회수",
         "tags" : [ "행사 사진함" ]
       }
     },
@@ -28446,6 +28665,99 @@
           "participantToken" : [ ]
         } ],
         "summary" : "공유 링크용 결과 토큰 새로 발급",
+        "tags" : [ "행사 참가" ]
+      }
+    },
+    "/api/participant/compose-jobs/{jobId}/result-access/revoke" : {
+      "post" : {
+        "description" : "개인 휴대폰 세션만. 링크를 골라 끊지는 못한다. 회수한 링크는 401 `RESULT-001`.\n사진은 지우지 않고, 새 링크는 `result-access` 로 다시 받는다.\n",
+        "operationId" : "revokeResultAccess",
+        "parameters" : [ {
+          "description" : "작업 ID",
+          "in" : "path",
+          "name" : "jobId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseResultAccessRevokeResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-001" : {
+                    "summary" : "PART-001 — 참가자 토큰이 없거나 만료·회수",
+                    "value" : {
+                      "code" : "PART-001",
+                      "message" : "The participant session is missing, expired or revoked.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-001` — 참가자 토큰이 없거나 만료·회수 _(The participant session is missing, expired or revoked.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "PART-006" : {
+                    "summary" : "PART-006 — 부스 세션",
+                    "value" : {
+                      "code" : "PART-006",
+                      "message" : "This action is not allowed for a booth session.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `PART-006` — 부스 세션 _(This action is not allowed for a booth session.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 내 작업이 아니다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 내 작업이 아니다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "participantToken" : [ ]
+        } ],
+        "summary" : "이 작업의 공유 링크 전부 회수",
         "tags" : [ "행사 참가" ]
       }
     },

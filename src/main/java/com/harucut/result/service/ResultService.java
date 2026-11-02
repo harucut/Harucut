@@ -62,6 +62,11 @@ public class ResultService {
         return new ResultTokenResponse(token, offset(retentionEnd(job, event)));
     }
 
+    /** 그 작업의 결과 링크를 전부 회수한다 — 서버가 토큰 원문을 모르니 링크마다 고르지 않는다. 사진은 지우지 않는다. 회수한 개수를 준다 */
+    public int revokeAccess(ComposeJob job) {
+        return resultAccessRepository.revokeByComposeJobId(job.getId(), LocalDateTime.now(clock));
+    }
+
     @Transactional(readOnly = true)
     public ResultStatusResponse status(ResultPrincipal principal) {
         ResultAccess access = access(principal);

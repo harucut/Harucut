@@ -176,6 +176,8 @@ class BoothFlowIntegrationTest {
         // 부스 세션은 결과 목록을 볼 수 없다
         assertCode(mvc.get().uri("/api/participant/events/{id}/results", eventId).header(PARTICIPANT, guest).exchange(),
                 403, "PART-006");
+        assertCode(mvc.post().uri("/api/participant/compose-jobs/{id}/result-access/revoke", jobId).header(PARTICIPANT, guest).exchange(),
+                403, "PART-006");
 
         JsonNode token = data(mvc.post().uri("/api/booth/capture-runs/{id}/result-access", runId).header(BOOTH, boothToken)
                 .contentType(MediaType.APPLICATION_JSON).content("{\"stateVersion\":1}").exchange(), 201);

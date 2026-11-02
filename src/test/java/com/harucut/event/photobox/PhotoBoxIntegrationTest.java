@@ -86,6 +86,7 @@ class PhotoBoxIntegrationTest {
     @Autowired private ComposeJobRepository composeJobRepository;
     @Autowired private ResultService resultService;
     @Autowired private ResultAccessRepository resultAccessRepository;
+    @Autowired private com.harucut.audit.repository.AuditLogRepository auditLogRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private EntityManager entityManager;
@@ -218,6 +219,36 @@ class PhotoBoxIntegrationTest {
         // 늦게 끝난 실행의 성공 통지 — 되살리지 않는다
         assertThat(composeService.completeJob(pending.getId(), "uploads/events/e/results/late.jpg", "uploads/events/e/results/late_thumb.jpg"))
                 .isFalse();
+    }
+
+    @Test
+    @DisplayName("결과 링크 회수: 그 사진의 링크만 전부 끊고 사진은 남는다, 사유는 감사에. 삭제 권한이 없으면 PHOTO-001, 관계없는 사람은 404, 다시 하면 0")
+    void revokeResultAccess() {
+        resultService.issue(composeJobRepository.findById(byodDone.getId()).orElseThrow(), event);
+        resultService.issue(composeJobRepository.findById(byodDone.getId()).orElseThrow(), event);
+        resultService.issue(composeJobRepository.findById(boothDone.getId()).orElseThrow(), event);
+        invitationService.accept(customer.getPublicId(), eventGrantService.inviteCustomer(owner.getPublicId(), event.getPublicId(),
+                new MemberDtos.EventInvitationRequest(Set.of(PhotoPermission.VIEW_PHOTOS), null)).inviteToken());
+
+        assertCode(() -> photoService.revokeResultAccess(customer.getPublicId(), event.getPublicId(), byodDone.getId(), "오발송"),
+                PhotoErrorCode.PERMISSION_REQUIRED);
+        assertCode(() -> photoService.revokeResultAccess(stranger.getPublicId(), event.getPublicId(), byodDone.getId(), "오발송"),
+                GlobalErrorCode.NOT_FOUND);
+
+        assertThat(photoService.revokeResultAccess(owner.getPublicId(), event.getPublicId(), byodDone.getId(), "오발송").revokedCount()).isEqualTo(2);
+
+        assertThat(resultAccessRepository.findAll()).filteredOn(access -> access.getComposeJobId().equals(byodDone.getId())).hasSize(2)
+                .allMatch(access -> access.revoked());
+        assertThat(resultAccessRepository.findAll()).filteredOn(access -> access.getComposeJobId().equals(boothDone.getId())).hasSize(1)
+                .noneMatch(access -> access.revoked());
+        assertThat(page(owner, null, null, null, null, null).items()).extracting(PhotoDtos.Photo::photoId).contains(byodDone.getId());
+        assertThat(auditLogRepository.findAll()).filteredOn(log -> log.getAction().equals("RESULT_ACCESS_REVOKED")).singleElement()
+                .satisfies(log -> {
+                    assertThat(log.getActorUserId()).isEqualTo(owner.getId());
+                    assertThat(log.getTargetId()).isEqualTo(byodDone.getId().toString());
+                    assertThat(log.getDetail()).contains("오발송");
+                });
+        assertThat(photoService.revokeResultAccess(owner.getPublicId(), event.getPublicId(), byodDone.getId(), "다시").revokedCount()).isZero();
     }
 
     @Test

@@ -8,16 +8,19 @@ import com.harucut.event.service.PhotoService;
 import com.harucut.media.enums.ComposeStatus;
 import com.harucut.participant.enums.ParticipantChannel;
 import com.harucut.result.dto.DownloadUrlResponse;
+import com.harucut.result.dto.ResultAccessRevokeResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -71,5 +74,19 @@ public class EventPhotoController {
                                  @Parameter(description = "사진 id") @PathVariable Long photoId) {
         photoService.delete(principal.publicId(), eventId, photoId);
         return Response.ok();
+    }
+
+    @Operation(summary = "사진의 결과 링크 전부 회수",
+            description = """
+                    DELETE_PHOTOS. 링크를 골라 끊지는 못한다. 회수한 링크는 401 `RESULT-001`.
+                    사진은 지우지 않는다. 사유는 감사 기록에 남는다.
+                    """)
+    @ApiErrors({"PHOTO-001: 회수 권한 없음", "GEN-003: 사유가 없거나 500자를 넘는다", "GEN-031: 없는 행사·사진이거나 볼 수 없다"})
+    @PostMapping("/{photoId}/result-access/revoke")
+    public Response<ResultAccessRevokeResponse> revokeResultAccess(@AuthenticationPrincipal AuthenticatedUser principal,
+                                                                   @Parameter(description = "행사 public id") @PathVariable String eventId,
+                                                                   @Parameter(description = "사진 id") @PathVariable Long photoId,
+                                                                   @RequestBody @Valid PhotoDtos.ResultAccessRevokeRequest request) {
+        return Response.ok(photoService.revokeResultAccess(principal.publicId(), eventId, photoId, request.reason()));
     }
 }

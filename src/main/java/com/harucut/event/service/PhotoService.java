@@ -14,7 +14,9 @@ import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.service.ComposeService;
 import com.harucut.participant.enums.ParticipantChannel;
 import com.harucut.result.dto.DownloadUrlResponse;
+import com.harucut.result.dto.ResultAccessRevokeResponse;
 import com.harucut.result.exception.ResultErrorCode;
+import com.harucut.result.service.ResultService;
 import com.harucut.storage.config.StorageProperties;
 import com.harucut.storage.service.FileStorageService;
 import com.harucut.storage.util.S3Keys;
@@ -35,6 +37,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Objects;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * 행사 사진함 (ADR-0008 §3) — 목록·개별 다운로드·삭제. 매번 {@link EventAccessPolicy#requirePhoto} 로 권한을 다시 본다.
@@ -56,6 +59,7 @@ public class PhotoService {
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
     private final ExportService exportService;
+    private final ResultService resultService;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -113,6 +117,17 @@ public class PhotoService {
         }
         auditLogService.record(actorId, event.getWorkspaceId(), event.getId(), "PHOTO_DELETED", "PHOTO",
                 job.getId().toString(), null);
+    }
+
+    /** 결과 링크 회수 — 그 사진의 링크를 전부 끊는다. 사진은 지우지 않는다. 사유는 감사에 남는다 */
+    public ResultAccessRevokeResponse revokeResultAccess(String actorPublicId, String eventPublicId, Long photoId, String reason) {
+        Long actorId = userId(actorPublicId);
+        Event event = policy.requirePhoto(actorId, eventPublicId, PhotoPermission.DELETE_PHOTOS);
+        ComposeJob job = photoOf(event, photoId);
+        int revoked = resultService.revokeAccess(job);
+        auditLogService.record(actorId, event.getWorkspaceId(), event.getId(), "RESULT_ACCESS_REVOKED", "PHOTO",
+                job.getId().toString(), Map.of("reason", reason, "revokedCount", revoked));
+        return new ResultAccessRevokeResponse(revoked);
     }
 
     private ComposeJob photoOf(Event event, Long photoId) {

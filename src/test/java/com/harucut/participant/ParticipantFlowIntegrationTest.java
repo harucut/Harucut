@@ -473,6 +473,48 @@ class ParticipantFlowIntegrationTest {
     }
 
     @Test
+    @DisplayName("결과 링크 회수(R5 L208) — 그 작업의 링크가 전부 401 RESULT-001, 사진은 남고 새 링크는 다시 받는다. 남의 작업은 404, 수령 토큰으로는 못 한다")
+    void revokeResultAccess() throws Exception {
+        String token = activeParticipant();
+        String runId = run(token);
+        List<String> assetIds = new ArrayList<>();
+        for (int slot = 0; slot < 4; slot++) {
+            String assetId = intent(token, runId, slot);
+            ok(mvc.post().uri("/api/participant/assets/{id}/complete", assetId).header(TOKEN_HEADER, token).exchange());
+            assetIds.add(assetId);
+        }
+        JsonNode accepted = data(post("/api/participant/events/" + eventId + "/compose-jobs", token, Map.of("captureRunId", runId,
+                "frameVersionId", frameVersionId, "sourceAssetIds", assetIds, "idempotencyKey", "key-revoke")), 202);
+        long jobId = accepted.path("jobId").asLong();
+        String firstLink = accepted.path("resultToken").asString();
+        String secondLink = data(mvc.post().uri("/api/participant/compose-jobs/{id}/result-access", jobId)
+                .header(TOKEN_HEADER, token).exchange(), 201).path("resultToken").asString();
+        ok(mvc.get().uri("/api/public/results").header(HttpHeaders.AUTHORIZATION, "Bearer " + firstLink).exchange());
+
+        assertCode(mvc.post().uri("/api/participant/compose-jobs/{id}/result-access/revoke", jobId)
+                .header(TOKEN_HEADER, activeParticipant()).exchange(), 404, "GEN-031");
+        assertThat(mvc.post().uri("/api/participant/compose-jobs/{id}/result-access/revoke", jobId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + firstLink).exchange().getResponse().getStatus()).isEqualTo(401);
+        ok(mvc.get().uri("/api/public/results").header(HttpHeaders.AUTHORIZATION, "Bearer " + firstLink).exchange());
+
+        assertThat(ok(mvc.post().uri("/api/participant/compose-jobs/{id}/result-access/revoke", jobId)
+                .header(TOKEN_HEADER, token).exchange()).path("revokedCount").asInt()).isEqualTo(2);
+
+        assertCode(mvc.get().uri("/api/public/results").header(HttpHeaders.AUTHORIZATION, "Bearer " + firstLink).exchange(), 401, "RESULT-001");
+        assertCode(mvc.get().uri("/api/public/results").header(HttpHeaders.AUTHORIZATION, "Bearer " + secondLink).exchange(), 401, "RESULT-001");
+        // 사진은 지우지 않는다. 다시 눌러도 오류가 아니다
+        assertThat(ok(mvc.get().uri("/api/participant/events/{id}/results", eventId).header(TOKEN_HEADER, token).exchange())
+                .get(0).path("jobId").asLong()).isEqualTo(jobId);
+        assertThat(ok(mvc.post().uri("/api/participant/compose-jobs/{id}/result-access/revoke", jobId)
+                .header(TOKEN_HEADER, token).exchange()).path("revokedCount").asInt()).isZero();
+
+        // 회수 뒤 새 링크는 산다
+        String newLink = data(mvc.post().uri("/api/participant/compose-jobs/{id}/result-access", jobId)
+                .header(TOKEN_HEADER, token).exchange(), 201).path("resultToken").asString();
+        ok(mvc.get().uri("/api/public/results").header(HttpHeaders.AUTHORIZATION, "Bearer " + newLink).exchange());
+    }
+
+    @Test
     @DisplayName("재방문 목록 — 실패한 작업은 실패 종류가 있어 화면 문구를 고를 수 있다")
     void myResultsFailureCode() throws Exception {
         String token = activeParticipant();

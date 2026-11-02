@@ -94,20 +94,17 @@ class AccountBlockRaceMysqlTest {
     }
 
     @Test
-    @DisplayName("탈퇴 요청과 정지가 동시에 — 어느 쪽이 먼저든 한쪽만 된다. 탈퇴 요청이 정지를 덮지 않는다")
+    @DisplayName("탈퇴 요청과 정지가 동시에 — 정지가 먼저면 둘 다 되고 복구하면 BLOCKED, 탈퇴 요청이 먼저면 정지는 AUTH-005. 정지 이력을 잃지 않는다")
     void exitRequestAndBlockRace() throws Exception {
         for (int round = 0; round < 20; round++) {
             User admin = admin();
             User member = member();
             CountDownLatch start = new CountDownLatch(1);
             CompletableFuture<String> block = attempt(start, admin, member);
-            CompletableFuture<String> exit = CompletableFuture.supplyAsync(() -> {
+            CompletableFuture<Void> exit = CompletableFuture.runAsync(() -> {
                 try {
                     start.await();
                     userExitService.requestExit(member.getPublicId());
-                    return "EXIT";
-                } catch (BusinessException e) {
-                    return e.getErrorCode().getCode();
                 } catch (InterruptedException e) {
                     throw new IllegalStateException(e);
                 }
@@ -115,14 +112,16 @@ class AccountBlockRaceMysqlTest {
             start.countDown();
 
             String blockResult = block.get();
-            String exitResult = exit.get();
+            exit.get();
+            assertThat(status(member)).isEqualTo(UserStatus.DELETED_REQUESTED);
+
+            userExitService.reActivate(member.getPublicId());
+
             if ("BLOCKED".equals(blockResult)) {
-                assertThat(exitResult).isEqualTo(AuthErrorCode.ACCOUNT_BLOCKED.getCode());
                 assertThat(status(member)).isEqualTo(UserStatus.BLOCKED);
             } else {
                 assertThat(blockResult).isEqualTo(AuthErrorCode.ACCOUNT_PENDING_DELETION.getCode());
-                assertThat(exitResult).isEqualTo("EXIT");
-                assertThat(status(member)).isEqualTo(UserStatus.DELETED_REQUESTED);
+                assertThat(status(member)).isEqualTo(UserStatus.ACTIVE);
             }
         }
     }

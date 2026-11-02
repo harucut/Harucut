@@ -205,7 +205,9 @@ class SecurityFilterChainTest extends SecurityBeansMockSupport {
             User admin = user(UserStatus.BLOCKED, UserRole.ROLE_ADMIN);
 
             assertThat(mockMvc.get().uri(ADMIN_FIXTURE_URI).cookie(accessCookie(accessToken(admin))))
-                    .hasStatus(HttpStatus.FORBIDDEN);
+                    .hasStatus(HttpStatus.FORBIDDEN)
+                    .bodyJson()
+                    .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("AUTH-042"));
         }
 
         @Test
@@ -235,14 +237,14 @@ class SecurityFilterChainTest extends SecurityBeansMockSupport {
          * 봉투가 나왔다면 핸들러가 동작한 것이다.
          */
         @Test
-        @DisplayName("BLOCKED 사용자는 403 GEN-021을 공통 봉투로 받는다")
+        @DisplayName("BLOCKED 사용자는 403 AUTH-042를 공통 봉투로 받는다")
         void blockedIsRejectedByFilter() {
             User user = user(UserStatus.BLOCKED, UserRole.ROLE_USER);
 
             assertThat(mockMvc.get().uri(PLAIN_URI).cookie(accessCookie(accessToken(user))))
                     .hasStatus(HttpStatus.FORBIDDEN)
                     .bodyJson()
-                    .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("GEN-021"));
+                    .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("AUTH-042"));
         }
 
         @Test

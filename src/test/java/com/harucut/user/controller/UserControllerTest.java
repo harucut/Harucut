@@ -360,7 +360,8 @@ class UserControllerTest extends SecurityBeansMockSupport {
                 "resources/defaults/userDefaultImage.png",
                 "HARUCUT",
                 "BASIC",
-                0
+                0,
+                UserStatus.ACTIVE
         );
     }
 

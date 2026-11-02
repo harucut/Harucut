@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import com.harucut.auth.security.CustomAccessDeniedHandler;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindException;
 import org.springframework.web.HttpMediaTypeNotAcceptableException;
@@ -88,7 +89,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<Response<Void>> handleAccessDeniedException(AccessDeniedException e) {
-        return toResponseEntity(GlobalErrorCode.FORBIDDEN);
+        return toResponseEntity(CustomAccessDeniedHandler.deniedCode());
     }
 
     @ExceptionHandler(Exception.class)

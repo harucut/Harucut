@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -45,7 +46,10 @@ public class AdminUserService {
                 .toList();
     }
 
-    /** 정지 — 모든 refresh 세션을 끊는다. 일반 API 는 access 토큰 만료까지 남고, 관리·사진 경로는 바로 막힌다. 이미 정지면 그대로 답한다 */
+    /**
+     * 정지 — 모든 refresh 세션을 끊는다. 다시 로그인할 수 있지만 마이페이지와 탈퇴만 된다.
+     * 살아 있는 옛 access 토큰은 일반 API 에서 만료까지 남고, 관리·사진 경로는 바로 막힌다. 이미 정지면 그대로 답한다
+     */
     public AdminUserDtos.StatusResponse block(String adminPublicId, String userPublicId, String reason) {
         Locked locked = lock(adminPublicId, userPublicId);
         User target = locked.target();
@@ -57,14 +61,14 @@ public class AdminUserService {
             throw new BusinessException(AuthErrorCode.ACCOUNT_PENDING_DELETION);
         }
         if (target.getUserStatus() == UserStatus.ACTIVE) {
-            target.block();
+            target.block(LocalDateTime.now(clock));
             auditLogService.record(locked.actor().getId(), null, null, "USER_BLOCKED", "USER", target.getPublicId(), Map.of("reason", reason));
             refreshTokenService.revokeAll(target.getPublicId());
         }
         return new AdminUserDtos.StatusResponse(target.getPublicId(), target.getUserStatus());
     }
 
-    /** 해제 — 끊은 세션은 돌아오지 않아 다시 로그인한다. 정지 상태가 아니면 그대로 답한다 */
+    /** 해제 — 정지 상태의 토큰도 다음 요청부터 풀린다(JwtAuthenticationFilter). 정지 상태가 아니면 그대로 답한다 */
     public AdminUserDtos.StatusResponse unblock(String adminPublicId, String userPublicId, String reason) {
         Locked locked = lock(adminPublicId, userPublicId);
         User target = locked.target();

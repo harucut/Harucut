@@ -6,6 +6,7 @@ import com.harucut.auth.oauth2.CustomOAuth2UserService;
 import com.harucut.auth.oauth2.CustomOidcUserService;
 import com.harucut.auth.oauth2.app.AppAwareAuthorizationRequestResolver;
 import com.harucut.auth.oauth2.app.RememberingAuthorizationRequestRepository;
+import com.harucut.auth.security.AccountStateGuard;
 import com.harucut.auth.security.CustomAccessDeniedHandler;
 import com.harucut.auth.security.CustomAuthenticationEntryPoint;
 import com.harucut.auth.security.JwtAuthenticationFilter;
@@ -41,6 +42,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtTokenService jwtTokenService;
+    private final AccountStateGuard accountStateGuard;
     private final CustomAuthenticationEntryPoint authenticationEntryPoint;
     private final CustomAccessDeniedHandler accessDeniedHandler;
     private final CustomOAuth2UserService oAuth2UserService;
@@ -82,7 +84,7 @@ public class SecurityConfig {
                 )
 
                 .addFilterBefore(
-                        new JwtAuthenticationFilter(SecurityPaths.publicMatcher(), jwtTokenService, authenticationEntryPoint),
+                        new JwtAuthenticationFilter(SecurityPaths.publicMatcher(), jwtTokenService, authenticationEntryPoint, accountStateGuard),
                         UsernamePasswordAuthenticationFilter.class
                 )
                 // CORS·인증보다 먼저 — 다른 출처에서 온 쿠키 요청은 토큰을 읽기 전에 GEN-022 로 거절한다
@@ -104,6 +106,7 @@ public class SecurityConfig {
                         .requestMatchers(SecurityPaths.ADMIN).hasRole("ADMIN")
                         .requestMatchers(SecurityPaths.PUBLIC).permitAll()
                         .requestMatchers(SecurityPaths.AUTHENTICATED_ONLY).authenticated()
+                        .requestMatchers(SecurityPaths.BLOCKED_ALLOWED).hasAnyRole("USER", "ADMIN", "BLOCKED")
                         .anyRequest().hasAnyRole("USER", "ADMIN")
                 );
 

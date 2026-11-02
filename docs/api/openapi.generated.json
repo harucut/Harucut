@@ -3380,7 +3380,7 @@
             "$ref" : "#/components/schemas/MyEventAccess"
           },
           "completedPhotoCount" : {
-            "description" : "완성된 사진 수 — 삭제·보관 종료된 사진은 세지 않는다",
+            "description" : "완성된 사진 수 — 삭제했거나 보관 기한이 지난 사진은 세지 않는다",
             "example" : 128,
             "format" : "int64",
             "type" : "integer"

@@ -65,7 +65,7 @@ public class PhotoService {
         Event event = policy.requirePhoto(userId(actorPublicId), eventPublicId, PhotoPermission.VIEW_PHOTOS);
         int size = limit == null ? DEFAULT_LIMIT : Math.clamp(limit, 1, MAX_LIMIT);
         Cursor after = Cursor.decode(cursor);
-        List<Object[]> rows = composeJobRepository.findEventPhotos(event.getId(), status, channel, frameVersionId,
+        List<Object[]> rows = composeJobRepository.findEventPhotos(event.getId(), LocalDateTime.now(clock), status, channel, frameVersionId,
                 local(from), local(to), after == null ? null : after.createdAt(), after == null ? null : after.id(),
                 PageRequest.of(0, size + 1));
         boolean more = rows.size() > size;
@@ -117,7 +117,8 @@ public class PhotoService {
 
     private ComposeJob photoOf(Event event, Long photoId) {
         return composeJobRepository.findById(photoId)
-                .filter(job -> event.getId().equals(job.getEventId()) && !job.isDeleted())
+                .filter(job -> event.getId().equals(job.getEventId()) && !job.isDeleted()
+                        && !job.retentionEndedAt(LocalDateTime.now(clock)))   // 정리 배치 전이어도 보관 기한이 지난 사진은 없는 것처럼
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
     }
 

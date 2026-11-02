@@ -237,6 +237,17 @@ class PhotoBoxIntegrationTest {
     }
 
     @Test
+    @DisplayName("보관 기한이 지난 사진 — 정리 배치 전이어도 사진함·다운로드에서 빠진다(참가자 쪽과 같은 판정)")
+    void expiredPhotoIsHiddenBeforePurge() {
+        entityManager.flush();
+        jdbcTemplate.update("update compose_job set retain_until = ? where compose_job_id = ?", java.time.LocalDateTime.now().minusMinutes(1), byodDone.getId());
+        entityManager.clear();
+
+        assertThat(page(owner, null, null, null, null, null).items()).extracting(PhotoDtos.Photo::photoId).doesNotContain(byodDone.getId());
+        assertCode(() -> photoService.download(owner.getPublicId(), event.getPublicId(), byodDone.getId()), GlobalErrorCode.NOT_FOUND);
+    }
+
+    @Test
     @DisplayName("복제: 설정 초안·참가 방식만 새 DRAFT, 복제한 사람에게 권한, slug 중복은 EVENT-004")
     void cloneEvent() {
         EventResponse copy = eventService.cloneEvent(owner.getPublicId(), event.getPublicId(), "다음 결혼식", "photo-box-2");

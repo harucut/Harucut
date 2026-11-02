@@ -208,6 +208,19 @@ class ExportIntegrationTest {
     }
 
     @Test
+    @DisplayName("보관 기한이 지난 사진은 정리 배치 전이어도 묶지 않는다 — 고른 것·전체 모두(사진함·결과 링크와 같은 판정)")
+    void expiredPhotoIsNotExported() {
+        entityManager.flush();
+        jdbcTemplate.update("update compose_job set retain_until = ? where compose_job_id = ?", java.time.LocalDateTime.now().minusMinutes(1), first.getId());
+        entityManager.clear();
+
+        assertCode(() -> exportService.create(owner.getPublicId(), event.getPublicId(),
+                new ExportDtos.ExportRequest(List.of(first.getId()), null)), ExportErrorCode.INVALID_SELECTION);
+        assertThat(exportService.create(owner.getPublicId(), event.getPublicId(),
+                new ExportDtos.ExportRequest(null, null)).photoCount()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("고른 것이 비면(빈 목록 포함) EXPORT-003, 아무것도 안 보내면 완성 사진 전부")
     void selection() {
         assertCode(() -> exportService.create(owner.getPublicId(), event.getPublicId(),

@@ -33,6 +33,7 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
     @Query("""
             select j, p.channel from ComposeJob j, Participant p
             where p.id = j.participantId and j.eventId = :eventId and j.deletedAt is null and j.purgedAt is null
+              and (j.retainUntil is null or j.retainUntil > :now)
               and (:status is null or j.status = :status)
               and (:channel is null or p.channel = :channel)
               and (:frameVersionId is null or j.frameVersionId = :frameVersionId)
@@ -42,6 +43,7 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
             order by j.createdAt desc, j.id desc
             """)
     List<Object[]> findEventPhotos(@Param("eventId") Long eventId,
+                                   @Param("now") LocalDateTime now,
                                    @Param("status") ComposeStatus status,
                                    @Param("channel") ParticipantChannel channel,
                                    @Param("frameVersionId") Long frameVersionId,
@@ -99,9 +101,10 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
     @Query("""
             SELECT j.eventId, COUNT(j) FROM ComposeJob j
             WHERE j.eventId IN :eventIds AND j.status = ComposeStatus.DONE AND j.deletedAt IS NULL AND j.purgedAt IS NULL
+                AND (j.retainUntil IS NULL OR j.retainUntil > :now)
             GROUP BY j.eventId
             """)
-    List<Object[]> countCompletedByEventIds(Collection<Long> eventIds);
+    List<Object[]> countCompletedByEventIds(Collection<Long> eventIds, LocalDateTime now);
 
     // spec_json 은 변환기 칸이라 JPQL 로 LIKE 를 걸 수 없다 — 네이티브. PENDING 은 적어 스캔이 짧다. '_' 는 넓게 걸릴 뿐(지우지 않는 쪽)이다
     @Query(value = "select count(*) from compose_job where status = 'PENDING' and spec_json like :pattern", nativeQuery = true)

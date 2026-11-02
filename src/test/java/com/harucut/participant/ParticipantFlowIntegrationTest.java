@@ -461,6 +461,15 @@ class ParticipantFlowIntegrationTest {
         assertThat(composeService.completeJob(jobId, "uploads/r/thumb.jpg", "uploads/r/thumb_thumb.jpg")).isTrue();
         assertThat(ok(mvc.get().uri("/api/participant/events/{id}/results", eventId).header(TOKEN_HEADER, token).exchange()).get(0)
                 .path("thumbnailUrl").asString()).isEqualTo("https://s3/get-short");
+
+        // 보관 기한이 지났다 — 정리 배치가 돌기 전이어도 미리보기를 주지 않는다. 기한은 그대로 알린다(status·다운로드와 같은 판정)
+        entityManager.flush();
+        jdbcTemplate.update("update compose_job set retain_until = ? where compose_job_id = ?", LocalDateTime.now().minusMinutes(1), jobId);
+        entityManager.clear();
+        JsonNode expired = ok(mvc.get().uri("/api/participant/events/{id}/results", eventId).header(TOKEN_HEADER, token).exchange()).get(0);
+        assertThat(expired.has("thumbnailUrl")).isFalse();
+        assertThat(expired.path("expiresAt").asString()).isNotBlank();
+        assertCode(mvc.post().uri("/api/participant/compose-jobs/{id}/download", jobId).header(TOKEN_HEADER, token).exchange(), 410, "RESULT-002");
     }
 
     @Test

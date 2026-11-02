@@ -237,6 +237,11 @@ public class ComposeJob extends BaseEntity {
         return renderContract != null && renderContract >= com.harucut.media.compose.ComposeOutputContract.VERIFIED_PAIR;
     }
 
+    /** 결과 보관 약정이 끝났는가 — 정리 배치가 돌기 전에도 더는 내주지 않는다. 개인 작업(약정 없음)은 false */
+    public boolean retentionEndedAt(LocalDateTime now) {
+        return retainUntil != null && !now.isBefore(retainUntil);
+    }
+
     public void fixRetention(LocalDateTime retainUntil) {
         this.retainUntil = retainUntil;
     }

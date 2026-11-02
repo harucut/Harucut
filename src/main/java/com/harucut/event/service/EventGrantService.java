@@ -185,7 +185,7 @@ public class EventGrantService {
         eventRepository.findAllById(grantRepository.findAllByUserId(actor.getId()).stream().map(EventGrant::getEventId).toList())
                 .forEach(e -> candidates.putIfAbsent(e.getId(), e));
         Map<Long, Long> completed = candidates.isEmpty() ? Map.of()
-                : composeJobRepository.countCompletedByEventIds(candidates.keySet()).stream()
+                : composeJobRepository.countCompletedByEventIds(candidates.keySet(), LocalDateTime.now(clock)).stream()
                 .collect(Collectors.toMap(row -> (Long) row[0], row -> (Long) row[1]));
         return candidates.values().stream()
                 .sorted(Comparator.comparing(Event::getCreatedAt).reversed())

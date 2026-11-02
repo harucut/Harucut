@@ -20,15 +20,18 @@ public record ComposeRequestedEvent(
         Integer contract,
 
         // 이번 접수의 시도 번호 — 워커가 claim 을 이긴 뒤에 채운다(withAttempt). 이벤트를 만들 때는 null
-        Integer attemptNo
+        Integer attemptNo,
+
+        // 입력 지문 — 접수 때 고정한 값을 payload 에 실어 보내고 출력 검증에서 돌려받는다(R5 L484)
+        String inputFingerprint
 ) {
 
     public ComposeRequestedEvent(Long jobId, ComposeSpec spec, List<String> sourceKeys, String resultKey,
                                  String thumbnailKey, ImageFormat outputFormat) {
-        this(jobId, spec, sourceKeys, resultKey, thumbnailKey, outputFormat, null, null);
+        this(jobId, spec, sourceKeys, resultKey, thumbnailKey, outputFormat, null, null, null);
     }
 
     public ComposeRequestedEvent withAttempt(int attemptNo) {
-        return new ComposeRequestedEvent(jobId, spec, sourceKeys, resultKey, thumbnailKey, outputFormat, contract, attemptNo);
+        return new ComposeRequestedEvent(jobId, spec, sourceKeys, resultKey, thumbnailKey, outputFormat, contract, attemptNo, inputFingerprint);
     }
 }

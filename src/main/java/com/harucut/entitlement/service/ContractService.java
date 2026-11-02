@@ -35,6 +35,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -319,7 +320,9 @@ public class ContractService {
     private EntitlementDtos.Contract view(Contract c) {
         Map<Long, String> eventIds = eventRepository.findAllById(c.eventIdList()).stream()
                 .collect(Collectors.toMap(Event::getId, Event::getPublicId));
-        return new EntitlementDtos.Contract(c.getPublicId(), workspacePublicId(c.getWorkspaceId()), c.getContractorName(),
+        Optional<Workspace> workspace = workspaceRepository.findById(c.getWorkspaceId());
+        return new EntitlementDtos.Contract(c.getPublicId(), workspace.map(Workspace::getPublicId).orElse(null),
+                workspace.map(Workspace::getName).orElse(null), c.getContractorName(),
                 c.getScope(), c.eventIdList().stream().map(eventIds::get).filter(Objects::nonNull).toList(), c.getAmount(),
                 c.getCurrency(), offset(c.getStartsAt()), offset(c.getEndsAt()),
                 c.getEvidenceKind() == null ? null : new EntitlementDtos.Evidence(c.getEvidenceKind(), c.getEvidenceReference()),
@@ -330,17 +333,15 @@ public class ContractService {
         String eventId = e.getEventId() == null ? null : eventRepository.findById(e.getEventId()).map(Event::getPublicId).orElse(null);
         String contractId = e.getContractId() == null ? null
                 : contractRepository.findById(e.getContractId()).map(Contract::getPublicId).orElse(null);
-        return new EntitlementDtos.Entitlement(e.getPublicId(), e.getScope(), workspacePublicId(e.getWorkspaceId()), eventId,
+        Optional<Workspace> workspace = workspaceRepository.findById(e.getWorkspaceId());
+        return new EntitlementDtos.Entitlement(e.getPublicId(), e.getScope(), workspace.map(Workspace::getPublicId).orElse(null),
+                workspace.map(Workspace::getName).orElse(null), eventId,
                 e.getSource(), contractId, new EntitlementDtos.Terms(e.getComposeQuota(), e.getRetentionDays(),
                 e.getMaxBoothDevices(), e.getMaxLiveEvents(), e.getFeatures()), e.getUsed(), e.getReserved(),
                 offset(e.getValidFrom()), offset(e.getValidTo()), e.getStatus(), e.getGrantorNote(), e.getRevokeReason(),
                 e.getParentEntitlementId() == null ? null
                         : entitlementRepository.findById(e.getParentEntitlementId()).map(Entitlement::getPublicId).orElse(null),
                 e.getAllocatedQuota());
-    }
-
-    private String workspacePublicId(Long workspaceId) {
-        return workspaceRepository.findById(workspaceId).map(Workspace::getPublicId).orElse(null);
     }
 
     private User user(String publicId) {

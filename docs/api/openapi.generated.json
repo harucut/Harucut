@@ -845,8 +845,8 @@
         "description" : "합성 작업 상태",
         "properties" : {
           "failureCode" : {
-            "description" : "실패 종류. **`FAILED` 일 때만 실린다** — 화면 문구는 이 값으로 고른다.\n`SOURCE_MISSING` 원본이 저장소에 없음(만료·삭제) · `SOURCE_UNREADABLE` 원본을 읽을 수 없음(손상·형식) ·\n`ASSET_MISSING` 프레임·배경 자산 없음 · `ASSET_UNREADABLE` 자산을 읽을 수 없음 · `TIMED_OUT` 시간 초과 ·\n`RENDER_FAILED` 그 밖의 렌더 실패 · `UNKNOWN` 종류를 알리지 않는 실행기의 실패.\n이 값이 생기기 전에 실패한 작업은 키가 없다.",
-            "enum" : [ "SOURCE_MISSING", "SOURCE_UNREADABLE", "ASSET_MISSING", "ASSET_UNREADABLE", "TIMED_OUT", "RENDER_FAILED", "OUTPUT_CONFLICT", "UNKNOWN" ],
+            "description" : "실패 종류. **`FAILED` 일 때만 실린다** — 화면 문구는 이 값으로 고른다.\n`SOURCE_MISSING` 원본이 저장소에 없음(만료·삭제) · `SOURCE_UNREADABLE` 원본을 읽을 수 없음(손상·형식) ·\n`ASSET_MISSING` 프레임·배경 자산 없음 · `ASSET_UNREADABLE` 자산을 읽을 수 없음 · `TIMED_OUT` 시간 초과 ·\n`RENDER_FAILED` 그 밖의 렌더 실패 · `OUTPUT_CONFLICT` 저장된 결과·썸네일 쌍을 검증하지 못함 ·\n`DISPATCH_EXHAUSTED` 재접수 횟수·총 기한 초과(일시 장애가 풀리지 않음, 원본이 지워져 다시 촬영) · `UNKNOWN` 종류를 알리지 않는 실행기의 실패.\n이 값이 생기기 전에 실패한 작업은 키가 없다.",
+            "enum" : [ "SOURCE_MISSING", "SOURCE_UNREADABLE", "ASSET_MISSING", "ASSET_UNREADABLE", "TIMED_OUT", "RENDER_FAILED", "OUTPUT_CONFLICT", "DISPATCH_EXHAUSTED", "UNKNOWN" ],
             "example" : "SOURCE_UNREADABLE",
             "type" : "string"
           },
@@ -1049,6 +1049,10 @@
             "type" : "string"
           },
           "workspaceId" : {
+            "type" : "string"
+          },
+          "workspaceName" : {
+            "description" : "공간 이름 — 화면에 공간 id 대신 보여 준다",
             "type" : "string"
           }
         },
@@ -1339,7 +1343,7 @@
             "type" : "string"
           },
           "url" : {
-            "description" : "presigned GET URL(기본 5분)",
+            "description" : "파일로 내려받는 presigned GET URL(Content-Disposition: attachment, 기본 5분)",
             "type" : "string"
           }
         },
@@ -1518,6 +1522,10 @@
             "type" : "string"
           },
           "workspaceId" : {
+            "type" : "string"
+          },
+          "workspaceName" : {
+            "description" : "공간 이름 — 화면에 공간 id 대신 보여 준다",
             "type" : "string"
           }
         },
@@ -1773,6 +1781,11 @@
             "description" : "행사 public id",
             "example" : "Ev7xK2mQ9pLa",
             "type" : "string"
+          },
+          "hasUnpublishedChanges" : {
+            "description" : "지금 저장된 설정(상위 기본값 포함)이 게시본과 다른가 — 다시 게시해야 참가자에게 적용된다. 게시 전이면 키 없음",
+            "example" : false,
+            "type" : "boolean"
           },
           "joinUrlPath" : {
             "description" : "참가 링크 경로",
@@ -3366,6 +3379,12 @@
           "access" : {
             "$ref" : "#/components/schemas/MyEventAccess"
           },
+          "completedPhotoCount" : {
+            "description" : "완성된 사진 수 — 삭제했거나 보관 기한이 지난 사진은 세지 않는다",
+            "example" : 128,
+            "format" : "int64",
+            "type" : "integer"
+          },
           "eventId" : {
             "type" : "string"
           },
@@ -3424,12 +3443,26 @@
             "format" : "date-time",
             "type" : "string"
           },
+          "expiresAt" : {
+            "description" : "이 결과의 보관 기한 — 지나면 받을 수 없다",
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "failureCode" : {
+            "description" : "FAILED 일 때만 — 실패 종류(ComposeJobResponse.failureCode 와 같은 값). 화면 문구를 고른다",
+            "enum" : [ "SOURCE_MISSING", "SOURCE_UNREADABLE", "ASSET_MISSING", "ASSET_UNREADABLE", "TIMED_OUT", "RENDER_FAILED", "OUTPUT_CONFLICT", "DISPATCH_EXHAUSTED", "UNKNOWN" ],
+            "type" : "string"
+          },
           "jobId" : {
             "format" : "int64",
             "type" : "integer"
           },
           "status" : {
             "enum" : [ "PENDING", "DONE", "FAILED" ],
+            "type" : "string"
+          },
+          "thumbnailUrl" : {
+            "description" : "DONE 일 때만 — 작은 미리보기의 짧은 URL. 재방문 목록에서 어느 사진인지 구별한다",
             "type" : "string"
           }
         },
@@ -3535,6 +3568,13 @@
       "OfferedFrame" : {
         "description" : "제공 프레임",
         "properties" : {
+          "cells" : {
+            "description" : "자유 사진 칸일 때만 — 칸별 위치·크기·회전·모양·촬영 순번(발행본 기준). 칸마다 촬영 비율을 맞출 때 쓴다",
+            "items" : {
+              "$ref" : "#/components/schemas/PhotoCell"
+            },
+            "type" : "array"
+          },
           "frameVersionId" : {
             "description" : "프레임 발행본 ID",
             "format" : "int64",
@@ -6743,6 +6783,10 @@
             "format" : "date-time",
             "type" : "string"
           },
+          "imageUrl" : {
+            "description" : "DONE 일 때만 — 화면에 띄울 결과 원본의 짧은 URL(파일로 받지 않고 바로 표시). 저장은 `POST /download`",
+            "type" : "string"
+          },
           "status" : {
             "description" : "PENDING(준비 중) · DONE · FAILED · EXPIRED(보관 기한 지남)",
             "example" : "DONE",
@@ -6753,7 +6797,7 @@
             "description" : "이 결과가 만들어진 경험 버전의 페이지 테마 — 기본값이 채워지고 자산은 URL"
           },
           "thumbnailUrl" : {
-            "description" : "DONE 일 때만 — 짧은 썸네일 URL",
+            "description" : "DONE 일 때만 — 작은 미리보기(긴 변 512px)의 짧은 URL. 목록용",
             "type" : "string"
           }
         },
@@ -20481,6 +20525,15 @@
           "schema" : {
             "type" : "string"
           }
+        }, {
+          "description" : "이 공간의 초안만(공간 public id). 생략하면 내 초안 전부",
+          "example" : "Ws1aB2cD3eF4",
+          "in" : "query",
+          "name" : "workspaceId",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
         } ],
         "responses" : {
           "200" : {
@@ -26885,6 +26938,26 @@
               }
             },
             "description" : "- `AUTH-020` — 그 이메일로 가입된 계정이 없음 (소셜로 가입한 계정은 여기서 안 찾힌다) _(User not found.)_"
+          },
+          "429" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-061" : {
+                    "summary" : "GEN-061 — 같은 IP(분당 60) 또는 같은 이메일(분당 10)의 로그인 시도가 너무 많음",
+                    "value" : {
+                      "code" : "GEN-061",
+                      "message" : "Too many requests.",
+                      "status" : 429
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-061` — 같은 IP(분당 60) 또는 같은 이메일(분당 10)의 로그인 시도가 너무 많음 _(Too many requests.)_"
           }
         },
         "summary" : "이메일 로그인",
@@ -26893,7 +26966,7 @@
     },
     "/api/harucut/logout" : {
       "delete" : {
-        "description" : "**항상 200 이다.** 토큰이 없어도, 만료됐어도 성공한다.\n\n로그아웃이 실패하면 사용자는 로그아웃조차 할 수 없게 된다. 그래서 인증을 요구하지 않고,\n서버 상태 정리(저장된 refresh 삭제)는 되면 하고 안 되면 만료로 정리되게 뒀다.\n응답에는 두 쿠키를 만료시키는 `Set-Cookie` 가 실린다.\n",
+        "description" : "**항상 200 이다.** 토큰이 없어도, 만료됐어도 성공한다.\n\n이 기기의 refresh 세션만 끊는다 — 다른 기기는 그대로다. 전체 기기는 `DELETE /logout/all`.\n로그아웃이 실패하면 사용자는 로그아웃조차 할 수 없게 된다. 그래서 인증을 요구하지 않고,\n서버 상태 정리(저장된 refresh 삭제)는 되면 하고 안 되면 만료로 정리되게 뒀다.\n응답에는 두 쿠키를 만료시키는 `Set-Cookie` 가 실린다.\n",
         "operationId" : "logout",
         "parameters" : [ {
           "in" : "cookie",
@@ -26935,7 +27008,55 @@
             "description" : "- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
           }
         },
-        "summary" : "로그아웃",
+        "summary" : "로그아웃 — 이 기기만",
+        "tags" : [ "인증 · 토큰" ]
+      }
+    },
+    "/api/harucut/logout/all" : {
+      "delete" : {
+        "description" : "**항상 200 이다.** 이 사용자의 모든 refresh 세션을 끊는다. 응답 모양은 `DELETE /logout` 과 같다.\n\n사용자는 access 토큰 또는 refresh 토큰으로 정한다. 다른 기기의 access 토큰은 만료(30분)까지 유효하다.\n",
+        "operationId" : "logoutAll",
+        "parameters" : [ {
+          "in" : "cookie",
+          "name" : "refreshToken",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_"
+          }
+        },
+        "summary" : "로그아웃 — 모든 기기",
         "tags" : [ "인증 · 토큰" ]
       }
     },
@@ -27542,6 +27663,14 @@
                       "message" : "Too many verification requests.",
                       "status" : 429
                     }
+                  },
+                  "GEN-061" : {
+                    "summary" : "GEN-061 — 같은 IP 의 메일 요청이 너무 많음(10분에 5회) 또는 서비스 일일 발송 상한",
+                    "value" : {
+                      "code" : "GEN-061",
+                      "message" : "Too many requests.",
+                      "status" : 429
+                    }
                   }
                 },
                 "schema" : {
@@ -27549,7 +27678,7 @@
                 }
               }
             },
-            "description" : "- `AUTH-040` — 같은 이메일로 60초 안에 재요청 _(Too many verification requests.)_"
+            "description" : "- `AUTH-040` — 같은 이메일로 60초 안에 재요청 _(Too many verification requests.)_\n- `GEN-061` — 같은 IP 의 메일 요청이 너무 많음(10분에 5회) 또는 서비스 일일 발송 상한 _(Too many requests.)_"
           },
           "500" : {
             "content" : {

@@ -168,17 +168,19 @@ public class ExportService {
             return request.photoIds().stream().distinct().map(found::get).filter(Objects::nonNull).toList();
         }
         ExportDtos.ExportFilter filter = request.filter();
-        List<Object[]> rows = composeJobRepository.findEventPhotos(event.getId(), ComposeStatus.DONE,
+        List<Object[]> rows = composeJobRepository.findEventPhotos(event.getId(), LocalDateTime.now(clock), ComposeStatus.DONE,
                 filter == null ? null : filter.channel(), filter == null ? null : filter.frameVersionId(),
                 filter == null ? null : local(filter.from()), filter == null ? null : local(filter.to()),
                 null, null, PageRequest.of(0, maxPhotos + 1));
         List<ComposeJob> jobs = new ArrayList<>();
         rows.forEach(row -> jobs.add((ComposeJob) row[0]));
-        return jobs.stream().filter(ExportService::usable).toList();
+        return jobs.stream().filter(this::usable).toList();
     }
 
-    private static boolean usable(ComposeJob job) {
-        return job.getStatus() == ComposeStatus.DONE && !job.isDeleted() && job.getResultKey() != null;
+    // 보관 기한이 지난 사진은 정리 배치 전이어도 묶지 않는다 — 사진함·결과 링크와 같은 판정
+    private boolean usable(ComposeJob job) {
+        return job.getStatus() == ComposeStatus.DONE && !job.isDeleted() && job.getResultKey() != null
+                && !job.retentionEndedAt(LocalDateTime.now(clock));
     }
 
     // 다른 사람이 만든 묶음은 없는 것처럼 — 404

@@ -108,6 +108,20 @@ class AssetOrphanCleanerIntegrationTest {
         assertThat(remainingKeys()).contains(bound.getS3Key()).doesNotContain(unbound.getS3Key());
     }
 
+    @Test
+    @DisplayName("합성에 쓰이지 않은 촬영 입력은 2시간 뒤 지운다(얼굴 사진이라 다른 자산보다 짧게) — 다른 자산은 7일 유예 그대로")
+    void captureInputsAreCleanedSooner() {
+        Asset abandoned = captureInput("abandoned.png");
+        Asset fresh = captureInput("fresh.png");
+        entityManager.flush();
+        jdbcTemplate.update("update asset set created_at = ? where asset_id = ?", LocalDateTime.now().minusHours(3), abandoned.getId());
+        jdbcTemplate.update("update asset set created_at = ? where asset_id = ?", LocalDateTime.now().minusMinutes(30), fresh.getId());
+        entityManager.clear();
+
+        assertThat(cleaner.run()).isEqualTo(1);
+        assertThat(remainingKeys()).contains(fresh.getS3Key()).doesNotContain(abandoned.getS3Key());
+    }
+
     // ── fixtures ──────────────────────────────
 
     private Asset verified(AssetPurpose purpose, String name) {

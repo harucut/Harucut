@@ -1,5 +1,6 @@
 package com.harucut.event.dto;
 
+import com.harucut.frame.cell.PhotoCell;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.harucut.event.enums.EventStatus;
 import com.harucut.frame.enums.FrameType;
@@ -45,7 +46,9 @@ public record PublicEventResponse(
             @Schema(description = "레이아웃") FrameType layoutType,
             @Schema(description = "표시 순서") int sortOrder,
             @Schema(description = "기본 선택") boolean isDefault,
-            @Schema(description = "미리보기 이미지 짧은 URL") String previewUrl
+            @Schema(description = "미리보기 이미지 짧은 URL") String previewUrl,
+            @Schema(description = "자유 사진 칸일 때만 — 칸별 위치·크기·회전·모양·촬영 순번(발행본 기준). 칸마다 촬영 비율을 맞출 때 쓴다")
+            @JsonInclude(JsonInclude.Include.NON_NULL) List<PhotoCell> cells
     ) {
     }
 }

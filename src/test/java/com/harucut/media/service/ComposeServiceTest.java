@@ -105,7 +105,8 @@ class ComposeServiceTest {
         composeService = new ComposeService(userRepository, composeJobRepository,
                 userMediaRepository, frameService, composeSpecAssembler, new FreeCellsGate(false, JsonMapper.builder().build()), s3Deleter,
                 eventPublisher, new ComposeMetrics(new SimpleMeterRegistry()), fixed, JsonMapper.builder().build(),
-                entitlementService, new ComposeOutputPolicy(1));
+                entitlementService, new ComposeOutputPolicy(1),
+                new com.harucut.media.compose.ComposeRetryPolicy(4, java.time.Duration.ofMinutes(90), java.time.Duration.ofMinutes(10), java.time.Duration.ofMinutes(30)));
         user = User.localUser("owner@harucut.com", "encoded", "소유자");
         ReflectionTestUtils.setField(user, "id", 1L);
         // 결과 key 는 작업이 생성 때 고정한 storage_root(= 사용자 폴더)에서 나온다
@@ -346,7 +347,7 @@ class ComposeServiceTest {
             // 확장자는 s3Key에서 파생된다(DisplayNames) — 결과물이 .jpg가 되면 표시 이름도 따라온다
             assertThat(captor.getValue().getDisplayName()).isEqualTo("harucut_20260720_100000.jpg");
             then(composeJobRepository).should().attachMedia(JOB_ID, 42L);
-            then(s3Deleter).should().deleteAfterCommit(SOURCE_KEYS);
+            then(s3Deleter).should().deleteAfterCommit(SOURCE_KEYS, ComposeService.INPUT_PUT_WINDOW);
             // 개인 작업 완료 푸시 — 전이를 이긴 이 트랜잭션에서만
             then(eventPublisher).should().publishEvent(new PushRequestedEvent(1L, PushMessage.composeDone(JOB_ID)));
         }
@@ -388,7 +389,7 @@ class ComposeServiceTest {
             given(composeJobRepository.findById(999L)).willReturn(Optional.empty());
 
             assertThat(composeService.failJob(JOB_ID, "원본을 읽을 수 없다")).isTrue();
-            then(s3Deleter).should().deleteAfterCommit(SOURCE_KEYS);
+            then(s3Deleter).should().deleteAfterCommit(SOURCE_KEYS, ComposeService.INPUT_PUT_WINDOW);
             // 실패한 작업의 결과·썸네일 자리는 지금 한 번, 늦은 실행이 쓸 수 있는 기간 뒤 한 번 더 지운다(R5 D09)
             then(s3Deleter).should().deleteAfterCommit(List.of(RESULT_KEY, THUMB_KEY), ComposeService.LATE_WRITE_WINDOW);
             then(eventPublisher).should().publishEvent(
@@ -553,5 +554,34 @@ class ComposeServiceTest {
                 FrameType.CLASSIC.getLayout().slots(),
                 List.of(false, false, false, false),
                 List.of());
+    }
+
+    @Test
+    @DisplayName("통지가 왔는데 작업 행이 없으면(탈퇴) 결과 자리를 재삭제까지 걸어 지운다 — 있으면 건드리지 않는다")
+    void discardsOutputsOfMissingJob() {
+        given(composeJobRepository.existsById(99L)).willReturn(false);
+        given(composeJobRepository.existsById(100L)).willReturn(true);
+
+        assertThat(composeService.discardIfJobGone(100L, "uploads/r.jpg", "uploads/t.jpg")).isFalse();
+        then(s3Deleter).shouldHaveNoInteractions();
+
+        assertThat(composeService.discardIfJobGone(99L, "uploads/r.jpg", "uploads/t.jpg")).isTrue();
+        then(s3Deleter).should().deleteAfterCommit(java.util.Arrays.asList("uploads/r.jpg", "uploads/t.jpg"), ComposeService.LATE_WRITE_WINDOW);
+    }
+
+    @Test
+    @DisplayName("입력 지문 대조 — 같으면 통과, 다르면 거절. 지문이 없는 작업·없는 작업은 대조하지 않는다")
+    void sameInputCompares() {
+        ComposeJob job = ComposeJob.create(user, FRAME_ID, IDEM_KEY, SOURCE_KEYS, spec());
+        job.fixInputFingerprint("fp");
+        given(composeJobRepository.findById(1L)).willReturn(java.util.Optional.of(job));
+        given(composeJobRepository.findById(2L)).willReturn(java.util.Optional.of(ComposeJob.create(user, FRAME_ID, IDEM_KEY, SOURCE_KEYS, spec())));
+        given(composeJobRepository.findById(3L)).willReturn(java.util.Optional.empty());
+
+        assertThat(composeService.sameInput(1L, "fp")).isTrue();
+        assertThat(composeService.sameInput(1L, "other")).isFalse();
+        assertThat(composeService.sameInput(1L, null)).isFalse();
+        assertThat(composeService.sameInput(2L, "anything")).isTrue();
+        assertThat(composeService.sameInput(3L, "anything")).isTrue();
     }
 }

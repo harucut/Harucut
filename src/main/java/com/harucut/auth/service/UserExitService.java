@@ -3,14 +3,13 @@ package com.harucut.auth.service;
 import com.harucut.auth.exception.AuthErrorCode;
 import com.harucut.auth.oauth2.unlink.OAuth2UnlinkService;
 import com.harucut.common.exception.BusinessException;
-import com.harucut.storage.event.S3DeleteEvent;
+import com.harucut.storage.service.S3Deleter;
 import com.harucut.storage.util.S3Keys;
 import com.harucut.user.entity.User;
 import com.harucut.user.enums.UserStatus;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.service.WorkspaceService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,14 +26,15 @@ public class UserExitService {
     private final Clock clock;
     private final List<UserDeletionHandler> handlers;
     private final List<OAuth2UnlinkService> unlinkServices;
-    private final ApplicationEventPublisher eventPublisher;
+    private final S3Deleter s3Deleter;
     private final WorkspaceService workspaceService;
 
     @Transactional
     public void requestExit(String publicId) {
         User user = findUser(publicId);
+        workspaceService.requireNotLastOwner(user.getId());
         user.deleteRequested(LocalDateTime.now(clock));
-        refreshTokenService.revoke(publicId);
+        refreshTokenService.revokeAll(publicId);
     }
 
     @Transactional
@@ -43,7 +43,7 @@ public class UserExitService {
         if (user.getUserStatus() != UserStatus.DELETED_REQUESTED) {
             throw new BusinessException(AuthErrorCode.NOT_DELETION_TARGET);
         }
-        refreshTokenService.revoke(publicId);
+        refreshTokenService.revokeAll(publicId);
         user.reActivate();
     }
 
@@ -76,11 +76,12 @@ public class UserExitService {
                 .findFirst()
                 .ifPresent(service -> service.unlink(managedUser));
 
-        refreshTokenService.revoke(publicId);
+        refreshTokenService.revokeAll(publicId);
         managedUser.delete();
 
+        // 삭제 기록을 남긴다 — S3 가 실패해도 재시도 배치가 지운다
         if (S3Keys.isManagedKey(profileImageKey)) {
-            eventPublisher.publishEvent(new S3DeleteEvent(List.of(profileImageKey)));
+            s3Deleter.deleteAfterCommit(List.of(profileImageKey));
         }
     }
 

@@ -93,7 +93,7 @@ class UserDeletionJobTest {
         assertThat(userSubscriptionRepository.findByUserId(expired.getId())).isEmpty();
         assertThat(userCouponRepository.findAll())
                 .noneMatch(row -> row.getUserId().equals(expired.getId()));
-        then(refreshTokenService).should().revoke(expired.getPublicId());
+        then(refreshTokenService).should().revokeAll(expired.getPublicId());
 
         // 6일밖에 안 된 요청과 멀쩡한 사용자는 그대로다
         assertThat(userRepository.findById(waiting.getId()).orElseThrow().getUserStatus())

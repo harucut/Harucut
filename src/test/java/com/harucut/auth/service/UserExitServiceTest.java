@@ -19,10 +19,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import org.mockito.ArgumentCaptor;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import com.harucut.storage.event.S3DeleteEvent;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -64,7 +62,7 @@ class UserExitServiceTest {
     private OAuth2UnlinkService unlinkService;
 
     @Mock
-    private ApplicationEventPublisher eventPublisher;
+    private com.harucut.storage.service.S3Deleter s3Deleter;
 
     @Mock
     private WorkspaceService workspaceService;
@@ -75,7 +73,7 @@ class UserExitServiceTest {
     void setUp() {
         Clock clock = Clock.fixed(NOW.atZone(ZONE).toInstant(), ZONE);
         service = new UserExitService(userRepository, refreshTokenService, clock,
-                List.of(firstHandler, secondHandler), List.of(unlinkService), eventPublisher, workspaceService);
+                List.of(firstHandler, secondHandler), List.of(unlinkService), s3Deleter, workspaceService);
     }
 
     @Nested
@@ -94,13 +92,27 @@ class UserExitServiceTest {
         }
 
         @Test
+        @DisplayName("조직 공간의 마지막 OWNER 면 MEMBER-004 — 탈퇴 상태로 넘어가지 않는다(R5 L561)")
+        void lastOwnerCannotExit() {
+            User user = givenActiveUser();
+            org.mockito.BDDMockito.willThrow(new com.harucut.common.exception.BusinessException(com.harucut.workspace.exception.MemberErrorCode.LAST_OWNER))
+                    .given(workspaceService).requireNotLastOwner(user.getId());
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.requestExit(PUBLIC_ID))
+                    .isInstanceOf(com.harucut.common.exception.BusinessException.class);
+
+            assertThat(user.getUserStatus()).isEqualTo(UserStatus.ACTIVE);
+            then(refreshTokenService).shouldHaveNoInteractions();
+        }
+
+        @Test
         @DisplayName("refresh 토큰이 삭제된다")
         void revokesRefreshToken() {
             givenActiveUser();
 
             service.requestExit(PUBLIC_ID);
 
-            then(refreshTokenService).should().revoke(PUBLIC_ID);
+            then(refreshTokenService).should().revokeAll(PUBLIC_ID);
         }
 
         @Test
@@ -138,7 +150,7 @@ class UserExitServiceTest {
 
             service.reActivate(PUBLIC_ID);
 
-            then(refreshTokenService).should().revoke(PUBLIC_ID);
+            then(refreshTokenService).should().revokeAll(PUBLIC_ID);
         }
 
         @Test
@@ -233,30 +245,28 @@ class UserExitServiceTest {
 
             service.exit(USER_ID);
 
-            then(refreshTokenService).should().revoke(user.getPublicId());
+            then(refreshTokenService).should().revokeAll(user.getPublicId());
         }
 
         @Test
-        @DisplayName("프로필이 업로드된 이미지면 S3 삭제 이벤트가 나간다")
+        @DisplayName("프로필이 업로드된 이미지면 삭제 기록을 남긴다 — S3 가 실패해도 재시도한다")
         void publishesProfileImageDeletion() {
             User user = givenDeleteRequestedUserById(USER_ID);
             user.changeProfileImageUrl("uploads/users/abc/profile/me.png");
 
             service.exit(USER_ID);
 
-            ArgumentCaptor<S3DeleteEvent> captor = ArgumentCaptor.forClass(S3DeleteEvent.class);
-            then(eventPublisher).should().publishEvent(captor.capture());
-            assertThat(captor.getValue().keys()).containsExactly("uploads/users/abc/profile/me.png");
+            then(s3Deleter).should().deleteAfterCommit(List.of("uploads/users/abc/profile/me.png"));
         }
 
         @Test
-        @DisplayName("프로필이 기본 이미지면 S3 이벤트가 나가지 않는다")
+        @DisplayName("프로필이 기본 이미지면 지울 key 가 없다")
         void skipsDefaultProfileImage() {
             givenDeleteRequestedUserById(USER_ID);
 
             service.exit(USER_ID);
 
-            then(eventPublisher).shouldHaveNoInteractions();
+            then(s3Deleter).shouldHaveNoInteractions();
         }
 
         @Test

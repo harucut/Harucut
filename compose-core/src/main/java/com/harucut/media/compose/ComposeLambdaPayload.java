@@ -32,13 +32,16 @@ public record ComposeLambdaPayload(
 
         // 출력 계약 — null·1 = 예전(무조건 PUT, 체크섬 없음), 2 = 두 출력을 조건부 생성하고 SHA-256 쌍을 검증해 응답에 싣는다.
         // 작업마다 접수 때 고정된다(재시도가 계약을 바꾸지 않는다). ComposeOutputContract 참고
-        Integer contract
+        Integer contract,
+
+        // 입력 지문 — 서버가 접수 때 고정한 값. 계약 2 실행은 응답에 그대로 돌려준다(새 입력·구형 writer 를 신형 성공으로 보지 않게, R5 L492)
+        String inputFingerprint
 ) {
 
     // 시도 번호·계약 도입 전 호출부 — 예전 계약으로 간다
     public ComposeLambdaPayload(String bucket, Long jobId, ComposeSpec spec, List<String> sourceKeys, String resultKey,
                                 String thumbnailKey, ImageFormat outputFormat) {
-        this(bucket, jobId, spec, sourceKeys, resultKey, thumbnailKey, outputFormat, null, null);
+        this(bucket, jobId, spec, sourceKeys, resultKey, thumbnailKey, outputFormat, null, null, null);
     }
 
     public boolean verifiedPair() {

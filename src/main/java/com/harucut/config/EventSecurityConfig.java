@@ -50,6 +50,7 @@ public class EventSecurityConfig {
                                                 ResultAccessRepository resultAccessRepository,
                                                 BoothDeviceRepository boothDeviceRepository,
                                                 RateLimiter rateLimiter,
+                                                ClientIpResolver clientIpResolver,
                                                 ParticipationProperties participationProperties,
                                                 PlatformTransactionManager transactionManager,
                                                 Clock clock,
@@ -75,7 +76,7 @@ public class EventSecurityConfig {
                         .accessDeniedHandler((request, response, e) -> write(objectMapper, response, codeFor(request))))
                 .addFilterBefore(new EventCredentialFilter(sessionRepository, participantRepository,
                         resultAccessRepository, boothDeviceRepository,
-                        rateLimiter, participationProperties.publicRequestsPerMinute(), readOnly, clock), UsernamePasswordAuthenticationFilter.class)
+                        rateLimiter, clientIpResolver, participationProperties.publicRequestsPerMinute(), readOnly, clock), UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/public/events/*").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/public/events/*/sessions").permitAll()

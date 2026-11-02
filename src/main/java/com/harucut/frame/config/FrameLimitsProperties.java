@@ -12,6 +12,8 @@ public record FrameLimitsProperties(
         // compose_job.spec_json 은 8000자다. 캔버스·슬롯·컷아웃 몫을 남기고 잡는다
         @DefaultValue("7000") int maxSpecChars,
         // 조직 공간당 프레임 수 상한 — 조직 요금제(P4) 전까지 남용만 막는 값. 개인 요금제 한도와 별개
-        @DefaultValue("200") int maxFramesPerWorkspace
+        @DefaultValue("200") int maxFramesPerWorkspace,
+        // 레이어 이미지 픽셀 합 — 렌더가 전부 메모리에 푼다(픽셀당 4바이트). Lambda 2GB 안에 들어오게 잡는다(R5 L305, O09)
+        @DefaultValue("150000000") long maxTotalPixels
 ) {
 }

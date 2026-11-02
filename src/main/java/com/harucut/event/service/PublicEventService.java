@@ -1,5 +1,8 @@
 package com.harucut.event.service;
 
+import com.harucut.frame.cell.PhotoCell;
+import com.harucut.frame.version.FrameSpecV2;
+import java.util.List;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.event.dto.EventExperienceDocument;
@@ -56,7 +59,7 @@ public class PublicEventService {
 
         var frames = eventFrameRepository.findAllByExperienceVersionIdOrderBySortOrderAsc(version.getId()).stream()
                 .map(frame -> new PublicEventResponse.OfferedFrame(frame.getFrameVersionId(), frame.getLayoutType(),
-                        frame.getSortOrder(), frame.isDefault(), previewUrl(frame.getFrameVersionId())))
+                        frame.getSortOrder(), frame.isDefault(), previewUrl(frame.getFrameVersionId()), cells(frame.getFrameVersionId())))
                 .toList();
         return new PublicEventResponse(event.getPublicId(), event.getName(), event.getStatus(),
                 event.captureOpen(LocalDateTime.now(clock)), event.isByodEnabled(), event.isBoothEnabled(),
@@ -69,6 +72,15 @@ public class PublicEventService {
         return frameVersionRepository.findById(frameVersionId)
                 .flatMap(version -> frameRepository.findById(version.getFrameId()))
                 .map(frame -> fileStorageService.generatePresignedGetUrl(frame.getPreviewKey(), storageProperties.download().getTtl()))
+                .orElse(null);
+    }
+
+    // 자유 사진 칸 — 발행본 스냅샷 그대로. 고정 레이아웃이면 없다
+    private List<PhotoCell> cells(Long frameVersionId) {
+        return frameVersionRepository.findById(frameVersionId)
+                .map(version -> objectMapper.readValue(version.getSpecJson(), FrameSpecV2.class).layout().cells())
+                .map(cells -> cells.stream().map(cell -> new PhotoCell(cell.x(), cell.y(), cell.width(), cell.height(),
+                        cell.rotation(), cell.shape(), cell.shotIndex())).toList())
                 .orElse(null);
     }
 

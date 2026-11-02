@@ -53,6 +53,23 @@ public class ThemeResolver {
                         branding == null ? "NONE" : or(branding.outputLogo(), "NONE")));
     }
 
+    /** 이용권 기능 CUSTOM_THEME 이 필요한 테마인가. 실제로 바꾼 것만 디자인으로 본다 — 빈 colors·「SYSTEM」(바꾸지 않음) 글꼴은 기본값 그대로다 */
+    public boolean usesCustomDesign(PageTheme theme) {
+        if (theme == null) {
+            return false;
+        }
+        PageTheme.Colors given = theme.colors();
+        boolean colorsChanged = given != null && Stream.of(given.bg(), given.card(), given.text(), given.muted(),
+                given.border(), given.accent(), given.accentContrast()).anyMatch(Objects::nonNull);
+        return colorsChanged || (theme.font() != null && !"SYSTEM".equals(theme.font()))
+                || theme.logoAssetId() != null || theme.backgroundAssetId() != null;
+    }
+
+    /** 이용권 기능 WHITE_LABEL 이 필요한 테마인가 */
+    public boolean hidesHarucutBranding(PageTheme theme) {
+        return theme != null && theme.branding() != null && Boolean.TRUE.equals(theme.branding().hideHarucutBranding());
+    }
+
     /**
      * 게시 검사 — 위반을 모두 모은다. customThemeAllowed·whiteLabelAllowed: 적용 이용권에 CUSTOM_THEME·WHITE_LABEL 기능이 있는가.
      * 디자인(색·글꼴·로고·배경)은 CUSTOM_THEME 이 있어야 한다. 화면 문구는 기능 없이 쓸 수 있다.
@@ -63,13 +80,7 @@ public class ThemeResolver {
         if (theme == null) {
             return violations;
         }
-        // 실제로 바꾼 것만 디자인으로 본다 — 빈 colors·「SYSTEM」(바꾸지 않음) 글꼴은 기본값 그대로다
-        PageTheme.Colors given = theme.colors();
-        boolean colorsChanged = given != null && Stream.of(given.bg(), given.card(), given.text(), given.muted(),
-                given.border(), given.accent(), given.accentContrast()).anyMatch(Objects::nonNull);
-        boolean designed = colorsChanged || (theme.font() != null && !"SYSTEM".equals(theme.font()))
-                || theme.logoAssetId() != null || theme.backgroundAssetId() != null;
-        if (designed && !customThemeAllowed) {
+        if (usesCustomDesign(theme) && !customThemeAllowed) {
             violations.add(violation("theme", "이용권 기능 CUSTOM_THEME 이 있어야 색·글꼴·로고·배경을 바꿀 수 있다"));
         }
         if (theme.schemaVersion() != null && theme.schemaVersion() != 1) {
@@ -120,7 +131,7 @@ public class ThemeResolver {
             if ("ORGANIZER_LOGO".equals(theme.branding().outputLogo()) && theme.logoAssetId() == null) {
                 violations.add(violation("theme.branding.outputLogo", "완성 이미지에 넣을 로고(theme.logoAssetId)가 없다"));
             }
-            if (Boolean.TRUE.equals(theme.branding().hideHarucutBranding()) && !whiteLabelAllowed) {
+            if (hidesHarucutBranding(theme) && !whiteLabelAllowed) {
                 violations.add(violation("theme.branding.hideHarucutBranding", "이용권 기능 WHITE_LABEL 이 있어야 숨길 수 있다"));
             }
         }

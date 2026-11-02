@@ -62,6 +62,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willAnswer;
@@ -126,7 +127,7 @@ class EventRetentionIntegrationTest {
         assertThat(result.purgedResults()).isEqualTo(1);
         // 정리 때 한 번 예약한다 — 실패하면 삭제 예약 큐(s3_deletion)가 다시 지운다
         then(s3Deleter).should(times(1)).deleteAfterCommit(List.of("uploads/r/old.jpg",
-                ComposeService.thumbnailKeyFor(composeJobRepository.findById(old.getId()).orElseThrow())));
+                ComposeService.thumbnailKeyFor(composeJobRepository.findById(old.getId()).orElseThrow())), ComposeService.LATE_WRITE_WINDOW);
         assertThat(composeJobRepository.findById(old.getId()).orElseThrow().getPurgedAt()).isNotNull();
         assertThat(photoService.page(owner.getPublicId(), event.getPublicId(), null, null, null, null, null, null, null).items())
                 .extracting(p -> p.photoId()).containsExactly(recent.getId());
@@ -153,7 +154,7 @@ class EventRetentionIntegrationTest {
     @DisplayName("촬영 종료 + 보일 결과 없음 → ARCHIVED(공개 404), 30일 뒤 세션·결과 토큰 삭제와 부스 기기 회수")
     void archiveAndCleanup() {
         ComposeJob old = done("old", "uploads/r/old.jpg", 2);
-        resultAccessRepository.save(new ResultAccess("a".repeat(64), old.getId(), LocalDateTime.now().plusDays(1)));
+        resultAccessRepository.save(new ResultAccess("a".repeat(64), old.getId()));
         ParticipantSession session = sessionRepository.save(
                 ParticipantSession.restricted(participant.getId(), "b".repeat(64), LocalDateTime.now().plusHours(1)));
         BoothDevice device = boothDeviceRepository.save(BoothDevice.pending(event.getWorkspaceId(), event.getId(), "부스"));
@@ -187,16 +188,48 @@ class EventRetentionIntegrationTest {
                 second.getId(), null, null, 1L));
         composeJobRepository.markDone(other.getId(), "uploads/r/other.jpg", ComposeStatus.PENDING, ComposeStatus.DONE);
         entityManager.flush();
-        jdbcTemplate.update("update compose_job set created_at = ? where compose_job_id = ?",
-                LocalDateTime.now().minusDays(2).minusMinutes(1), other.getId());
+        jdbcTemplate.update("update compose_job set created_at = ?, retain_until = ? where compose_job_id = ?",
+                LocalDateTime.now().minusDays(2).minusMinutes(1), LocalDateTime.now().minusDays(1), other.getId());
         entityManager.clear();
         // 첫 번째로 정리하는 행사의 삭제 예약만 실패한다
-        willThrow(new IllegalStateException("s3 queue down")).willDoNothing().given(s3Deleter).deleteAfterCommit(anyCollection());
+        willThrow(new IllegalStateException("s3 queue down")).willDoNothing().given(s3Deleter).deleteAfterCommit(anyCollection(), any());
 
         EventRetentionService.Result result = retentionService.run();
 
         assertThat(result.purgedResults()).isEqualTo(1);   // 실패한 행사는 0, 다른 행사는 1
-        then(s3Deleter).should(atLeast(2)).deleteAfterCommit(anyCollection());
+        then(s3Deleter).should(atLeast(2)).deleteAfterCommit(anyCollection(), any());
+    }
+
+    @Test
+    @DisplayName("보관 일수를 줄여도 이미 약속한 결과는 약정까지 남는다 — 앞으로 찍는 것부터 줄어든다(R5 L330, O31)")
+    void shorteningKeepsPromise() {
+        jdbcTemplate.update("update event set result_retention_days = 30 where event_id = ?", event.getId());
+        entityManager.clear();
+        ComposeJob promised = done("promised", "uploads/r/promised.jpg", 10);
+
+        eventService.patch(owner.getPublicId(), event.getPublicId(), new EventPatchRequest(
+                eventService.get(owner.getPublicId(), event.getPublicId()).settingsVersion(),
+                objectMapper.valueToTree(Map.of("resultRetentionDays", 5))));
+        retentionService.run();
+
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(composeJobRepository.findById(promised.getId()).orElseThrow().getPurgedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("보관 일수를 늘리면 이미 찍은 결과의 약정도 함께 는다 — 기한이 지나기 전의 결과가 남는다(R5 L330, O31)")
+    void extendingAppliesToExisting() {
+        ComposeJob existing = done("extended", "uploads/r/extended.jpg", 0);
+        LocalDateTime before = composeJobRepository.findById(existing.getId()).orElseThrow().getRetainUntil();
+
+        eventService.patch(owner.getPublicId(), event.getPublicId(), new EventPatchRequest(
+                eventService.get(owner.getPublicId(), event.getPublicId()).settingsVersion(),
+                objectMapper.valueToTree(Map.of("resultRetentionDays", 60))));
+
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(composeJobRepository.findById(existing.getId()).orElseThrow().getRetainUntil()).isAfter(before);
     }
 
     @Test
@@ -214,7 +247,7 @@ class EventRetentionIntegrationTest {
                         objectMapper.valueToTree(Map.of("resultRetentionDays", 30))));
             }
             return null;
-        }).given(s3Deleter).deleteAfterCommit(anyCollection());
+        }).given(s3Deleter).deleteAfterCommit(anyCollection(), any());
 
         assertThat(retentionService.run().purgedResults()).isEqualTo(1);   // 첫 배치(크기 1)만 예전 기준
         entityManager.flush();
@@ -236,7 +269,8 @@ class EventRetentionIntegrationTest {
         composeJobRepository.markDone(old.getId(), "uploads/r/c-old.jpg", ComposeStatus.PENDING, ComposeStatus.DONE);
         entityManager.flush();
         // 오래된 결과 + (게시 뒤 바뀐) 지난 종료 시각 — 그래도 상시 캠페인은 저절로 닫지 않는다
-        jdbcTemplate.update("update compose_job set created_at = ? where compose_job_id = ?", LocalDateTime.now().minusDays(3), old.getId());
+        jdbcTemplate.update("update compose_job set created_at = ?, retain_until = ? where compose_job_id = ?",
+                LocalDateTime.now().minusDays(3), LocalDateTime.now().minusDays(1), old.getId());
         jdbcTemplate.update("update event set capture_ends_at = ? where event_id = ?", LocalDateTime.now().minusDays(1), campaign.getId());
         entityManager.clear();
 
@@ -291,8 +325,10 @@ class EventRetentionIntegrationTest {
         ComposeJob job = job(key);
         composeJobRepository.markDone(job.getId(), resultKey, ComposeStatus.PENDING, ComposeStatus.DONE);
         entityManager.flush();
-        jdbcTemplate.update("update compose_job set created_at = ? where compose_job_id = ?",
-                LocalDateTime.now().minusDays(daysAgo).minusMinutes(1), job.getId());
+        LocalDateTime createdAt = LocalDateTime.now().minusDays(daysAgo).minusMinutes(1);
+        // 접수 때 굳는 보관 약정 — 지금 행사 보관 일수 기준
+        jdbcTemplate.update("update compose_job set created_at = ?, retain_until = ? where compose_job_id = ?",
+                createdAt, createdAt.plusDays(eventRepository.findById(event.getId()).orElseThrow().getResultRetentionDays()), job.getId());
         entityManager.clear();
         return job;
     }

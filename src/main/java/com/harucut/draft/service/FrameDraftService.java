@@ -74,7 +74,15 @@ public class FrameDraftService {
 
     @Transactional(readOnly = true)
     public List<DraftResponse> list(String publicId, String frameIdFilter) {
+        return list(publicId, frameIdFilter, null);
+    }
+
+    /** workspacePublicId 가 있으면 그 공간의 초안만 — 개인·조직 편집기가 서로의 새 프레임 초안을 복구하지 않게(R5 L258) */
+    @Transactional(readOnly = true)
+    public List<DraftResponse> list(String publicId, String frameIdFilter, String workspacePublicId) {
         User user = getUser(publicId);
+        Long workspaceId = workspacePublicId == null ? null
+                : workspaceService.requireRole(workspacePublicId, user.getId(), EDIT_ROLES).getId();
         List<FrameDraft> drafts;
         if (frameIdFilter == null) {
             drafts = frameDraftRepository.findAllByUserIdOrderByUpdatedAtDesc(user.getId());
@@ -83,7 +91,9 @@ public class FrameDraftService {
         } else {
             drafts = frameDraftRepository.findAllByUserIdAndFrameIdOrderByUpdatedAtDesc(user.getId(), parseFrameId(frameIdFilter));
         }
-        return drafts.stream().map(DraftResponse::summary).toList();
+        return drafts.stream()
+                .filter(draft -> workspaceId == null || workspaceId.equals(draft.getWorkspaceId()))
+                .map(DraftResponse::summary).toList();
     }
 
     @Transactional(readOnly = true)

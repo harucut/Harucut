@@ -6,7 +6,7 @@ import java.time.OffsetDateTime;
 
 @Schema(description = "짧은 다운로드 URL")
 public record DownloadUrlResponse(
-        @Schema(description = "presigned GET URL(기본 5분)") String url,
+        @Schema(description = "파일로 내려받는 presigned GET URL(Content-Disposition: attachment, 기본 5분)") String url,
         @Schema(description = "URL 만료 시각") OffsetDateTime expiresAt
 ) {
 }

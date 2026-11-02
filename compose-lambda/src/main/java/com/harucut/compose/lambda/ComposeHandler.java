@@ -110,7 +110,7 @@ public class ComposeHandler implements RequestStreamHandler {
         String thumbSha = sha256(result.thumbnailJpeg());
         putIfAbsent(payload.bucket(), payload.resultKey(), format.mimeType(), result.full(), resultSha);
         putIfAbsent(payload.bucket(), payload.thumbnailKey(), "image/jpeg", result.thumbnailJpeg(), thumbSha);
-        return new ComposeLambdaResult(true, resultSha, thumbSha, payload.attemptNo(), payload.contract());
+        return new ComposeLambdaResult(true, resultSha, thumbSha, payload.attemptNo(), payload.contract(), payload.inputFingerprint());
     }
 
     // If-None-Match: * — 이미 있으면 412. 그때는 저장된 객체의 체크섬(ChecksumMode)을 읽어 같은 바이트인지만 본다.

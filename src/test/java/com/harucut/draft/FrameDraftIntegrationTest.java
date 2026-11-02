@@ -130,6 +130,21 @@ class FrameDraftIntegrationTest {
     }
 
     @Test
+    @DisplayName("공간으로 거르면 그 공간 초안만 — 개인·조직 편집기가 서로의 새 프레임 초안을 복구하지 않는다(R5 L258). 내 공간이 아니면 막힌다")
+    void workspaceScopedDrafts() {
+        String team = workspaceService.createOrganization(user.getPublicId(), "팀").workspaceId();
+        frameDraftService.create(user.getPublicId(), new DraftCreateRequest(null, team, doc("org"), null));
+        frameDraftService.create(user.getPublicId(), new DraftCreateRequest(null, null, doc("personal"), null));
+
+        assertThat(frameDraftService.list(user.getPublicId(), "new", team)).hasSize(1);
+        assertThat(frameDraftService.list(user.getPublicId(), "new", null)).hasSize(2);
+
+        User stranger = userRepository.save(User.localUser("stranger-draft@harucut.com", "e", "남"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> frameDraftService.list(stranger.getPublicId(), "new", team))
+                .isInstanceOf(com.harucut.common.exception.BusinessException.class);
+    }
+
+    @Test
     @DisplayName("남의 초안은 404 다")
     void othersDraftHidden() {
         DraftResponse created = frameDraftService.create(user.getPublicId(),

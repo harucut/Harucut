@@ -268,7 +268,7 @@ class UserMediaServiceTest {
 
             // 썸네일 없는 옛 행 — null이 리스트에 실려도 터지지 않아야 한다 (걸러내는 건 S3Deleter 몫)
             InOrder order = inOrder(s3Deleter, userMediaRepository);
-            order.verify(s3Deleter).deleteAfterCommit(Arrays.asList(KEY, null));
+            order.verify(s3Deleter).deleteAfterCommit(Arrays.asList(KEY, null), ComposeService.LATE_WRITE_WINDOW);
             order.verify(userMediaRepository).delete(media);
             then(mediaSubscriptionPolicy).shouldHaveNoInteractions();
         }
@@ -282,7 +282,7 @@ class UserMediaServiceTest {
 
             userMediaService.deleteMedia(PUBLIC_ID, MEDIA_ID);
 
-            then(s3Deleter).should().deleteAfterCommit(List.of(KEY, THUMB_KEY));
+            then(s3Deleter).should().deleteAfterCommit(List.of(KEY, THUMB_KEY), ComposeService.LATE_WRITE_WINDOW);
         }
 
         @Test

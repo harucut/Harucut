@@ -37,7 +37,9 @@ public record StorageProperties(
             @DefaultValue("20s") Duration verifyWait,
             @DefaultValue("40000000") long maxPixels,
             // 어디서도 참조하지 않는 자산을 지우기까지의 유예
-            @DefaultValue("7d") Duration orphanAfter
+            @DefaultValue("7d") Duration orphanAfter,
+            // 끝내 합성에 쓰이지 않은 촬영 입력을 지우기까지 — 회차(30분)·PUT(10분) 수명보다 길어야 한다
+            @DefaultValue("2h") Duration captureOrphanAfter
     ) {
     }
 }

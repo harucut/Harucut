@@ -202,6 +202,7 @@ class EntitlementIntegrationTest {
         EntitlementDtos.Entitlement eventGrant = contractService.grantManually(admin.getPublicId(), new EntitlementDtos.ManualGrantRequest(
                 org.workspaceId(), event.getPublicId(), OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(10),
                 new EntitlementDtos.Terms(7, null, null, null, Set.of()), "파트너 체험"));
+        assertThat(eventGrant.workspaceName()).as("화면에 공간 id 대신 이름을 보여 준다").isEqualTo("웨딩홀");
         assertThat(entitlementService.applicable(event).orElseThrow().getPublicId()).isEqualTo(eventGrant.entitlementId());
 
         User other = userRepository.save(User.localUser("o@harucut.com", "e", "o"));

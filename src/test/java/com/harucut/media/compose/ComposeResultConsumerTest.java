@@ -89,6 +89,18 @@ class ComposeResultConsumerTest {
     class Conditions {
 
         @Test
+        @DisplayName("작업 행이 없으면(탈퇴) 결과를 지우고 통지를 끝낸다 — 재전달을 돌다 DLQ 로 가지 않는다")
+        void discardsWhenJobGone() throws Exception {
+            given(composeService.discardIfJobGone(anyLong(), any(), any())).willReturn(true);
+
+            CountDownLatch deleted = runWith(notification("Success", """
+                    "responsePayload":{"ok":true}"""));
+
+            assertThat(deleted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            then(composeService).should(never()).completeJob(anyLong(), any(), any());
+        }
+
+        @Test
         @DisplayName("Success 는 Job 을 완료로 확정하고 메시지를 지운다")
         void successCompletesJobAndDeletesMessage() throws Exception {
             CountDownLatch deleted = runWith(notification("Success", """
@@ -128,6 +140,7 @@ class ComposeResultConsumerTest {
         @Test
         @DisplayName("출력 계약 2 성공: 저장된 한 쌍을 대조해 같을 때만 체크섬과 함께 완료로 확정한다")
         void verifiedPairCompletes() throws Exception {
+            given(composeService.sameInput(eq(JOB_ID), any())).willReturn(true);
             given(outputVerifier.verified(any(), any())).willReturn(true);
             CountDownLatch deleted = runWith(verifiedNotification("Success", 2, """
                     "responsePayload": { "ok": true, "resultSha256": "UkVT", "thumbnailSha256": "VEhVTUI=", "attemptNo": 2, "contract": 2 }"""));
@@ -140,8 +153,22 @@ class ComposeResultConsumerTest {
         }
 
         @Test
+        @DisplayName("출력 계약 2 성공인데 입력 지문이 이 작업의 것이 아니면 공개하지 않고 OUTPUT_CONFLICT 최종 실패(R5 L492, O41)")
+        void otherInputFails() throws Exception {
+            given(composeService.sameInput(eq(JOB_ID), any())).willReturn(false);
+            given(outputVerifier.verified(any(), any())).willReturn(true);   // 저장된 쌍은 맞아도 다른 입력의 실행이면 받지 않는다
+            CountDownLatch deleted = runWith(verifiedNotification("Success", 2, """
+                    "responsePayload": { "ok": true, "resultSha256": "UkVT", "thumbnailSha256": "VEhVTUI=", "attemptNo": 2, "inputFingerprint": "other" }"""));
+
+            assertThat(deleted.await(5, TimeUnit.SECONDS)).isTrue();
+            then(composeService).should().failJob(eq(JOB_ID), anyString(), eq(ComposeFailureCode.OUTPUT_CONFLICT));
+            then(composeService).should(never()).completeJob(anyLong(), any(), any(), any(), any());
+        }
+
+        @Test
         @DisplayName("출력 계약 2 성공인데 저장된 쌍이 다르거나 검증할 수 없으면 공개하지 않고 OUTPUT_CONFLICT 최종 실패")
         void unverifiedPairFails() throws Exception {
+            given(composeService.sameInput(eq(JOB_ID), any())).willReturn(true);
             given(outputVerifier.verified(any(), any())).willReturn(false);
             CountDownLatch deleted = runWith(verifiedNotification("Success", 1, """
                     "responsePayload": { "ok": true }"""));
@@ -171,7 +198,8 @@ class ComposeResultConsumerTest {
                     "responseContext": null"""));
 
             assertThat(deleted.await(5, TimeUnit.SECONDS)).isTrue();
-            then(composeService).shouldHaveNoInteractions();
+            then(composeService).should().discardIfJobGone(JOB_ID, RESULT_KEY, THUMB_KEY);
+            then(composeService).shouldHaveNoMoreInteractions();
         }
 
         @Test
@@ -181,7 +209,8 @@ class ComposeResultConsumerTest {
                     "responseContext": null"""));
 
             assertThat(deleted.await(5, TimeUnit.SECONDS)).isTrue();
-            then(composeService).shouldHaveNoInteractions();
+            then(composeService).should().discardIfJobGone(JOB_ID, RESULT_KEY, THUMB_KEY);
+            then(composeService).shouldHaveNoMoreInteractions();
         }
     }
 

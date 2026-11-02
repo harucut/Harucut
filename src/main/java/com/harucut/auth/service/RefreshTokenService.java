@@ -23,8 +23,9 @@ public class RefreshTokenService {
     private final JwtTokenService jwtTokenService;
     private final CookieManager cookieManager;
 
+    /** 로그인·앱 코드 교환 — 토큰에 실린 세션으로 저장한다. 다른 기기의 세션을 밀어내지 않는다 */
     public void save(String publicId, IssuedToken refreshToken) {
-        repository.save(publicId, refreshToken);
+        repository.save(publicId, jwtTokenService.parse(refreshToken.value()).sessionId(), refreshToken);
     }
 
     public AuthTokenCookies reissue(String refreshToken) {
@@ -34,8 +35,12 @@ public class RefreshTokenService {
             throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
         }
 
-        IssuedToken candidate = jwtTokenService.createRefreshToken(claims.publicId());
-        RotationResult result = repository.rotate(claims.publicId(), refreshToken, candidate);
+        // refresh 토큰에는 기기 세션이 반드시 실린다
+        if (claims.sessionId() == null) {
+            throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
+        }
+        IssuedToken candidate = jwtTokenService.createRefreshToken(claims.publicId(), claims.sessionId());
+        RotationResult result = repository.rotate(claims.publicId(), claims.sessionId(), refreshToken, candidate);
 
         String rotated = switch (result) {
             case RotationResult.Rotated r -> r.refreshToken();
@@ -43,7 +48,7 @@ public class RefreshTokenService {
             case RotationResult.NoSession ignored ->
                     throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
             case RotationResult.ReuseDetected ignored -> {
-                log.warn("[reissue] refresh 재사용 감지. 세션 끊음. publicId={}", claims.publicId());
+                log.warn("[reissue] refresh 재사용 감지. 그 기기 세션만 끊음. publicId={}", claims.publicId());
                 throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
             }
         };
@@ -61,7 +66,15 @@ public class RefreshTokenService {
         );
     }
 
-    public void revoke(String publicId) {
-        repository.delete(publicId);
+    /** 이 refresh 토큰의 기기 세션만 끊는다 — 그 기기의 로그아웃 */
+    public void revokeSession(JwtClaims refreshClaims) {
+        if (refreshClaims.sessionId() != null) {
+            repository.delete(refreshClaims.publicId(), refreshClaims.sessionId());
+        }
+    }
+
+    /** 모든 기기 세션을 끊는다 — 전체 로그아웃·비밀번호 변경·탈퇴 */
+    public void revokeAll(String publicId) {
+        repository.deleteAll(publicId);
     }
 }

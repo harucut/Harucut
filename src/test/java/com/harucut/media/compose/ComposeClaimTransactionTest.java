@@ -23,6 +23,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.timeout;
 
 // 이 테스트가 존재하는 이유: claim 이 AFTER_COMMIT 리스너 안에서 조용히 죽어
 // "즉시 접수"가 통째로 동작하지 않던 사고가 있었다. 목으로 만든 단위 테스트는 이걸 못 잡는다 —
@@ -91,13 +92,13 @@ class ComposeClaimTransactionTest {
             return id;
         });
 
+        // 접수는 전용 스레드에서 돈다. 접수가 실제로 나갔다 = claim 이 null 을 돌려주고 조기 반환한 게 아니다
+        then(composeExecutor).should(timeout(5000)).execute(any(ComposeRequestedEvent.class));
+
         // startedAt 이 찍혔다 = 벌크 UPDATE 가 실제 트랜잭션 안에서 돌았다
         assertThat(composeJobRepository.findById(jobId).orElseThrow().getStartedAt())
                 .as("AFTER_COMMIT 에서 claim 이 죽으면 null 로 남는다")
                 .isNotNull();
-
-        // 접수가 실제로 나갔다 = claim 이 false 를 돌려주고 조기 반환한 게 아니다
-        then(composeExecutor).should().execute(any(ComposeRequestedEvent.class));
     }
 
     @Test
@@ -118,7 +119,11 @@ class ComposeClaimTransactionTest {
         assertThat(composeService.claim(jobId, Duration.ofMinutes(10)))
                 .as("유예 시간 안에서는 뒤늦은 재실행이 같은 Job 을 다시 집으면 안 된다")
                 .isNull();
-        // 유예가 지나 다시 집으면 시도 번호가 오른다
+        // 유예가 지나도 다음 시도 시각 전이면 집지 못한다(백오프)
+        assertThat(composeService.claim(jobId, Duration.ZERO)).isNull();
+        // 그 시각도 지나 다시 집으면 시도 번호가 오른다
+        transactionTemplate.executeWithoutResult(status ->
+                composeJobRepository.scheduleNextAttempt(jobId, java.time.LocalDateTime.of(2000, 1, 1, 0, 0)));
         assertThat(composeService.claim(jobId, Duration.ZERO)).isEqualTo(2);
     }
 }

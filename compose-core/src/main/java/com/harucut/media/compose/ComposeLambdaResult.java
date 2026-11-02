@@ -9,9 +9,10 @@ public record ComposeLambdaResult(
         String resultSha256,
         String thumbnailSha256,
         Integer attemptNo,
-        Integer contract
+        Integer contract,
+        String inputFingerprint
 ) {
     public static ComposeLambdaResult legacy() {
-        return new ComposeLambdaResult(true, null, null, null, null);
+        return new ComposeLambdaResult(true, null, null, null, null, null);
     }
 }

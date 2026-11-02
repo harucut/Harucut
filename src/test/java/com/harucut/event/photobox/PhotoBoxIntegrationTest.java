@@ -190,28 +190,61 @@ class PhotoBoxIntegrationTest {
 
         assertThat(page(owner, null, null, null, null, null).items()).extracting(PhotoDtos.Photo::photoId)
                 .doesNotContain(byodDone.getId());
+        // 이미 돌고 있던 실행이 다시 쓸 수 있어 재삭제까지 건다(R5 L498)
         then(s3Deleter).should().deleteAfterCommit((Collection<String>) argThat(keys ->
-                ((Collection<String>) keys).contains("uploads/events/e/results/1.jpg") && ((Collection<String>) keys).size() == 2));
+                ((Collection<String>) keys).contains("uploads/events/e/results/1.jpg") && ((Collection<String>) keys).size() == 2),
+                eq(ComposeService.LATE_WRITE_WINDOW));
         assertThat(resultService.status(new ResultPrincipal(accessId, byodDone.getId())).status()).isEqualTo("EXPIRED");
         assertCode(() -> photoService.delete(owner.getPublicId(), event.getPublicId(), byodDone.getId()), GlobalErrorCode.NOT_FOUND);
     }
 
     @Test
-    @DisplayName("합성 중(PENDING)에 지운 사진이 나중에 완료되면 완료 쪽이 결과·썸네일을 지운다")
-    void deletedWhilePendingCleanedOnCompletion() {
+    @DisplayName("합성 중(PENDING)에 지운 사진 — 그 자리에서 끝내 예약을 돌려주고, 새로 던지지 않으며, 늦은 완료는 반영하지 않고 결과 자리는 재삭제가 치운다(R5 L498)")
+    void deletedWhilePendingEndsTheJob() {
         Participant participant = participantRepository.save(Participant.byod(event.getId()));
         ComposeJob pending = job(participant, "k-pending", 41L);
         entityManager.flush();
         entityManager.clear();
 
         photoService.delete(owner.getPublicId(), event.getPublicId(), pending.getId());
-        then(s3Deleter).should(never()).deleteAfterCommit(any());   // 아직 결과가 없다
+        entityManager.flush();
+        entityManager.clear();
 
-        assertThat(composeService.completeJob(pending.getId(), "uploads/events/e/results/late.jpg", "uploads/events/e/results/late_thumb.jpg"))
-                .isTrue();
-        // 지금 한 번 + 늦은 실행이 다시 쓸 수 있는 기간 뒤 한 번 더(R5 D09)
-        then(s3Deleter).should().deleteAfterCommit(List.of("uploads/events/e/results/late.jpg", "uploads/events/e/results/late_thumb.jpg"),
+        ComposeJob ended = composeJobRepository.findById(pending.getId()).orElseThrow();
+        assertThat(ended.getStatus()).isEqualTo(ComposeStatus.FAILED);
+        then(s3Deleter).should().deleteAfterCommit(List.of(ComposeService.resultKeyFor(ended), ComposeService.thumbnailKeyFor(ended)),
                 ComposeService.LATE_WRITE_WINDOW);
+
+        // 늦게 끝난 실행의 성공 통지 — 되살리지 않는다
+        assertThat(composeService.completeJob(pending.getId(), "uploads/events/e/results/late.jpg", "uploads/events/e/results/late_thumb.jpg"))
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("내 행사 목록의 완성 사진 수 — 완성된 것만 세고, 삭제한 사진은 빠진다")
+    void myEventsCountsCompletedPhotos() {
+        long before = eventGrantService.myEvents(owner.getPublicId()).stream()
+                .filter(row -> row.eventId().equals(event.getPublicId())).findFirst().orElseThrow().completedPhotoCount();
+        assertThat(before).isPositive();
+
+        photoService.delete(owner.getPublicId(), event.getPublicId(), byodDone.getId());
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(eventGrantService.myEvents(owner.getPublicId()).stream()
+                .filter(row -> row.eventId().equals(event.getPublicId())).findFirst().orElseThrow().completedPhotoCount())
+                .isEqualTo(before - 1);
+    }
+
+    @Test
+    @DisplayName("보관 기한이 지난 사진 — 정리 배치 전이어도 사진함·다운로드에서 빠진다(참가자 쪽과 같은 판정)")
+    void expiredPhotoIsHiddenBeforePurge() {
+        entityManager.flush();
+        jdbcTemplate.update("update compose_job set retain_until = ? where compose_job_id = ?", java.time.LocalDateTime.now().minusMinutes(1), byodDone.getId());
+        entityManager.clear();
+
+        assertThat(page(owner, null, null, null, null, null).items()).extracting(PhotoDtos.Photo::photoId).doesNotContain(byodDone.getId());
+        assertCode(() -> photoService.download(owner.getPublicId(), event.getPublicId(), byodDone.getId()), GlobalErrorCode.NOT_FOUND);
     }
 
     @Test

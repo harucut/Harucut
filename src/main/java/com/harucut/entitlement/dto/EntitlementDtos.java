@@ -90,7 +90,9 @@ public final class EntitlementDtos {
 
     @Schema(name = "Contract")
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Contract(String contractId, String workspaceId, String contractorName, EntitlementScope scope,
+    public record Contract(String contractId, String workspaceId,
+                           @Schema(description = "공간 이름 — 화면에 공간 id 대신 보여 준다") String workspaceName,
+                           String contractorName, EntitlementScope scope,
                            List<String> eventIds, Long amount, String currency, OffsetDateTime startsAt,
                            OffsetDateTime endsAt, Evidence paymentEvidence,
                            @Schema(description = "결제 증빙(PORTONE)을 제공자 API 로 대조해 확인한 시각. 없으면 키 없음") OffsetDateTime paymentVerifiedAt,
@@ -114,7 +116,9 @@ public final class EntitlementDtos {
 
     @Schema(name = "Entitlement")
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Entitlement(String entitlementId, EntitlementScope scope, String workspaceId, String eventId,
+    public record Entitlement(String entitlementId, EntitlementScope scope, String workspaceId,
+                              @Schema(description = "공간 이름 — 화면에 공간 id 대신 보여 준다") String workspaceName,
+                              String eventId,
                               EntitlementSource source, String contractId, Terms terms, int used, int reserved,
                               OffsetDateTime validFrom, OffsetDateTime validTo, EntitlementStatus status,
                               String grantorNote, String revokeReason,

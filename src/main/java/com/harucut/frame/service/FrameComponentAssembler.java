@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -220,6 +221,13 @@ public class FrameComponentAssembler {
             throw new BusinessException(FrameErrorCode.SPEC_TOO_LARGE,
                     "합성 스펙 약 " + chars + "자 > 상한 " + limits.maxSpecChars());
         }
+        List<String> imageKeys = new ArrayList<>(layers.stream().map(ComposeSpec.Layer::source).filter(key -> !key.isEmpty()).toList());
+        Optional.ofNullable(extractBackgroundKey(background)).ifPresent(imageKeys::add);
+        long pixels = frameAssetResolver.totalPixels(imageKeys);
+        if (pixels > limits.maxTotalPixels()) {
+            throw new BusinessException(FrameErrorCode.SPEC_TOO_LARGE,
+                    "이미지 픽셀 합 " + pixels + " > 상한 " + limits.maxTotalPixels());
+        }
     }
 
     // ── 생성 조립 — "DB에 URL을 저장하지 않는다"는 정규화 규칙을 서비스가 아니라 여기서 강제한다 ──
@@ -317,7 +325,11 @@ public class FrameComponentAssembler {
             return;
         }
         Set<String> assetBacked = frameAssetResolver.assetBackedKeys(candidates);
-        frameAssetManager.deleteAfterCommit(candidates.stream().filter(key -> !assetBacked.contains(key)).toList());
+        List<String> deletable = candidates.stream().filter(key -> !assetBacked.contains(key)).toList();
+        // 진행 중인 합성의 스냅샷이 가리키는 key 는 지금 지우지 않는다 — 합성이 ASSET_MISSING 으로 실패한다(R5 L307, O17)
+        Set<String> inUse = frameAssetResolver.keysUsedByPendingJobs(deletable);
+        frameAssetManager.deleteAfterCommit(deletable.stream().filter(key -> !inUse.contains(key)).toList());
+        frameAssetManager.deleteLater(inUse);
     }
 
     // 프레임이 지금 쓰는 uploads/ key 전부(자산으로 받은 것 포함) — 다시 저장할 때 소유권을 다시 묻지 않는다

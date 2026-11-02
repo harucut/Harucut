@@ -1,5 +1,6 @@
 package com.harucut.participant.controller;
 
+import org.springframework.dao.PessimisticLockingFailureException;
 import com.harucut.asset.dto.AssetResponse;
 import com.harucut.asset.dto.UploadIntentResponse;
 import com.harucut.asset.service.AssetService;
@@ -40,6 +41,8 @@ import java.util.List;
 public class ParticipantController {
 
     private final ParticipantService participantService;
+    private static final int DEADLOCK_ATTEMPTS = 3;
+
     private final ParticipantComposeService participantComposeService;
 
     @Operation(summary = "세션 복원", description = "새로고침·재방문 때 토큰이 아직 유효한지, 남은 필수 동의와 진행 중 회차를 본다.")
@@ -135,15 +138,22 @@ public class ParticipantController {
     public Response<ParticipantDtos.ComposeAccepted> compose(@AuthenticationPrincipal ParticipantPrincipal principal,
                                                              @Parameter(description = "행사 public id") @PathVariable String eventId,
                                                              @RequestBody @Valid ParticipantDtos.ComposeRequest request) {
-        try {
-            return Response.ok(participantComposeService.submit(principal, eventId, request));
-        } catch (DataIntegrityViolationException e) {
-            // 같은 키의 요청이 정확히 동시에 와서 (scope, key) 유니크에 졌다 — 새 트랜잭션에서 승자를 재생
-            ParticipantDtos.ComposeAccepted winner = participantComposeService.replayAfterConflict(principal, eventId, request);
-            if (winner == null) {
-                throw e;
+        // 예약이 기업·행사 두 행을 잠근다 — 교착은 전체 트랜잭션을 제한적으로 다시 한다(R5 L454, O40). 트랜잭션 밖이라 시도마다 새 트랜잭션이다
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return Response.ok(participantComposeService.submit(principal, eventId, request));
+            } catch (DataIntegrityViolationException e) {
+                // 같은 키의 요청이 정확히 동시에 와서 (scope, key) 유니크에 졌다 — 새 트랜잭션에서 승자를 재생
+                ParticipantDtos.ComposeAccepted winner = participantComposeService.replayAfterConflict(principal, eventId, request);
+                if (winner == null) {
+                    throw e;
+                }
+                return Response.ok(winner);
+            } catch (PessimisticLockingFailureException e) {
+                if (attempt >= DEADLOCK_ATTEMPTS) {
+                    throw e;
+                }
             }
-            return Response.ok(winner);
         }
     }
 

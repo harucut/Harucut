@@ -77,8 +77,8 @@ class AssetServiceTest {
         StorageProperties properties = new StorageProperties(
                 new StorageProperties.Upload(Duration.ofMinutes(10), true),
                 new StorageProperties.Download(Duration.ofMinutes(5)),
-                new StorageProperties.Asset(2, Duration.ofSeconds(1), 40_000_000L, Duration.ofDays(7)));
-        service = new AssetService(assetRepository, userRepository, workspaceService, fileStorageService,
+                new StorageProperties.Asset(2, Duration.ofSeconds(1), 40_000_000L, Duration.ofDays(7), java.time.Duration.ofHours(2)));
+        service = new AssetService(assetRepository, userRepository, workspaceService, fileStorageService, org.mockito.Mockito.mock(com.harucut.storage.service.S3Deleter.class),
                 properties, Clock.fixed(NOW, ZoneOffset.UTC), transactionManager);
 
         user = User.localUser("me@harucut.com", "encoded", "나");

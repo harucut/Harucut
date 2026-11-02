@@ -14,13 +14,24 @@ public class RedisScriptConfig {
 
     @Bean
     public RedisScript<List> refreshRotateScript() {
-        DefaultRedisScript<List> script = new DefaultRedisScript<>();
-        script.setScriptSource(new ResourceScriptSource(
-                new ClassPathResource("scripts/refresh-rotate.lua")));
-        script.setResultType(List.class);
+        return script("scripts/refresh-rotate.lua", List.class);
+    }
 
+    @Bean
+    public RedisScript<Long> refreshCreateScript() {
+        return script("scripts/refresh-create.lua", Long.class);
+    }
+
+    @Bean
+    public RedisScript<Long> refreshRevokeAllScript() {
+        return script("scripts/refresh-revoke-all.lua", Long.class);
+    }
+
+    private static <T> RedisScript<T> script(String path, Class<T> resultType) {
+        DefaultRedisScript<T> script = new DefaultRedisScript<>();
+        script.setScriptSource(new ResourceScriptSource(new ClassPathResource(path)));
+        script.setResultType(resultType);
         script.getSha1();
-
         return script;
     }
 

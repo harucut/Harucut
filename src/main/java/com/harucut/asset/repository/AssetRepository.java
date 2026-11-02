@@ -1,5 +1,7 @@
 package com.harucut.asset.repository;
 
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
 import com.harucut.asset.entity.Asset;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -54,6 +56,24 @@ public interface AssetRepository extends JpaRepository<Asset, Long> {
             + "and j.createdAt < :cutoff)")
     int deleteSettledCaptureInputs(@Param("cutoff") LocalDateTime cutoff);
 
+    @Query("select coalesce(sum(1L * a.width * a.height), 0) from Asset a where a.s3Key in :keys and a.width is not null")
+    long sumPixelsByKeys(@Param("keys") Collection<String> keys);
+
+    long countByCaptureRunIdAndBoundComposeJobIdIsNull(Long captureRunId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from Asset a where a.captureRunId = :captureRunId and a.boundComposeJobId is null")
+    List<Asset> lockUnboundCaptureInputs(@Param("captureRunId") Long captureRunId);
+
+    // 끝내 합성에 쓰이지 않은 촬영 입력 — 얼굴 사진이라 다른 자산보다 짧게 둔다. 회차·PUT 수명보다 길면 진행 중인 촬영을 건드리지 않는다
+    @Query("""
+            select a from Asset a
+            where a.id > :afterId and a.createdAt < :cutoff
+              and a.purpose = com.harucut.asset.enums.AssetPurpose.CAPTURE_INPUT and a.boundComposeJobId is null
+            order by a.id
+            """)
+    List<Asset> findAbandonedCaptureInputs(@Param("cutoff") LocalDateTime cutoff, @Param("afterId") Long afterId, Pageable pageable);
+
     // ── 미참조 자산 정리(ADR-0006 §2) — 참조 판정은 이 저장소 한 곳에 모은다 ──
 
     /**
@@ -94,7 +114,7 @@ public interface AssetRepository extends JpaRepository<Asset, Long> {
     // 지우기 직전 다시 본다 — 후보를 고른 뒤 누가 id 로 참조하기 시작했으면 0 이 나와 건너뛴다
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
-            delete from Asset a where a.id = :id
+            delete from Asset a where a.id = :id and a.boundComposeJobId is null
               and not exists (select 1 from FrameComponent c where c.assetId = :id or c.renderedAssetId = :id)
               and not exists (select 1 from FrameVersionAsset v where v.assetId = :id)
               and not exists (select 1 from FrameDraftAsset d where d.assetId = :id)

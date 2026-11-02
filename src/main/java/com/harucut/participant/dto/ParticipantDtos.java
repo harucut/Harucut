@@ -1,5 +1,6 @@
 package com.harucut.participant.dto;
 
+import com.harucut.media.compose.ComposeFailureCode;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.harucut.media.enums.ComposeStatus;
 import com.harucut.participant.enums.ConsentDecision;
@@ -163,6 +164,10 @@ public final class ParticipantDtos {
     }
 
     @Schema(description = "이 행사에서 만든 내 결과")
-    public record MyResult(Long jobId, ComposeStatus status, OffsetDateTime createdAt) {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record MyResult(Long jobId, ComposeStatus status, OffsetDateTime createdAt,
+                           @Schema(description = "DONE 일 때만 — 작은 미리보기의 짧은 URL. 재방문 목록에서 어느 사진인지 구별한다") String thumbnailUrl,
+                           @Schema(description = "FAILED 일 때만 — 실패 종류(ComposeJobResponse.failureCode 와 같은 값). 화면 문구를 고른다") ComposeFailureCode failureCode,
+                           @Schema(description = "이 결과의 보관 기한 — 지나면 받을 수 없다") OffsetDateTime expiresAt) {
     }
 }

@@ -87,6 +87,12 @@ dependencies {
     pitest 'org.pitest:pitest-junit5-plugin:1.2.3'
 }
 
+// 운영 컨테이너(Dockerfile TZ=Asia/Seoul)와 같은 시간대로 — Clock 빈은 서울 고정인데 시험 픽스처는 LocalDateTime.now()(JVM 기본)를 쓴다.
+// CI 러너는 UTC 라 9시간 어긋나 시간 비교 시험이 깨졌다
+tasks.withType(Test).configureEach {
+    systemProperty 'user.timezone', 'Asia/Seoul'
+}
+
 tasks.named('test') {
     useJUnitPlatform {
         // Docker 가 필요한 실제 MySQL 테스트는 따로 돈다 — H2 단위·슬라이스 테스트가 CI 기본이다

@@ -44,6 +44,9 @@ class AuthControllerTest extends SecurityBeansMockSupport {
     private MockMvcTester mockMvc;
 
     @MockitoBean
+    private com.harucut.auth.service.AuthRateLimits authRateLimits;
+
+    @MockitoBean
     private RegisterService registerService;
 
     @MockitoBean

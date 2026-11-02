@@ -46,6 +46,7 @@ public class EventGrantService {
     private final EventAccessPolicy policy;
     private final EventGrantRepository grantRepository;
     private final EventRepository eventRepository;
+    private final com.harucut.media.repository.ComposeJobRepository composeJobRepository;
     private final WorkspaceInvitationRepository invitationRepository;
     private final WorkspaceMembershipRepository membershipRepository;
     private final UserRepository userRepository;
@@ -54,6 +55,7 @@ public class EventGrantService {
     private final Duration invitationTtl;
 
     public EventGrantService(EventAccessPolicy policy, EventGrantRepository grantRepository, EventRepository eventRepository,
+                             com.harucut.media.repository.ComposeJobRepository composeJobRepository,
                              WorkspaceInvitationRepository invitationRepository,
                              WorkspaceMembershipRepository membershipRepository, UserRepository userRepository,
                              AuditLogService auditLogService, Clock clock,
@@ -61,6 +63,7 @@ public class EventGrantService {
         this.policy = policy;
         this.grantRepository = grantRepository;
         this.eventRepository = eventRepository;
+        this.composeJobRepository = composeJobRepository;
         this.invitationRepository = invitationRepository;
         this.membershipRepository = membershipRepository;
         this.userRepository = userRepository;
@@ -181,6 +184,9 @@ public class EventGrantService {
         });
         eventRepository.findAllById(grantRepository.findAllByUserId(actor.getId()).stream().map(EventGrant::getEventId).toList())
                 .forEach(e -> candidates.putIfAbsent(e.getId(), e));
+        Map<Long, Long> completed = candidates.isEmpty() ? Map.of()
+                : composeJobRepository.countCompletedByEventIds(candidates.keySet(), LocalDateTime.now(clock)).stream()
+                .collect(Collectors.toMap(row -> (Long) row[0], row -> (Long) row[1]));
         return candidates.values().stream()
                 .sorted(Comparator.comparing(Event::getCreatedAt).reversed())
                 .map(e -> Map.entry(e, policy.accessOf(e, actor.getId())))
@@ -191,7 +197,8 @@ public class EventGrantService {
                     access.sources().forEach((name, source) -> sources.put(name, source.name()));
                     return new MemberDtos.MyEvent(entry.getKey().getPublicId(), entry.getKey().getName(), entry.getKey().getStatus(),
                             new MemberDtos.MyEvent.Access(access.role(), access.permissions(), access.operations(),
-                                    sources.isEmpty() ? null : sources));
+                                    sources.isEmpty() ? null : sources),
+                            completed.getOrDefault(entry.getKey().getId(), 0L));
                 })
                 .toList();
     }

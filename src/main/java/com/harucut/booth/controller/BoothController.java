@@ -3,6 +3,7 @@ package com.harucut.booth.controller;
 import com.harucut.booth.dto.BoothDtos;
 import com.harucut.booth.security.BoothPrincipal;
 import com.harucut.booth.service.BoothService;
+import com.harucut.config.ClientIpResolver;
 import com.harucut.common.response.Response;
 import com.harucut.config.openapi.ApiErrors;
 import com.harucut.participant.dto.ParticipantDtos;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class BoothController {
 
     private final BoothService boothService;
+    private final ClientIpResolver clientIpResolver;
 
     @Operation(summary = "연결 코드 교환",
             description = """
@@ -39,7 +41,7 @@ public class BoothController {
     @PostMapping("/api/public/booth-pairings/redeem")
     public Response<BoothDtos.RedeemResponse> redeem(@RequestBody @Valid BoothDtos.RedeemRequest request,
                                                      HttpServletRequest servletRequest) {
-        return Response.ok(boothService.redeem(request.code(), servletRequest.getRemoteAddr()));
+        return Response.ok(boothService.redeem(request.code(), clientIpResolver.resolve(servletRequest)));
     }
 
     @Operation(summary = "기기 상태와 배정 행사", description = "event 는 공개 행사 정보와 같은 모양. 게시 전·보관 종료면 event 키가 없다.")

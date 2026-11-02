@@ -67,6 +67,23 @@ class MockGatewayGuardTest {
     }
 
     @Test
+    @DisplayName("결제를 닫아 둔 조합(disabled)은 허용 없이 기동한다 — 실제 PG 구현 전 운영의 기본")
+    void allowsDisabledPayment() {
+        assertThatCode(() -> new MockGatewayGuard(new com.harucut.payment.gateway.DisabledPaymentGateway(), properties(false, "disabled")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("닫아 둔 게이트웨이는 발급·청구를 전부 실패로 돌리고, 닫아 둔 웹훅 검증기는 어떤 본문도 통과시키지 않는다")
+    void disabledRejectsEverything() {
+        com.harucut.payment.gateway.DisabledPaymentGateway gateway = new com.harucut.payment.gateway.DisabledPaymentGateway();
+        org.assertj.core.api.Assertions.assertThat(gateway.issueBillingKey(null).success()).isFalse();
+        org.assertj.core.api.Assertions.assertThat(gateway.charge(null).success()).isFalse();
+        org.assertj.core.api.Assertions.assertThat(new com.harucut.payment.webhook.DisabledPaymentWebhookVerifier()
+                .verify("{}", java.util.Map.of())).isFalse();
+    }
+
+    @Test
     @DisplayName("허용 설정은 아무것도 안 주면 꺼져 있다")
     void optInDefaultsToFalse() {
         // 이 기본값이 true 가 되면 가드가 조용히 꺼진다. 설정을 하나도 안 준 상태로 바인딩해 확인한다

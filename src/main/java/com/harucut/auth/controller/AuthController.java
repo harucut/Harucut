@@ -6,12 +6,14 @@ import com.harucut.auth.dto.LoginResponse;
 import com.harucut.auth.dto.LoginResult;
 import com.harucut.auth.dto.RegisterRequest;
 import com.harucut.auth.oauth2.app.AppLoginService;
+import com.harucut.auth.service.AuthRateLimits;
 import com.harucut.auth.service.LoginService;
 import com.harucut.auth.service.RegisterService;
 import com.harucut.common.response.Response;
 import com.harucut.config.openapi.ApiErrors;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -29,6 +31,7 @@ public class AuthController {
 
     private final RegisterService registerService;
     private final LoginService loginService;
+    private final AuthRateLimits authRateLimits;
     private final AppLoginService appLoginService;
 
     @Operation(
@@ -64,10 +67,13 @@ public class AuthController {
     @ApiErrors({
             "AUTH-001: 비밀번호가 틀림",
             "AUTH-020: 그 이메일로 가입된 계정이 없음 (소셜로 가입한 계정은 여기서 안 찾힌다)",
-            "AUTH-010: 그 밖의 인증 실패"
+            "AUTH-010: 그 밖의 인증 실패",
+            "GEN-061: 같은 IP(분당 60) 또는 같은 이메일(분당 10)의 로그인 시도가 너무 많음"
     })
     @PostMapping("/login")
-    public ResponseEntity<Response<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<Response<LoginResponse>> login(@Valid @RequestBody LoginRequest request,
+                                                         HttpServletRequest servletRequest) {
+        authRateLimits.checkLogin(servletRequest, request.email());
         LoginResult result = loginService.login(request);
 
         return ResponseEntity.ok()

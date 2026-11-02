@@ -76,6 +76,9 @@ class FreeCellsIntegrationTest {
     @Autowired private FrameSpecComposer frameSpecComposer;
     @Autowired private FrameVersionRepository frameVersionRepository;
 
+    @Autowired private com.harucut.event.service.PublicEventService publicEventService;
+    @Autowired private jakarta.persistence.EntityManager entityManager;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
     @MockitoBean private FileStorageService fileStorageService;
     @MockitoBean private RateLimiter rateLimiter;
 
@@ -171,6 +174,27 @@ class FreeCellsIntegrationTest {
                 "sourceKeys", List.of(root + "fourcuts/sources/1.png", root + "fourcuts/sources/2.png",
                         root + "fourcuts/sources/3.png", root + "fourcuts/sources/4.png"))))
                 .hasStatus(409).bodyJson().hasPathSatisfying("$.code", v -> assertThat(v).isEqualTo("FRAME-008"));
+    }
+
+    @Test
+    @DisplayName("공개 행사 응답의 cells — 자유 칸 발행본만 칸 정보를 싣고, 고정 레이아웃에는 키가 없다(칸별 촬영 비율)")
+    void offeredFrameCells() {
+        long freeFrame = data(post("/api/auth/user/frame", frame(workspace, PhotoCellsTest.cells())), 200).path("frameId").asLong();
+        long fixedFrame = data(post("/api/auth/user/frame", frame(workspace, null)), 200).path("frameId").asLong();
+        Long freeVersion = frameVersionService.publish(designer.getPublicId(), freeFrame).frameVersionId();
+        Long fixedVersion = frameVersionService.publish(designer.getPublicId(), fixedFrame).frameVersionId();
+        String eventId = event("offered-cells", fixedVersion);
+        eventService.publish(designer.getPublicId(), eventId);
+        assertThat(publicEventService.getBySlug("offered-cells").frames().get(0).cells()).isNull();
+
+        // 렌더 스위치가 꺼진 시험 환경이라 자유 칸으로는 게시할 수 없다 — 게시된 행이 자유 칸 발행본을 가리키게 바꿔 응답만 본다
+        entityManager.flush();
+        jdbcTemplate.update("update event_frame set frame_version_id = ? where frame_version_id = ?", freeVersion, fixedVersion);
+        entityManager.clear();
+
+        var cells = publicEventService.getBySlug("offered-cells").frames().get(0).cells();
+        assertThat(cells).hasSize(4);
+        assertThat(cells).extracting(com.harucut.frame.cell.PhotoCell::shotIndex).containsExactlyInAnyOrder(0, 1, 2, 3);
     }
 
     private String event(String slug, Long frameVersionId) {

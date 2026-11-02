@@ -1,5 +1,8 @@
 package com.harucut.asset.service;
 
+import com.harucut.storage.service.S3Deleter;
+import com.harucut.participant.exception.ParticipantErrorCode;
+import java.time.Duration;
 import com.harucut.asset.dto.AssetResponse;
 import com.harucut.asset.dto.UploadIntentRequest;
 import com.harucut.asset.dto.UploadIntentResponse;
@@ -29,9 +32,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Semaphore;
+import java.util.function.Predicate;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -49,10 +54,14 @@ public class AssetService {
     private static final Set<WorkspaceRole> UPLOAD_ROLES =
             Set.of(WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.DESIGNER);
 
+    // 발급한 PUT 이 끝난 뒤 전송 지연까지
+    private static final Duration PUT_LATE_MARGIN = Duration.ofMinutes(5);
+
     private final AssetRepository assetRepository;
     private final UserRepository userRepository;
     private final WorkspaceService workspaceService;
     private final FileStorageService fileStorageService;
+    private final S3Deleter s3Deleter;
     private final StorageProperties properties;
     private final Clock clock;
     private final TransactionTemplate transactions;
@@ -61,12 +70,13 @@ public class AssetService {
     private final AssetImageInspector inspector;
 
     public AssetService(AssetRepository assetRepository, UserRepository userRepository,
-                        WorkspaceService workspaceService, FileStorageService fileStorageService,
+                        WorkspaceService workspaceService, FileStorageService fileStorageService, S3Deleter s3Deleter,
                         StorageProperties properties, Clock clock, PlatformTransactionManager transactionManager) {
         this.assetRepository = assetRepository;
         this.userRepository = userRepository;
         this.workspaceService = workspaceService;
         this.fileStorageService = fileStorageService;
+        this.s3Deleter = s3Deleter;
         this.properties = properties;
         this.clock = clock;
         this.transactions = new TransactionTemplate(transactionManager);
@@ -125,13 +135,42 @@ public class AssetService {
         return new UploadIntentResponse(asset.getPublicId(), put.url(), "PUT", put.headers(), put.expiresAt());
     }
 
-    /** 참가자 촬영 입력의 완료 확인 — 그 참가자의 입력만. 검증 규칙은 complete 와 같다 */
-    public CompleteResult completeCaptureInput(Long participantId, String assetPublicId) {
+    /**
+     * 참가자 촬영 입력의 완료 확인 — 그 참가자의 입력만. 검증 규칙은 complete 와 같다.
+     * 아직 판정 전인 입력은 회차가 살아 있을 때만 받는다 — 끝난 회차의 늦은 업로드를 완료시키지 않는다(R5 L302)
+     */
+    public CompleteResult completeCaptureInput(Long participantId, String assetPublicId, Predicate<Long> runActive) {
         Asset asset = readOnly.execute(status -> assetRepository.findByPublicId(assetPublicId)
                 .filter(found -> found.getPurpose() == AssetPurpose.CAPTURE_INPUT
                         && participantId.equals(found.getParticipantId()))
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND)));
+        if (asset.getStatus() == AssetStatus.PENDING_UPLOAD && !runActive.test(asset.getCaptureRunId())) {
+            throw new BusinessException(ParticipantErrorCode.CAPTURE_RUN_NOT_ACTIVE);
+        }
         return judgeAndRecord(asset);
+    }
+
+    /** 회차에서 아직 어느 합성에도 묶이지 않은 입력 수 */
+    public long countUnboundInputs(Long captureRunId) {
+        return assetRepository.countByCaptureRunIdAndBoundComposeJobIdIsNull(captureRunId);
+    }
+
+    /**
+     * 회차가 끝났는데 어느 합성에도 묶이지 않은 입력을 치운다(R5 L223). 행을 지우므로 늦은 완료가 되살리지 못한다.
+     * 발급한 PUT 이 아직 유효해 지운 뒤 다시 올라올 수 있어 그 수명 뒤 한 번 더 지운다(R5 L679)
+     */
+    public void discardUnboundInputs(Long captureRunId) {
+        transactions.executeWithoutResult(status -> {
+            // 잠금 읽기 — 합성 접수가 입력을 묶는 것과 줄을 선다. 접수가 먼저면 커밋을 기다렸다가 묶인 입력을 빼고 보고,
+            // 이쪽이 먼저면 접수의 bindToJob 이 지워진 행을 못 찾아 진다(접수 전체가 롤백된다)
+            List<Asset> inputs = assetRepository.lockUnboundCaptureInputs(captureRunId);
+            if (inputs.isEmpty()) {
+                return;
+            }
+            s3Deleter.deleteAfterCommit(inputs.stream().map(Asset::getS3Key).toList(),
+                    properties.upload().putTtl().plus(PUT_LATE_MARGIN));
+            assetRepository.deleteAllInBatch(inputs);
+        });
     }
 
     /**

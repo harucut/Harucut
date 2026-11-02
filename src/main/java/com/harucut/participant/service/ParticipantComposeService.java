@@ -111,9 +111,11 @@ public class ParticipantComposeService {
         // 출력 로고 — 경험 발행본이 ORGANIZER_LOGO 면 주최자 로고를 맨 위에(문구보다 위)
         spec = outputLogoPlacer.apply(run.getExperienceVersionId(), spec);
 
-        ComposeJob job = composeService.accept(ComposeJob.forParticipant(principal.participantId(), storageRoot,
+        ComposeJob prepared = ComposeJob.forParticipant(principal.participantId(), storageRoot,
                 version.getFrameId(), request.idempotencyKey(), inputs.stream().map(Asset::getS3Key).toList(),
-                spec, event.getId(), run.getId(), run.getExperienceVersionId(), version.getId()));
+                spec, event.getId(), run.getId(), run.getExperienceVersionId(), version.getId());
+        prepared.fixRetention(LocalDateTime.now(clock).plusDays(event.getResultRetentionDays()));
+        ComposeJob job = composeService.accept(prepared);
         // 입력은 한 작업에만 — 동시에 다른 작업이 같은 입력을 묶었으면 여기서 진다(트랜잭션 전체가 롤백된다)
         if (assetRepository.bindToJob(bound, job.getId()) != bound.size()) {
             throw new BusinessException(ParticipantErrorCode.INPUT_NOT_USABLE, "다른 작업에 이미 묶인 입력이 있다");
@@ -161,6 +163,10 @@ public class ParticipantComposeService {
                     || !run.getId().equals(asset.getCaptureRunId())
                     || asset.getBoundComposeJobId() != null) {
                 throw new BusinessException(ParticipantErrorCode.INPUT_NOT_USABLE, "쓸 수 없는 입력: " + id);
+            }
+            // 완료 뒤 사라졌을 수 있다(정리·삭제). HEAD 오류는 미업로드로 단정하지 않고 그대로 올린다(R5 L552·L680)
+            if (fileStorageService.head(asset.getS3Key()).isEmpty()) {
+                throw new BusinessException(ParticipantErrorCode.INPUT_NOT_USABLE, "저장소에 없는 입력: " + id);
             }
             return asset;
         }).toList();

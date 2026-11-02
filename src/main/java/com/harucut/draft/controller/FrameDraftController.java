@@ -54,8 +54,10 @@ public class FrameDraftController {
     public Response<List<DraftResponse>> list(
             @AuthenticationPrincipal AuthenticatedUser principal,
             @Parameter(description = "숫자면 그 프레임의 초안, `new` 면 새 프레임 초안만, 생략하면 전부", example = "new")
-            @RequestParam(required = false) String frameId) {
-        return Response.ok(frameDraftService.list(principal.publicId(), frameId));
+            @RequestParam(required = false) String frameId,
+            @Parameter(description = "이 공간의 초안만(공간 public id). 생략하면 내 초안 전부", example = "Ws1aB2cD3eF4")
+            @RequestParam(required = false) String workspaceId) {
+        return Response.ok(frameDraftService.list(principal.publicId(), frameId, workspaceId));
     }
 
     @Operation(summary = "초안 하나")

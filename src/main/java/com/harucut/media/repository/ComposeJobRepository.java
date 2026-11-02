@@ -12,6 +12,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -32,6 +33,7 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
     @Query("""
             select j, p.channel from ComposeJob j, Participant p
             where p.id = j.participantId and j.eventId = :eventId and j.deletedAt is null and j.purgedAt is null
+              and (j.retainUntil is null or j.retainUntil > :now)
               and (:status is null or j.status = :status)
               and (:channel is null or p.channel = :channel)
               and (:frameVersionId is null or j.frameVersionId = :frameVersionId)
@@ -41,6 +43,7 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
             order by j.createdAt desc, j.id desc
             """)
     List<Object[]> findEventPhotos(@Param("eventId") Long eventId,
+                                   @Param("now") LocalDateTime now,
                                    @Param("status") ComposeStatus status,
                                    @Param("channel") ParticipantChannel channel,
                                    @Param("frameVersionId") Long frameVersionId,
@@ -50,10 +53,17 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
                                    @Param("cursorId") Long cursorId,
                                    Pageable pageable);
 
-    // 보관 종료 대상 — 그 행사에서 기한(cutoff) 전에 만든, 아직 보이는 결과
-    @Query("select j from ComposeJob j where j.eventId = :eventId and j.createdAt < :cutoff "
+    // 보관 종료 대상 — 그 행사에서 약정 기한이 지난, 아직 보이는 결과
+    @Query("select j from ComposeJob j where j.eventId = :eventId and j.retainUntil < :now "
             + "and j.purgedAt is null and j.deletedAt is null and j.resultKey is not null")
-    List<ComposeJob> findPurgeable(@Param("eventId") Long eventId, @Param("cutoff") LocalDateTime cutoff, Pageable pageable);
+    List<ComposeJob> findPurgeable(@Param("eventId") Long eventId, @Param("now") LocalDateTime now, Pageable pageable);
+
+    // 행사 보관 일수를 늘렸다 — 이미 찍은 결과의 약정도 함께 늘린다. 줄일 때는 부르지 않는다(이미 약속한 기간은 줄지 않는다)
+    @Modifying(flushAutomatically = true)
+    @Query(value = "update compose_job set retain_until = timestampadd(DAY, :days, created_at) "
+            + "where event_id = :eventId and purged_at is null and deleted_at is null "
+            + "and retain_until < timestampadd(DAY, :days, created_at)", nativeQuery = true)
+    int extendRetention(@Param("eventId") Long eventId, @Param("days") int days);
 
     // 행사에 아직 보일 결과·진행 중 작업이 남았는가 — 없으면 보관 종료할 수 있다.
     // 잠금 읽기(FOR UPDATE)라 스냅샷이 아니라 최신 커밋을 보고, 아직 커밋되지 않은 접수가 있으면 끝날 때까지 기다린다
@@ -73,12 +83,9 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
     int markDeleted(@Param("id") Long id, @Param("now") LocalDateTime now);
 
     // 자기 UPDATE 뒤의 잠금 읽기(FOR UPDATE) — 영속성 컨텍스트를 거치지 않고 최신 커밋 값을 본다.
-    // 삭제 요청과 완료 통지가 엇갈려도 나중에 커밋하는 쪽이 상대의 변경을 보고 결과 객체를 정리한다
+    // 삭제 요청이 완료 통지와 엇갈려도 먼저 커밋된 완료의 결과 key 를 보고 객체를 정리한다
     @Query(value = "select result_key from compose_job where compose_job_id = :id for update", nativeQuery = true)
     List<String> lockResultKey(@Param("id") Long id);
-
-    @Query(value = "select deleted_at from compose_job where compose_job_id = :id for update", nativeQuery = true)
-    List<Object> lockDeletedAt(@Param("id") Long id);
 
     // 부스 화면이 지금 회차의 합성 상태를 본다 — 회차에 작업이 여럿이면 마지막 것
     Optional<ComposeJob> findFirstByCaptureRunIdOrderByIdDesc(Long captureRunId);
@@ -87,8 +94,21 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
     // PENDING 이 적을 때 싸고, 많을 때 비싸진다. 그 순간이 알아야 하는 순간이라 감수한다
     long countByStatus(ComposeStatus status);
 
-    @Query("SELECT j.resultKey FROM ComposeJob j WHERE j.user.id = :userId AND j.resultKey IS NOT NULL")
-    List<String> findResultKeysByUserId(Long userId);
+    @Query("SELECT j FROM ComposeJob j WHERE j.user.id = :userId")
+    List<ComposeJob> findAllByUserId(Long userId);
+
+    // 행사별 완성 사진 수 — 보이는 결과만. [eventId, count]
+    @Query("""
+            SELECT j.eventId, COUNT(j) FROM ComposeJob j
+            WHERE j.eventId IN :eventIds AND j.status = ComposeStatus.DONE AND j.deletedAt IS NULL AND j.purgedAt IS NULL
+                AND (j.retainUntil IS NULL OR j.retainUntil > :now)
+            GROUP BY j.eventId
+            """)
+    List<Object[]> countCompletedByEventIds(Collection<Long> eventIds, LocalDateTime now);
+
+    // spec_json 은 변환기 칸이라 JPQL 로 LIKE 를 걸 수 없다 — 네이티브. PENDING 은 적어 스캔이 짧다. '_' 는 넓게 걸릴 뿐(지우지 않는 쪽)이다
+    @Query(value = "select count(*) from compose_job where status = 'PENDING' and spec_json like :pattern", nativeQuery = true)
+    long countPendingWithSpecLike(@Param("pattern") String pattern);
 
     @Modifying(clearAutomatically = true)
     @Query("DELETE FROM ComposeJob j WHERE j.user.id = :userId")
@@ -100,9 +120,16 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
             SET j.startedAt = :now, j.attemptNo = j.attemptNo + 1
             WHERE j.id = :jobId
                 AND j.status = ComposeStatus.PENDING
+                AND j.deletedAt IS NULL
                 AND (j.startedAt IS NULL OR j.startedAt < :staleBefore)
+                AND (j.nextAttemptAt IS NULL OR j.nextAttemptAt <= :now)
             """)
     int claim(Long jobId, LocalDateTime now, LocalDateTime staleBefore);
+
+    // claim 을 이긴 같은 트랜잭션에서 — 시도 번호로 백오프를 계산한 뒤 적는다
+    @Modifying
+    @Query("UPDATE ComposeJob j SET j.nextAttemptAt = :at WHERE j.id = :jobId")
+    int scheduleNextAttempt(Long jobId, LocalDateTime at);
 
     // claim 을 이긴 같은 트랜잭션에서 — 방금 올린 시도 번호
     @Query("SELECT j.attemptNo FROM ComposeJob j WHERE j.id = :jobId")
@@ -157,8 +184,22 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
             SELECT j FROM ComposeJob j
             LEFT JOIN FETCH j.user
             WHERE j.status = ComposeStatus.PENDING
+                AND j.deletedAt IS NULL
                 AND (j.startedAt IS NULL OR j.startedAt < :staleBefore)
+                AND (j.nextAttemptAt IS NULL OR j.nextAttemptAt <= :now)
+                AND j.attemptNo < :maxAttempts
+                AND j.createdAt >= :deadlineCutoff
             ORDER BY j.id
             """)
-    List<ComposeJob> findStalled(LocalDateTime staleBefore, Pageable pageable);
+    List<ComposeJob> findStalled(LocalDateTime now, LocalDateTime staleBefore, int maxAttempts,
+                                 LocalDateTime deadlineCutoff, Pageable pageable);
+
+    // 더 던지지 않을 작업 — 총 기한이 지났거나, 마지막 시도까지 던지고 기다릴 만큼 기다렸다
+    @Query("""
+            SELECT j FROM ComposeJob j
+            WHERE j.status = ComposeStatus.PENDING
+                AND (j.createdAt < :deadlineCutoff OR (j.attemptNo >= :maxAttempts AND j.startedAt < :staleBefore))
+            ORDER BY j.id
+            """)
+    List<ComposeJob> findDispatchExpired(LocalDateTime staleBefore, int maxAttempts, LocalDateTime deadlineCutoff, Pageable pageable);
 }

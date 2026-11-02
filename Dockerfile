@@ -40,5 +40,8 @@ USER app
 
 COPY --from=builder /app/build/libs/*.jar app.jar
 
+# 600MB 컨테이너 기준(deploy/prod/compose.yml). 유휴 상태에서 이미 500MB 를 쓴다 — 힙 60% 는 힙이 찰 때 OOM kill 이 났다
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=40 -XX:ReservedCodeCacheSize=64m -Xss512k"
+
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]

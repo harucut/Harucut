@@ -72,7 +72,8 @@ public class UserMediaService {
 
         // List.of가 아니라 Arrays.asList인 이유 — 썸네일 없는 옛 행의 null을 List.of는
         // 거부한다(NPE). null은 S3Deleter의 관리 key 필터가 거른다
-        s3Deleter.deleteAfterCommit(Arrays.asList(media.getS3Key(), media.getThumbnailKey()));
+        // 고정 key 라 이미 돌고 있던 합성이 나중에 다시 쓸 수 있다 — 지금 한 번, 그 기간 뒤 한 번 더(R5 L498)
+        s3Deleter.deleteAfterCommit(Arrays.asList(media.getS3Key(), media.getThumbnailKey()), ComposeService.LATE_WRITE_WINDOW);
         userMediaRepository.delete(media);
     }
 

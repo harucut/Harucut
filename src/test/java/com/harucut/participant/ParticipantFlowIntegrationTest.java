@@ -1,5 +1,9 @@
 package com.harucut.participant;
 
+import com.harucut.entitlement.enums.Feature;
+import com.harucut.event.service.EventFeatures;
+import com.harucut.participant.config.ParticipationProperties;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import com.harucut.config.RateLimiter;
 import com.harucut.event.batch.EventRetentionService;
 import com.harucut.event.dto.EventPatchRequest;
@@ -27,6 +31,7 @@ import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -61,6 +66,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.times;
 
 /*
  * 로그인 없는 개인 휴대폰 참가 흐름을 실제 행사 보안 체인 + 컨트롤러 + JPA 로 끝까지 본다(ADR-0007 §5).
@@ -93,7 +100,10 @@ class ParticipantFlowIntegrationTest {
 
     @MockitoBean private FileStorageService fileStorageService;
     @MockitoBean private RateLimiter rateLimiter;
+    @MockitoSpyBean private ParticipationProperties participationProperties;
+    @MockitoSpyBean private EventFeatures eventFeatures;
 
+    private String operatorPublicId;
     private String slug;
     private String eventId;
     private Long frameVersionId;
@@ -111,6 +121,7 @@ class ParticipantFlowIntegrationTest {
         given(fileStorageService.downloadBytes(anyString())).willReturn(png);
 
         User operator = userRepository.save(User.localUser("op@harucut.com", "encoded", "운영자"));
+        operatorPublicId = operator.getPublicId();
         WorkspaceResponse org = workspaceService.createOrganization(operator.getPublicId(), "웨딩팀");
         TestEntitlements.grant(entitlementRepository, workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId());
         Long frameId = frameService.createFrame(operator.getPublicId(), new FrameCreateRequest("프레임", null,
@@ -241,6 +252,248 @@ class ParticipantFlowIntegrationTest {
     }
 
     @Test
+    @DisplayName("결과 저장은 파일로 내려받는 URL(attachment)이고, 화면에는 결과 원본의 바로 보기 URL 을 준다 — 준비 전에는 둘 다 없다")
+    void resultDeliveryUrls() throws Exception {
+        given(fileStorageService.generatePresignedGetUrl(eq("uploads/r/delivery.jpg"), any())).willReturn("https://s3/image");
+        given(fileStorageService.generatePresignedDownloadUrl(eq("uploads/r/delivery.jpg"), anyString(), any())).willReturn("https://s3/attachment");
+
+        String token = activeParticipant();
+        String runId = data(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId)
+                .header(TOKEN_HEADER, token).exchange(), 201).path("captureRunId").asString();
+        List<String> assetIds = new ArrayList<>();
+        for (int slot = 0; slot < 4; slot++) {
+            String assetId = data(post("/api/participant/events/" + eventId + "/upload-intents", token,
+                    Map.of("captureRunId", runId, "slotIndex", slot, "contentType", "PNG", "fileSize", png.length)), 201)
+                    .path("assetId").asString();
+            ok(mvc.post().uri("/api/participant/assets/{id}/complete", assetId).header(TOKEN_HEADER, token).exchange());
+            assetIds.add(assetId);
+        }
+        JsonNode accepted = data(post("/api/participant/events/" + eventId + "/compose-jobs", token, Map.of("captureRunId", runId,
+                "frameVersionId", frameVersionId, "sourceAssetIds", assetIds, "idempotencyKey", "key-delivery")), 202);
+        long jobId = accepted.path("jobId").asLong();
+        String bearer = "Bearer " + accepted.path("resultToken").asString();
+
+        JsonNode pending = ok(mvc.get().uri("/api/public/results").header(HttpHeaders.AUTHORIZATION, bearer).exchange());
+        assertThat(pending.has("imageUrl")).isFalse();
+        assertThat(pending.has("thumbnailUrl")).isFalse();
+
+        assertThat(composeService.completeJob(jobId, "uploads/r/delivery.jpg", "uploads/r/delivery_thumb.jpg")).isTrue();
+
+        JsonNode done = ok(mvc.get().uri("/api/public/results").header(HttpHeaders.AUTHORIZATION, bearer).exchange());
+        assertThat(done.path("status").asString()).isEqualTo("DONE");
+        assertThat(done.path("imageUrl").asString()).isEqualTo("https://s3/image");
+        // 썸네일은 목록용으로 그대로 — key 는 작업에서 계산되므로 기본 응답을 받는다
+        assertThat(done.path("thumbnailUrl").asString()).isEqualTo("https://s3/get-short");
+
+        // 결과 링크·재방문 다운로드 모두 attachment, 파일 이름은 행사 이름-찍은 시각.jpg (내부 작업 번호 없음)
+        assertThat(ok(mvc.post().uri("/api/public/results/download").header(HttpHeaders.AUTHORIZATION, bearer).exchange())
+                .path("url").asString()).isEqualTo("https://s3/attachment");
+        assertThat(ok(mvc.post().uri("/api/participant/compose-jobs/{id}/download", jobId).header(TOKEN_HEADER, token).exchange())
+                .path("url").asString()).isEqualTo("https://s3/attachment");
+
+        ArgumentCaptor<String> filename = ArgumentCaptor.forClass(String.class);
+        then(fileStorageService).should(times(2))
+                .generatePresignedDownloadUrl(eq("uploads/r/delivery.jpg"), filename.capture(), any());
+        assertThat(filename.getAllValues()).allSatisfy(name -> assertThat(name).matches("민지 ♥ 준호-\\d{8}-\\d{6}\\.jpg"));
+    }
+
+    @Test
+    @DisplayName("중지·종료된 행사에는 새 업로드 허가도 완료도 없다(R5 L302) — 이미 발급한 URL 의 업로드를 완료시키지 않는다")
+    void stoppedEventBlocksUploads() throws Exception {
+        String token = activeParticipant();
+        String runId = run(token);
+        String assetId = intent(token, runId, 0);
+
+        entityManager.flush();
+        jdbcTemplate.update("update event set status = 'ARCHIVED', archived_at = ? where public_id = ?", LocalDateTime.now(), eventId);
+        entityManager.clear();
+
+        assertCode(post("/api/participant/events/" + eventId + "/upload-intents", token,
+                Map.of("captureRunId", runId, "slotIndex", 1, "contentType", "PNG", "fileSize", png.length)), 409, "EVENT-001");
+        assertCode(mvc.post().uri("/api/participant/assets/{id}/complete", assetId).header(TOKEN_HEADER, token).exchange(), 409, "EVENT-001");
+    }
+
+    @Test
+    @DisplayName("끝난 회차의 늦은 업로드는 완료시키지 않는다(PART-003) — 이미 판정된 입력의 재확인은 그대로 답한다")
+    void endedRunBlocksCompletion() throws Exception {
+        String token = activeParticipant();
+        String runId = run(token);
+        String done = intent(token, runId, 0);
+        ok(mvc.post().uri("/api/participant/assets/{id}/complete", done).header(TOKEN_HEADER, token).exchange());
+        String late = intent(token, runId, 1);
+
+        entityManager.flush();
+        jdbcTemplate.update("update capture_run set expires_at = ? where public_id = ?", LocalDateTime.now().minusMinutes(1), runId);
+        entityManager.clear();
+
+        assertCode(mvc.post().uri("/api/participant/assets/{id}/complete", late).header(TOKEN_HEADER, token).exchange(), 409, "PART-003");
+        assertThat(ok(mvc.post().uri("/api/participant/assets/{id}/complete", done).header(TOKEN_HEADER, token).exchange())
+                .path("status").asString()).isEqualTo("VERIFIED");
+    }
+
+    @Test
+    @DisplayName("재게시로 새 필수 동의가 생기면 ACTIVE 세션도 제한된다(R5 L545) — 세션 화면이 RESTRICTED 로 보여 주고, 동의하면 풀린다")
+    void newRequiredConsentRestrictsActiveSession() throws Exception {
+        String token = activeParticipant();
+
+        entityManager.flush();
+        Integer version = jdbcTemplate.queryForObject("select settings_version from event where public_id = ?", Integer.class, eventId);
+        eventService.patch(operatorPublicId, eventId, new EventPatchRequest(version, objectMapper.valueToTree(Map.of(
+                "consentItems", List.of(
+                        Map.of("code", "photo-collection", "version", 1, "title", "사진 수집 동의", "required", true, "body", "신랑신부가 사진을 받습니다."),
+                        Map.of("code", "marketing", "version", 1, "title", "홍보 활용", "required", true, "body", "홍보에 씁니다."))))));
+        eventService.publish(operatorPublicId, eventId);
+
+        assertCode(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId).header(TOKEN_HEADER, token).exchange(), 403, "PART-002");
+        JsonNode session = ok(mvc.get().uri("/api/participant/session").header(TOKEN_HEADER, token).exchange());
+        assertThat(session.path("status").asString()).isEqualTo("RESTRICTED");
+        assertThat(session.path("pendingConsents").get(0).path("code").asString()).isEqualTo("marketing");
+
+        ok(post("/api/participant/events/" + eventId + "/consents", token,
+                Map.of("items", List.of(Map.of("code", "marketing", "version", 1, "decision", "AGREED")))));
+        run(token);
+    }
+
+    @Test
+    @DisplayName("접수 중단 스위치(R5 L694) — 새 세션을 막고, 이미 있는 세션의 조회는 그대로다")
+    void acceptSwitchStopsNewWork() throws Exception {
+        String token = activeParticipant();
+        given(participationProperties.acceptEnabled()).willReturn(false);
+
+        assertCode(mvc.post().uri("/api/public/events/{slug}/sessions", slug)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"channel\":\"BYOD\"}").exchange(), 409, "EVENT-001");
+        assertCode(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId).header(TOKEN_HEADER, token).exchange(), 409, "EVENT-001");
+        ok(mvc.get().uri("/api/participant/session").header(TOKEN_HEADER, token).exchange());
+    }
+
+    @Test
+    @DisplayName("세션 하나의 남용 상한(R5 L675) — 회차당 묶이지 않은 입력 16개, 회차·업로드 발급은 분당 상한")
+    void sessionAbuseLimits() throws Exception {
+        String token = activeParticipant();
+        String runId = run(token);
+        for (int i = 0; i < 16; i++) {
+            intent(token, runId, 0);
+        }
+        Map<String, Object> intent = Map.of("captureRunId", runId, "slotIndex", 0, "contentType", "PNG", "fileSize", png.length);
+        assertCode(post("/api/participant/events/" + eventId + "/upload-intents", token, intent), 429, "GEN-061");
+
+        given(rateLimiter.tryAcquire(eq("capture-run"), anyString(), anyInt(), any())).willReturn(false);
+        assertCode(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId).header(TOKEN_HEADER, token).exchange(), 429, "GEN-061");
+    }
+
+    @Test
+    @DisplayName("이용권의 디자인 기능이 회수되면 새 회차를 막는다(R5 L781, O32) — ENT-004")
+    void revokedFeatureBlocksNewRun() throws Exception {
+        org.mockito.BDDMockito.willReturn(true).given(eventFeatures).allows(any(), eq(Feature.CUSTOM_THEME));
+        entityManager.flush();
+        Integer version = jdbcTemplate.queryForObject("select settings_version from event where public_id = ?", Integer.class, eventId);
+        eventService.patch(operatorPublicId, eventId, new EventPatchRequest(version, objectMapper.valueToTree(Map.of(
+                "theme", Map.of("colors", Map.of("accent", "#112233"))))));
+        eventService.publish(operatorPublicId, eventId);
+        String token = activeParticipant();
+        run(token);
+
+        org.mockito.BDDMockito.willReturn(false).given(eventFeatures).allows(any(), eq(Feature.CUSTOM_THEME));
+
+        assertCode(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId).header(TOKEN_HEADER, token).exchange(), 403, "ENT-004");
+    }
+
+    @Test
+    @DisplayName("발행본에 촬영 입력 정책(CAMERA_ONLY)이 남는다(R5 L545, F46)")
+    void publishedDocumentRecordsInputPolicy() {
+        entityManager.flush();
+        String json = jdbcTemplate.queryForObject("""
+                select v.settings_json from event_experience_version v
+                join event e on e.current_experience_version_id = v.event_experience_version_id
+                where e.public_id = ?""", String.class, eventId);
+        assertThat(json).contains("\"inputPolicy\":\"CAMERA_ONLY\"");
+    }
+
+    @Test
+    @DisplayName("저장소에서 사라진 입력으로는 합성을 접수하지 않는다(R5 L552·L680) — 사용량을 예약하지 않고 PART-005")
+    void missingObjectIsNotAccepted() throws Exception {
+        String token = activeParticipant();
+        String runId = run(token);
+        List<String> assetIds = new ArrayList<>();
+        for (int slot = 0; slot < 4; slot++) {
+            String assetId = intent(token, runId, slot);
+            ok(mvc.post().uri("/api/participant/assets/{id}/complete", assetId).header(TOKEN_HEADER, token).exchange());
+            assetIds.add(assetId);
+        }
+        given(fileStorageService.head(anyString())).willReturn(Optional.empty());
+
+        assertCode(post("/api/participant/events/" + eventId + "/compose-jobs", token, Map.of("captureRunId", runId,
+                "frameVersionId", frameVersionId, "sourceAssetIds", assetIds, "idempotencyKey", "key-missing")), 409, "PART-005");
+    }
+
+    @Test
+    @DisplayName("설정 응답의 hasUnpublishedChanges — 게시 직후 false, 저장하면 true, 다시 게시하면 false")
+    void unpublishedChangesFlag() {
+        assertThat(eventService.get(operatorPublicId, eventId).hasUnpublishedChanges()).isFalse();
+
+        int version = eventService.get(operatorPublicId, eventId).settingsVersion();
+        eventService.patch(operatorPublicId, eventId, new EventPatchRequest(version, objectMapper.valueToTree(Map.of(
+                "consentItems", List.of(Map.of("code", "photo-collection", "version", 2, "title", "사진 수집 동의", "required", true, "body", "문구를 고쳤습니다."))))));
+        assertThat(eventService.get(operatorPublicId, eventId).hasUnpublishedChanges()).isTrue();
+
+        eventService.publish(operatorPublicId, eventId);
+        assertThat(eventService.get(operatorPublicId, eventId).hasUnpublishedChanges()).isFalse();
+    }
+
+    @Test
+    @DisplayName("재방문 목록 — 끝난 작업에만 미리보기 URL 이 있다")
+    void myResultsThumbnail() throws Exception {
+        String token = activeParticipant();
+        String runId = run(token);
+        List<String> assetIds = new ArrayList<>();
+        for (int slot = 0; slot < 4; slot++) {
+            String assetId = intent(token, runId, slot);
+            ok(mvc.post().uri("/api/participant/assets/{id}/complete", assetId).header(TOKEN_HEADER, token).exchange());
+            assetIds.add(assetId);
+        }
+        long jobId = data(post("/api/participant/events/" + eventId + "/compose-jobs", token, Map.of("captureRunId", runId,
+                "frameVersionId", frameVersionId, "sourceAssetIds", assetIds, "idempotencyKey", "key-thumb")), 202).path("jobId").asLong();
+
+        assertThat(ok(mvc.get().uri("/api/participant/events/{id}/results", eventId).header(TOKEN_HEADER, token).exchange()).get(0).has("thumbnailUrl")).isFalse();
+
+        assertThat(ok(mvc.get().uri("/api/participant/events/{id}/results", eventId).header(TOKEN_HEADER, token).exchange()).get(0)
+                .path("expiresAt").asString()).isNotBlank();
+        assertThat(composeService.completeJob(jobId, "uploads/r/thumb.jpg", "uploads/r/thumb_thumb.jpg")).isTrue();
+        assertThat(ok(mvc.get().uri("/api/participant/events/{id}/results", eventId).header(TOKEN_HEADER, token).exchange()).get(0)
+                .path("thumbnailUrl").asString()).isEqualTo("https://s3/get-short");
+
+        // 보관 기한이 지났다 — 정리 배치가 돌기 전이어도 미리보기를 주지 않는다. 기한은 그대로 알린다(status·다운로드와 같은 판정)
+        entityManager.flush();
+        jdbcTemplate.update("update compose_job set retain_until = ? where compose_job_id = ?", LocalDateTime.now().minusMinutes(1), jobId);
+        entityManager.clear();
+        JsonNode expired = ok(mvc.get().uri("/api/participant/events/{id}/results", eventId).header(TOKEN_HEADER, token).exchange()).get(0);
+        assertThat(expired.has("thumbnailUrl")).isFalse();
+        assertThat(expired.path("expiresAt").asString()).isNotBlank();
+        assertCode(mvc.post().uri("/api/participant/compose-jobs/{id}/download", jobId).header(TOKEN_HEADER, token).exchange(), 410, "RESULT-002");
+    }
+
+    @Test
+    @DisplayName("재방문 목록 — 실패한 작업은 실패 종류가 있어 화면 문구를 고를 수 있다")
+    void myResultsFailureCode() throws Exception {
+        String token = activeParticipant();
+        String runId = run(token);
+        List<String> assetIds = new ArrayList<>();
+        for (int slot = 0; slot < 4; slot++) {
+            String assetId = intent(token, runId, slot);
+            ok(mvc.post().uri("/api/participant/assets/{id}/complete", assetId).header(TOKEN_HEADER, token).exchange());
+            assetIds.add(assetId);
+        }
+        long jobId = data(post("/api/participant/events/" + eventId + "/compose-jobs", token, Map.of("captureRunId", runId,
+                "frameVersionId", frameVersionId, "sourceAssetIds", assetIds, "idempotencyKey", "key-failed")), 202).path("jobId").asLong();
+
+        assertThat(composeService.failJob(jobId, "렌더 실패", com.harucut.media.compose.ComposeFailureCode.RENDER_FAILED)).isTrue();
+
+        JsonNode row = ok(mvc.get().uri("/api/participant/events/{id}/results", eventId).header(TOKEN_HEADER, token).exchange()).get(0);
+        assertThat(row.path("failureCode").asString()).isEqualTo("RENDER_FAILED");
+        assertThat(row.has("thumbnailUrl")).isFalse();
+    }
+
+    @Test
     @DisplayName("보관 종료된 행사에는 합성을 접수하지 않는다 — 촬영 열림을 잠금으로 다시 읽은 값으로 본다")
     void composeRejectedAfterArchive() throws Exception {
         String token = activeParticipant();
@@ -306,6 +559,17 @@ class ParticipantFlowIntegrationTest {
     }
 
     // ── helpers ──────────────────────────────
+
+    private String run(String token) {
+        return data(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId)
+                .header(TOKEN_HEADER, token).exchange(), 201).path("captureRunId").asString();
+    }
+
+    private String intent(String token, String runId, int slot) {
+        return data(post("/api/participant/events/" + eventId + "/upload-intents", token,
+                Map.of("captureRunId", runId, "slotIndex", slot, "contentType", "PNG", "fileSize", png.length)), 201)
+                .path("assetId").asString();
+    }
 
     // 세션 발급 + 필수 동의 → ACTIVE 참가자 토큰
     private String activeParticipant() {

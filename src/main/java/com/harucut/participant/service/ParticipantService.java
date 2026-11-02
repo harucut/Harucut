@@ -1,5 +1,12 @@
 package com.harucut.participant.service;
 
+import com.harucut.media.enums.ComposeStatus;
+import com.harucut.entitlement.enums.Feature;
+import java.util.Optional;
+import com.harucut.entitlement.exception.EntitlementErrorCode;
+import com.harucut.event.service.EventFeatures;
+import com.harucut.event.service.ThemeResolver;
+import com.harucut.event.dto.PageTheme;
 import com.harucut.asset.dto.UploadIntentResponse;
 import com.harucut.asset.service.AssetService;
 import com.harucut.booth.exception.BoothErrorCode;
@@ -80,6 +87,8 @@ public class ParticipantService {
     private final ResultService resultService;
     private final RateLimiter rateLimiter;
     private final EntitlementService entitlementService;
+    private final ThemeResolver themeResolver;
+    private final EventFeatures eventFeatures;
     private final ParticipationProperties properties;
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -129,13 +138,15 @@ public class ParticipantService {
                 .filter(item -> !agreed(latest.get(item.code()), item.version()))
                 .map(item -> new ParticipantDtos.SessionView.PendingConsent(item.code(), item.version()))
                 .toList();
+        // 재게시로 새 필수 동의가 생겼으면 세션이 ACTIVE 여도 제한 상태다 — 동의 화면으로 돌아가야 한다(requireActive 와 같은 판정)
+        SessionStatus status = pending.isEmpty() ? session.getStatus() : SessionStatus.RESTRICTED;
         ParticipantDtos.RunView run = captureRunRepository
                 .findFirstByParticipantIdAndStatusOrderByIdDesc(principal.participantId(), CaptureRunStatus.ACTIVE)
                 .filter(found -> found.activeAt(now()))
                 .map(this::runView)
                 .orElse(null);
         return new ParticipantDtos.SessionView(principal.participantPublicId(), event.getPublicId(), event.getSlug(),
-                principal.channel(), session.getStatus(), offset(session.getExpiresAt()), pending, run);
+                principal.channel(), status, offset(session.getExpiresAt()), pending, run);
     }
 
     // ── 동의 ──────────────────────
@@ -176,6 +187,8 @@ public class ParticipantService {
         Event event = requireOwnEvent(principal, eventPublicId);
         requireActive(principal);
         requireCaptureOpen(event);
+        requireThemeEntitled(event);
+        requireWithinRate("capture-run", principal, properties.runsPerMinute());
         entitlementService.requireRemaining(event);   // 찍고 나서 막히지 않게 — 접수에서 예약으로 다시 확인한다
         if (principal.isBooth()) {
             releaseExpiredBoothRun(principal.boothDeviceId());
@@ -202,6 +215,9 @@ public class ParticipantService {
                 throw new BusinessException(BoothErrorCode.RUN_ALREADY_ACTIVE);
             }
             existing.expire(now());
+            // 떠난 손님의 자격과 미완료 입력을 함께 치운다(R5 L223) — 다음 손님이 그 회차의 응답을 보지 않게
+            sessionRepository.revokeAllByParticipantId(existing.getParticipantId());
+            assetService.discardUnboundInputs(existing.getId());
             captureRunRepository.flush();
         });
     }
@@ -223,7 +239,13 @@ public class ParticipantService {
                                                    ParticipantDtos.CaptureUploadRequest request) {
         Event event = requireOwnEvent(principal, eventPublicId);
         requireActive(principal);
+        // 중지·종료된 행사에는 새 업로드 허가를 내주지 않는다(R5 L302)
+        requireCaptureOpen(event);
+        requireWithinRate("capture-intent", principal, properties.uploadIntentsPerMinute());
         CaptureRun run = activeRun(principal, request.captureRunId());
+        if (assetService.countUnboundInputs(run.getId()) >= properties.maxUnboundInputsPerRun()) {
+            throw new BusinessException(GlobalErrorCode.TOO_MANY_REQUESTS);
+        }
         return assetService.createCaptureInputIntent(event.getPublicId(), event.getId(), run.getPublicId(), run.getId(),
                 principal.participantId(), request.slotIndex(), request.contentType(), request.fileSize());
     }
@@ -231,7 +253,9 @@ public class ParticipantService {
     public AssetService.CompleteResult completeUpload(ParticipantPrincipal principal,
                                                                                String assetPublicId) {
         requireActive(principal);
-        return assetService.completeCaptureInput(principal.participantId(), assetPublicId);
+        requireCaptureOpen(event(principal.eventId()));
+        return assetService.completeCaptureInput(principal.participantId(), assetPublicId,
+                runId -> captureRunRepository.findById(runId).filter(run -> run.activeAt(now())).isPresent());
     }
 
     // ── 결과 ──────────────────────
@@ -248,7 +272,8 @@ public class ParticipantService {
         return composeJobRepository.findAllByParticipantIdAndEventIdOrderByIdDesc(principal.participantId(), event.getId())
                 .stream()
                 .filter(job -> !job.isDeleted())   // 사진함에서 삭제된 결과는 재방문 목록에도 없다
-                .map(job -> new ParticipantDtos.MyResult(job.getId(), job.getStatus(), offset(job.getCreatedAt())))
+                .map(job -> new ParticipantDtos.MyResult(job.getId(), job.getStatus(), offset(job.getCreatedAt()), resultService.thumbnailUrl(job, event),
+                        job.getStatus() == ComposeStatus.FAILED ? job.getFailureCode() : null, resultService.expiresAt(job, event)))
                 .toList();
     }
 
@@ -275,14 +300,41 @@ public class ParticipantService {
         return event;
     }
 
+    // 세션 상태만 믿지 않는다 — 운영자가 재게시로 새 필수 동의를 더했으면 접수 때 현재 항목으로 다시 판정한다(R5 L545)
     void requireActive(ParticipantPrincipal principal) {
         if (currentSession(principal).getStatus() != SessionStatus.ACTIVE) {
             throw new BusinessException(ParticipantErrorCode.CONSENT_REQUIRED);
         }
+        EventExperienceDocument experience = currentExperience(event(principal.eventId()));
+        Map<String, ParticipantConsent> latest = latestDecisions(principal.participantId());
+        if (!requiredItems(experience).stream().allMatch(item -> agreed(latest.get(item.code()), item.version()))) {
+            throw new BusinessException(ParticipantErrorCode.CONSENT_REQUIRED);
+        }
+    }
+
+    // 게시 뒤 이용권의 기능이 회수되면 새 회차를 막는다 — 찍는 중인 화면과 완성된 이미지는 바꾸지 않는다(R5 L781, O32)
+    private void requireThemeEntitled(Event event) {
+        PageTheme theme = currentExperience(event).theme();
+        if ((themeResolver.usesCustomDesign(theme) && !eventFeatures.allows(event, Feature.CUSTOM_THEME))
+                || (themeResolver.hidesHarucutBranding(theme) && !eventFeatures.allows(event, Feature.WHITE_LABEL))) {
+            throw new BusinessException(EntitlementErrorCode.FEATURE_NOT_ENTITLED);
+        }
+    }
+
+    private void requireWithinRate(String bucket, ParticipantPrincipal principal, int perMinute) {
+        if (!rateLimiter.tryAcquire(bucket, String.valueOf(principal.participantId()), perMinute, RATE_WINDOW)) {
+            throw new BusinessException(GlobalErrorCode.TOO_MANY_REQUESTS);
+        }
+    }
+
+    /** 부스 회차가 끝났다 — 어느 합성에도 묶이지 않은 입력을 치운다 */
+    public void discardUnboundInputs(Long captureRunId) {
+        assetService.discardUnboundInputs(captureRunId);
     }
 
     void requireCaptureOpen(Event event) {
-        if (!event.captureOpen(now())) {
+        // accept-enabled 는 장애 때 새 접수만 멈추는 스위치다(R5 L694) — 이미 접수한 작업의 읽기·정리는 그대로 돈다
+        if (!properties.acceptEnabled() || !event.captureOpen(now())) {
             throw new BusinessException(EventErrorCode.CAPTURE_NOT_OPEN);
         }
     }
@@ -316,9 +368,20 @@ public class ParticipantService {
     }
 
     private ComposeJob ownJob(ParticipantPrincipal principal, Long jobId) {
-        return composeJobRepository.findById(jobId)
+        ComposeJob owned = composeJobRepository.findById(jobId)
                 .filter(job -> principal.participantId().equals(job.getParticipantId()))
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        // 부스는 기기의 지금 회차 작업만 — 늦게 끝난 이전 회차를 지금 손님 화면에 보이지 않는다(R5 L604, O25)
+        if (principal.isBooth() && !activeBoothRunId(principal.boothDeviceId()).filter(id -> id.equals(owned.getCaptureRunId())).isPresent()) {
+            throw new BusinessException(GlobalErrorCode.NOT_FOUND);
+        }
+        return owned;
+    }
+
+    private Optional<Long> activeBoothRunId(Long boothDeviceId) {
+        return captureRunRepository.findByActiveBoothDeviceId(boothDeviceId)
+                .filter(run -> run.activeAt(now()))
+                .map(CaptureRun::getId);
     }
 
     private void requireByod(ParticipantPrincipal principal) {

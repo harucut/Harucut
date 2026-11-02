@@ -1,5 +1,7 @@
 package com.harucut.workspace.member;
 
+import com.harucut.workspace.entity.WorkspaceMembership;
+import com.harucut.workspace.repository.WorkspaceMembershipRepository;
 import com.harucut.audit.dto.AuditLogPage;
 import com.harucut.audit.service.AuditLogService;
 import com.harucut.common.exception.BusinessException;
@@ -57,6 +59,7 @@ class MembersAndGrantsIntegrationTest {
     @Autowired private EventService eventService;
     @Autowired private WorkspaceService workspaceService;
     @Autowired private WorkspaceRepository workspaceRepository;
+    @Autowired private WorkspaceMembershipRepository membershipRepository;
     @Autowired private AuditLogService auditLogService;
     @Autowired private UserRepository userRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
@@ -229,5 +232,24 @@ class MembersAndGrantsIntegrationTest {
 
     private static void assertCode(ThrowableAssert.ThrowingCallable call, ErrorCode code) {
         assertThatThrownBy(call).isInstanceOf(BusinessException.class).extracting("errorCode").isEqualTo(code);
+    }
+
+    @Test
+    @DisplayName("탈퇴 요청: 개인 공간만 있으면 된다 — 조직 공간의 마지막 OWNER 만 MEMBER-004, OWNER 가 더 있으면 된다(R5 L561)")
+    void exitRequestAndLastOwner() {
+        User personalOnly = userRepository.save(User.localUser("personal-exit@harucut.com", "e", "개인"));
+        workspaceService.personalWorkspaceOf(personalOnly.getId());
+        workspaceService.requireNotLastOwner(personalOnly.getId());
+
+        // owner 는 org 의 유일한 OWNER 다
+        workspaceService.personalWorkspaceOf(owner.getId());
+        assertThatThrownBy(() -> workspaceService.requireNotLastOwner(owner.getId()))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.LAST_OWNER);
+
+        membershipRepository.save(WorkspaceMembership.owner(
+                workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId(), stranger.getId()));
+        entityManager.flush();
+        workspaceService.requireNotLastOwner(owner.getId());
     }
 }

@@ -8,9 +8,11 @@ import com.harucut.frame.cell.FreeCellsGate;
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.exception.FrameErrorCode;
 import com.harucut.frame.service.FrameService;
+import com.harucut.media.compose.ComposeInputFingerprint;
 import com.harucut.media.compose.ComposeMetrics;
 import com.harucut.media.compose.ComposeOutputPolicy;
 import com.harucut.media.compose.ComposeRequestedEvent;
+import com.harucut.media.compose.ComposeRetryPolicy;
 import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeSpec;
 import com.harucut.media.compose.ComposeSpecAssembler;
@@ -41,8 +43,8 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -63,10 +65,14 @@ public class ComposeService {
     private final ObjectMapper objectMapper;
     private final EntitlementService entitlementService;
     private final ComposeOutputPolicy outputPolicy;
+    private final ComposeRetryPolicy retryPolicy;
 
     // 최종 실패한 작업의 결과·썸네일 자리를 다시 지우기까지 — 늦게 도착한 실행(AWS 비동기 큐 최대 6시간 + 실행 시간)이
     // 그 자리에 쓸 수 있는 동안. 실패 확정 때 한 번, 이 시간 뒤 한 번 더 지운다(R5 D09 지연 재삭제)
     public static final Duration LATE_WRITE_WINDOW = Duration.ofHours(6).plusMinutes(30);
+
+    // 입력을 지운 뒤 다시 지우기까지 — 조건부 PUT 도 지운 key 에는 다시 쓸 수 있고, 개인 원본 PUT URL 은 24시간 유효하다(R5 L679)
+    static final Duration INPUT_PUT_WINDOW = Duration.ofHours(24).plusMinutes(30);
 
     // ComposeJob.spec_json 컬럼 길이와 같아야 한다
     private static final int SPEC_JSON_MAX_CHARS = 8000;
@@ -108,6 +114,8 @@ public class ComposeService {
         assertSpecFits(prepared.getSpec());
         // 출력 계약은 접수 때 고정한다 — 같은 작업의 재시도가 다른 계약으로 실행되지 않게
         prepared.fixRenderContract(outputPolicy.contractForNewJobs());
+        prepared.fixInputFingerprint(ComposeInputFingerprint.of(objectMapper.writeValueAsString(prepared.getSpec()),
+                prepared.sourceKeys(), prepared.getRenderContract()));
         ComposeJob job = composeJobRepository.save(prepared);
 
         // 실행은 커밋 후에 시작된다(AFTER_COMMIT 리스너) — 커밋 전에 실행 스레드가 뜨면
@@ -217,15 +225,10 @@ public class ComposeService {
         if (job.getEventId() != null) {
             // 사용량 예약을 확정한다 — 전이를 이긴 이 트랜잭션에서만(늦은 통지는 위에서 false 로 끝났다)
             entitlementService.commit(jobId);
-            // 합성 중에 사진함에서 삭제 요청됐다 — 방금 만든 결과·썸네일을 남기지 않는다.
-            // 잠금 읽기(FOR UPDATE)라 엇갈려 커밋된 삭제 요청을 놓치지 않는다(삭제 쪽도 잠금 읽기로 결과 key 를 다시 본다)
-            if (composeJobRepository.lockDeletedAt(jobId).stream().anyMatch(Objects::nonNull)) {
-                s3Deleter.deleteAfterCommit(List.of(resultKey, thumbnailKey), LATE_WRITE_WINDOW);
-            }
         }
         // 원본은 성공 시 삭제 — 결과만 보관함에 남는다.
         // 원본은 합성 재료일 뿐 사용자의 보관 대상이 아니라 저장 비용만 먹는다
-        s3Deleter.deleteAfterCommit(job.inputKeys());
+        s3Deleter.deleteAfterCommit(job.inputKeys(), INPUT_PUT_WINDOW);
         return true;
     }
 
@@ -261,7 +264,7 @@ public class ComposeService {
             eventPublisher.publishEvent(new PushRequestedEvent(job.get().getUser().getId(),
                     PushMessage.composeFailed(jobId, code.name())));
         }
-        s3Deleter.deleteAfterCommit(job.get().inputKeys());
+        s3Deleter.deleteAfterCommit(job.get().inputKeys(), INPUT_PUT_WINDOW);
         // 실패한 작업의 결과·썸네일 자리 — 비공개지만 실행이 일부라도 썼을 수 있다. 지금 한 번, 늦은 실행이 쓸 수 있는 기간 뒤 한 번 더
         s3Deleter.deleteAfterCommit(List.of(resultKeyFor(job.get()), thumbnailKeyFor(job.get())), LATE_WRITE_WINDOW);
         return true;
@@ -282,22 +285,61 @@ public class ComposeService {
         if (composeJobRepository.claim(jobId, now, now.minus(staleAfter)) != 1) {
             return null;
         }
-        return composeJobRepository.findAttemptNo(jobId);
+        Integer attemptNo = composeJobRepository.findAttemptNo(jobId);
+        composeJobRepository.scheduleNextAttempt(jobId, now.plus(retryPolicy.backoffAfter(attemptNo)));
+        return attemptNo;
     }
 
     // 재실행 대상을 실행 payload 로 바꿔 내보낸다. 엔티티를 밖으로 내보내지 않는 이유는
     // 워커가 트랜잭션 밖에서 돌기 때문이다 — 지연 로딩이 거기서 터진다
     @Transactional(readOnly = true)
     public List<ComposeRequestedEvent> findStalled(Duration staleAfter, int limit) {
-        LocalDateTime staleBefore = LocalDateTime.now(clock).minus(staleAfter);
-        return composeJobRepository.findStalled(staleBefore, PageRequest.of(0, limit)).stream()
+        LocalDateTime now = LocalDateTime.now(clock);
+        return composeJobRepository.findStalled(now, now.minus(staleAfter), retryPolicy.maxAttempts(),
+                        now.minus(retryPolicy.totalDeadline()), PageRequest.of(0, limit)).stream()
                 .map(ComposeService::requested)
                 .toList();
     }
 
+    /** 재접수 예산을 다 쓴 작업 — 호출자가 시도 번호를 대조해 하나씩 최종 실패로 끝낸다 */
+    @Transactional(readOnly = true)
+    public List<ExpiredDispatch> findDispatchExpired(Duration staleAfter, int limit) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        return composeJobRepository.findDispatchExpired(now.minus(staleAfter), retryPolicy.maxAttempts(),
+                        now.minus(retryPolicy.totalDeadline()), PageRequest.of(0, limit)).stream()
+                .map(job -> new ExpiredDispatch(job.getId(), job.getAttemptNo()))
+                .toList();
+    }
+
+    public record ExpiredDispatch(Long jobId, int attemptNo) {
+    }
+
+    /** 통지가 이 작업의 지금 입력으로 돈 실행인가 — 작업 지문과 대조한다(R5 L492). 지문이 없는 작업(이 값이 생기기 전)은 대조하지 않는다 */
+    @Transactional(readOnly = true)
+    public boolean sameInput(Long jobId, String reportedFingerprint) {
+        return composeJobRepository.findById(jobId)
+                .map(ComposeJob::getInputFingerprint)
+                .map(stored -> stored.equals(reportedFingerprint))
+                .orElse(true);
+    }
+
+    /**
+     * 통지가 왔는데 작업 행이 없다 — 탈퇴로 함께 지워졌다. 늦게 끝난 실행이 다시 만든 결과를 지운다(되살리지 않는다, R5 L498~499).
+     * 예외로 두면 통지가 재전달을 돌다 DLQ 로 간다
+     *
+     * @return 작업이 없어 정리했으면 true
+     */
+    public boolean discardIfJobGone(Long jobId, String resultKey, String thumbnailKey) {
+        if (composeJobRepository.existsById(jobId)) {
+            return false;
+        }
+        s3Deleter.deleteAfterCommit(Arrays.asList(resultKey, thumbnailKey), LATE_WRITE_WINDOW);
+        return true;
+    }
+
     private static ComposeRequestedEvent requested(ComposeJob job) {
         return new ComposeRequestedEvent(job.getId(), job.getSpec(), job.sourceKeys(),
-                resultKeyFor(job), thumbnailKeyFor(job), RESULT_FORMAT, job.getRenderContract(), null);
+                resultKeyFor(job), thumbnailKeyFor(job), RESULT_FORMAT, job.getRenderContract(), null, job.getInputFingerprint());
     }
 
     // 결과물 저장 포맷의 유일한 출처. 키 확장자와 Lambda로 보내는 지시가 **둘 다 여기서** 나온다.

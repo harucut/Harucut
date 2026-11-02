@@ -16,6 +16,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
+import java.util.function.LongFunction;
 import java.util.Set;
 
 /**
@@ -52,11 +53,18 @@ public class AssetOrphanCleaner {
 
     /** @return 지운 자산 수 */
     public int run() {
-        LocalDateTime cutoff = LocalDateTime.now(clock).minus(properties.asset().orphanAfter());
+        LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime cutoff = now.minus(properties.asset().orphanAfter());
+        LocalDateTime captureCutoff = now.minus(properties.asset().captureOrphanAfter());
+        int deleted = sweep(afterId -> assetRepository.findOrphanCandidates(cutoff, afterId, PageRequest.of(0, batchSize)), 0);
+        return sweep(afterId -> assetRepository.findAbandonedCaptureInputs(captureCutoff, afterId, PageRequest.of(0, batchSize)), deleted);
+    }
+
+    private int sweep(LongFunction<List<Asset>> page, int alreadyDeleted) {
         long afterId = 0;
-        int deleted = 0;
+        int deleted = alreadyDeleted;
         while (deleted < maxPerRun) {
-            List<Asset> candidates = assetRepository.findOrphanCandidates(cutoff, afterId, PageRequest.of(0, batchSize));
+            List<Asset> candidates = page.apply(afterId);
             if (candidates.isEmpty()) {
                 break;
             }

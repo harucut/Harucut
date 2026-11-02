@@ -2,6 +2,7 @@ package com.harucut.auth.email;
 
 import com.harucut.auth.exception.AuthErrorCode;
 import com.harucut.common.exception.BusinessException;
+import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.common.mail.MailService;
 import com.harucut.user.enums.Provider;
 import com.harucut.user.repository.UserRepository;
@@ -34,6 +35,12 @@ public class EmailVerificationService {
             throw new BusinessException(AuthErrorCode.EMAIL_ALREADY_IN_USE);
         }
 
+        // 코드를 바꾸기 전에 본다 — 상한에 걸려 메일을 못 보내면서 이미 보낸 유효 코드를 덮어쓰지 않게
+        if (emailRateLimit.dailySendLimitExceeded()) {
+            emailRateLimit.releaseCooldown(email);
+            throw new BusinessException(GlobalErrorCode.TOO_MANY_REQUESTS);
+        }
+
         String code = generator.generate();
         repository.saveCode(email, code);
 
@@ -54,6 +61,10 @@ public class EmailVerificationService {
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_VERIFICATION_CODE));
 
         if (!stored.equalsIgnoreCase(code)) {
+            if (emailRateLimit.codeAttemptsExceeded(email)) {
+                repository.removeCode(email);
+                throw new BusinessException(AuthErrorCode.TOO_MANY_REQUESTS);
+            }
             throw new BusinessException(AuthErrorCode.INVALID_VERIFICATION_CODE);
         }
 

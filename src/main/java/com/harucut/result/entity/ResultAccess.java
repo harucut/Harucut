@@ -26,23 +26,15 @@ public class ResultAccess extends BaseEntity {
     @Column(name = "compose_job_id", nullable = false)
     private Long composeJobId;
 
-    @Column(name = "expires_at", nullable = false)
-    private LocalDateTime expiresAt;
-
     @Column(name = "revoked_at")
     private LocalDateTime revokedAt;
 
-    public ResultAccess(String tokenHash, Long composeJobId, LocalDateTime expiresAt) {
+    public ResultAccess(String tokenHash, Long composeJobId) {
         this.tokenHash = tokenHash;
         this.composeJobId = composeJobId;
-        this.expiresAt = expiresAt;
     }
 
     public boolean revoked() {
         return revokedAt != null;
-    }
-
-    public boolean expiredAt(LocalDateTime now) {
-        return !now.isBefore(expiresAt);
     }
 }

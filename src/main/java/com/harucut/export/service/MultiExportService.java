@@ -153,7 +153,8 @@ public class MultiExportService {
             }
         }
         requirePermissions(actorId, eventRepository.findAllById(countByEvent(export).keySet()));
-        if (!LocalDateTime.now(clock).isBefore(export.getExpiresAt()) || itemRepository.containsDeleted(export.getId())) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        if (!now.isBefore(export.getExpiresAt()) || itemRepository.containsUnavailable(export.getId(), now)) {
             exportService.expire(export);
             throw new BusinessException(ExportErrorCode.GONE);
         }

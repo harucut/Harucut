@@ -210,14 +210,42 @@ class ExportIntegrationTest {
     @Test
     @DisplayName("보관 기한이 지난 사진은 정리 배치 전이어도 묶지 않는다 — 고른 것·전체 모두(사진함·결과 링크와 같은 판정)")
     void expiredPhotoIsNotExported() {
-        entityManager.flush();
-        jdbcTemplate.update("update compose_job set retain_until = ? where compose_job_id = ?", java.time.LocalDateTime.now().minusMinutes(1), first.getId());
-        entityManager.clear();
+        expire(first);
 
         assertCode(() -> exportService.create(owner.getPublicId(), event.getPublicId(),
                 new ExportDtos.ExportRequest(List.of(first.getId()), null)), ExportErrorCode.INVALID_SELECTION);
         assertThat(exportService.create(owner.getPublicId(), event.getPublicId(),
                 new ExportDtos.ExportRequest(null, null)).photoCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("접수 뒤 보관 기한이 지난 사진은 포장에서 빠지고, 그 묶음은 받을 때 무효가 된다(410 EXPORT-002, 객체 삭제 예약)")
+    void photoExpiredAfterAcceptIsLeftOutAndInvalidates() throws IOException {
+        ExportDtos.Export export = exportService.create(owner.getPublicId(), event.getPublicId(),
+                new ExportDtos.ExportRequest(List.of(first.getId(), second.getId()), null));
+        expire(first);
+
+        exportWorker.run(id(export));
+
+        assertThat(unzip(uploaded.toByteArray())).containsOnlyKeys("0001-" + second.getId() + ".jpg");
+        String key = exportJobRepository.findById(id(export)).orElseThrow().getS3Key();
+        assertCode(() -> download(export), ExportErrorCode.GONE);
+        assertThat(exportService.get(owner.getPublicId(), event.getPublicId(), export.exportId()).status())
+                .isEqualTo(ExportStatus.EXPIRED);
+        then(s3Deleter).should().deleteAfterCommit(List.of(key));
+    }
+
+    @Test
+    @DisplayName("다 만든 묶음도 담긴 사진의 보관 기한이 지나면 정리 배치 전이어도 받을 수 없다")
+    void photoExpiredAfterPackagingInvalidatesOnReceipt() {
+        ExportDtos.Export export = exportService.create(owner.getPublicId(), event.getPublicId(),
+                new ExportDtos.ExportRequest(null, null));
+        exportWorker.run(id(export));
+        assertThat(download(export).url()).isEqualTo("https://s3/zip");
+
+        expire(first);
+
+        assertCode(() -> download(export), ExportErrorCode.GONE);
     }
 
     @Test
@@ -332,6 +360,13 @@ class ExportIntegrationTest {
 
     private Long id(ExportDtos.Export export) {
         return exportJobRepository.findByPublicId(export.exportId()).orElseThrow().getId();
+    }
+
+    // 정리 배치가 돌기 전 상태 — 기한만 지났고 purged_at 은 비어 있다
+    private void expire(ComposeJob job) {
+        entityManager.flush();
+        jdbcTemplate.update("update compose_job set retain_until = ? where compose_job_id = ?", LocalDateTime.now().minusMinutes(1), job.getId());
+        entityManager.clear();
     }
 
     private ComposeJob done(Participant participant, String key, String resultKey) {

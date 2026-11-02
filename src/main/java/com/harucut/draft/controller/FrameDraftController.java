@@ -39,6 +39,7 @@ public class FrameDraftController {
     @ApiErrors({
             "DRAFT-002: 문서가 256KB 를 넘는다",
             "FRAME-005: assetIds 에 쓸 수 없는 자산(남의 것·미검증)",
+            "GEN-021: 이 공간에서 초안을 다룰 수 없는 역할이다",
             "GEN-031: frameId·workspaceId 가 없거나 내 것이 아님"
     })
     @PostMapping
@@ -48,14 +49,18 @@ public class FrameDraftController {
         return Response.ok(frameDraftService.create(principal.publicId(), request));
     }
 
-    @Operation(summary = "내 초안 목록", description = "최근 저장 순. `document` 는 빠진다.")
-    @ApiErrors("GEN-005: frameId 가 숫자도 new 도 아니다")
+    @Operation(summary = "내 초안 목록", description = "한 공간의 초안만 최근 저장 순으로 준다. `document` 는 빠진다.")
+    @ApiErrors({
+            "GEN-005: frameId 가 숫자도 new 도 아니다",
+            "GEN-021: 이 공간에서 초안을 다룰 수 없는 역할이다",
+            "GEN-031: workspaceId 가 없거나 내 공간이 아님"
+    })
     @GetMapping
     public Response<List<DraftResponse>> list(
             @AuthenticationPrincipal AuthenticatedUser principal,
-            @Parameter(description = "숫자면 그 프레임의 초안, `new` 면 새 프레임 초안만, 생략하면 전부", example = "new")
+            @Parameter(description = "숫자면 그 프레임의 초안, `new` 면 새 프레임 초안만, 생략하면 그 공간의 초안 전부", example = "new")
             @RequestParam(required = false) String frameId,
-            @Parameter(description = "이 공간의 초안만(공간 public id). 생략하면 내 초안 전부", example = "Ws1aB2cD3eF4")
+            @Parameter(description = "이 공간의 초안만(공간 public id). 생략하면 개인 공간의 초안만", example = "Ws1aB2cD3eF4")
             @RequestParam(required = false) String workspaceId) {
         return Response.ok(frameDraftService.list(principal.publicId(), frameId, workspaceId));
     }

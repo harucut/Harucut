@@ -135,7 +135,8 @@ public class ExportService {
             case DONE -> {
             }
         }
-        if (!LocalDateTime.now(clock).isBefore(export.getExpiresAt()) || itemRepository.containsDeleted(export.getId())) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        if (!now.isBefore(export.getExpiresAt()) || itemRepository.containsUnavailable(export.getId(), now)) {
             expire(export);
             throw new BusinessException(ExportErrorCode.GONE);
         }

@@ -183,8 +183,9 @@ public class ExportWorker {
                         throw new ShutdownInProgress();
                     }
                     ComposeJob job = jobs.get(item.getComposeJobId());
-                    if (job == null || job.isDeleted() || job.getStatus() != ComposeStatus.DONE || job.getResultKey() == null) {
-                        continue;   // 접수 뒤 지워진 사진 — 이 묶음은 수령 때 무효로 판정된다
+                    if (job == null || job.isDeleted() || job.getStatus() != ComposeStatus.DONE || job.getResultKey() == null
+                            || job.retentionEndedAt(LocalDateTime.now(clock))) {
+                        continue;   // 접수 뒤 지워졌거나 보관 기한이 지난 사진 — 이 묶음은 수령 때 무효로 판정된다
                     }
                     String folder = multi ? slugs.getOrDefault(job.getEventId(), "event") + "/" : "";
                     int index = indexes.merge(folder, 1, Integer::sum);

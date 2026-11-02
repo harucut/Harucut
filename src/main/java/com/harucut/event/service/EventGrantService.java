@@ -120,7 +120,12 @@ public class EventGrantService {
         EventGrant grant = grantOf(event, grantId);
         requireCustomerGrant(access, event, grant);
         requireWithinOwn(access, permissions, includePast);
-        grant.replace(permissions, includePast, LocalDateTime.now(clock));
+        LocalDateTime now = LocalDateTime.now(clock);
+        // 권한을 더하면 대상의 범위까지 함께 넘기는 셈이다 — 자기 범위를 넘으면 더하지 못한다. 빼는 것은 된다
+        if (!grant.getPermissions().containsAll(permissions) && !access.canShare(grant.photosFromAfter(includePast, now))) {
+            throw new BusinessException(GlobalErrorCode.FORBIDDEN, "자기 사진 범위 밖까지 권한을 넓힐 수 없습니다.");
+        }
+        grant.replace(permissions, includePast, now);
         User target = userRepository.findById(grant.getUserId()).orElseThrow();
         auditLogService.record(actor.getId(), event.getWorkspaceId(), event.getId(), "GRANT_CHANGED", "USER",
                 target.getPublicId(), Map.of("permissions", sorted(permissions), "includePast", includePast));

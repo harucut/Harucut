@@ -18,8 +18,11 @@ import com.harucut.event.service.EventGrantService;
 import com.harucut.event.service.EventService;
 import com.harucut.event.service.PhotoService;
 import com.harucut.export.dto.ExportDtos;
+import com.harucut.export.entity.ExportJob;
 import com.harucut.export.enums.ExportScope;
+import com.harucut.export.enums.ExportStatus;
 import com.harucut.export.exception.ExportErrorCode;
+import com.harucut.export.repository.ExportJobRepository;
 import com.harucut.export.service.ExportService;
 import com.harucut.export.service.MultiExportService;
 import com.harucut.frame.enums.FrameType;
@@ -76,6 +79,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
 
 /*
  * 새 수신자의 과거 사진 제한(A16, R5 L347, F27) — 수신자를 더해도 이미 제출된 사진의 열람 범위가 저절로 넓어지지 않는다.
@@ -94,6 +98,7 @@ class PhotosFromIntegrationTest {
     @Autowired private JwtTokenService jwtTokenService;
     @Autowired private PhotoService photoService;
     @Autowired private ExportService exportService;
+    @Autowired private ExportJobRepository exportJobRepository;
     @Autowired private MultiExportService multiExportService;
     @Autowired private EventService eventService;
     @Autowired private EventGrantService eventGrantService;
@@ -196,6 +201,84 @@ class PhotosFromIntegrationTest {
     }
 
     @Test
+    @DisplayName("묶음을 만든 뒤 범위가 좁아지면(권한 회수 뒤 기본 초대 재수락) 그 묶음은 받지 못한다 — 410 EXPORT-002, 무효·객체 삭제. 범위 안 사진만 담긴 묶음은 받는다")
+    void narrowedScopeInvalidatesExistingExport() {
+        accept(customer, ALL, true);
+        ExportDtos.Export withPast = exportService.create(customer.getPublicId(), event.getPublicId(), new ExportDtos.ExportRequest(null, null));
+        String key = finish(withPast);
+        assertThat(exportService.download(customer.getPublicId(), event.getPublicId(), withPast.exportId()).url()).isEqualTo("https://s3/download");
+
+        eventGrantService.delete(owner.getPublicId(), event.getPublicId(), grantOf(customer).grantId());
+        entityManager.flush();
+        accept(customer, ALL, null);
+
+        assertCode(() -> exportService.download(customer.getPublicId(), event.getPublicId(), withPast.exportId()), ExportErrorCode.GONE);
+        assertThat(exportService.get(customer.getPublicId(), event.getPublicId(), withPast.exportId()).status()).isEqualTo(ExportStatus.EXPIRED);
+        then(s3Deleter).should().deleteAfterCommit(List.of(key));
+
+        ComposeJob later = done("later");
+        ExportDtos.Export inScope = exportService.create(customer.getPublicId(), event.getPublicId(),
+                new ExportDtos.ExportRequest(List.of(later.getId()), null));
+        finish(inScope);
+        assertThat(exportService.download(customer.getPublicId(), event.getPublicId(), inScope.exportId()).url()).isEqualTo("https://s3/download");
+    }
+
+    @Test
+    @DisplayName("여러 행사 묶음도 받을 때 지금 범위로 다시 본다")
+    void narrowedScopeInvalidatesExistingMultiExport() {
+        User admin = userRepository.save(User.localUser("admin@harucut.com", "e", "관리자"));
+        membershipRepository.save(WorkspaceMembership.member(workspaceId, admin.getId(), WorkspaceRole.ADMIN));
+        accept(admin, ALL, true);
+        ExportDtos.Export export = multiExportService.create(admin.getPublicId(), ExportScope.WORKSPACE, org.workspaceId(),
+                new ExportDtos.MultiExportRequest(List.of(event.getPublicId())));
+        finish(export);
+        assertThat(multiExportService.download(admin.getPublicId(), ExportScope.WORKSPACE, org.workspaceId(), export.exportId()).url())
+                .isEqualTo("https://s3/download");
+
+        eventGrantService.delete(owner.getPublicId(), event.getPublicId(), grantOf(admin).grantId());
+        entityManager.flush();
+        accept(admin, ALL, null);
+
+        assertCode(() -> multiExportService.download(admin.getPublicId(), ExportScope.WORKSPACE, org.workspaceId(), export.exportId()),
+                ExportErrorCode.GONE);
+    }
+
+    @Test
+    @DisplayName("범위가 제한된 OPERATOR: 범위가 더 넓은 대상에게 권한을 더하지 못한다(수정·초대 수락 모두, 토큰은 남는다). 빼는 것, 자기 범위 안의 대상, 처음 받는 사람은 된다")
+    void limitedOperatorCannotWidenThroughExistingGrant() {
+        User operator = userRepository.save(User.localUser("operator@harucut.com", "e", "운영자"));
+        membershipRepository.save(WorkspaceMembership.member(workspaceId, operator.getId(), WorkspaceRole.OPERATOR));
+        accept(customer, Set.of(PhotoPermission.VIEW_PHOTOS), true);   // 고객은 제한 없이 과거 사진을 본다
+        MemberDtos.EventGrantView assigned = eventGrantService.assignOperator(owner.getPublicId(), event.getPublicId(), operator.getPublicId(),
+                Set.of(OperationPermission.INVITE_CUSTOMERS));
+        eventGrantService.update(owner.getPublicId(), event.getPublicId(), assigned.grantId(),
+                Set.of(PhotoPermission.VIEW_PHOTOS, PhotoPermission.DOWNLOAD_PHOTOS), false);   // 운영자는 지금부터만 본다
+        Long customerGrant = grantOf(customer).grantId();
+
+        assertCode(() -> eventGrantService.update(operator.getPublicId(), event.getPublicId(), customerGrant,
+                Set.of(PhotoPermission.VIEW_PHOTOS, PhotoPermission.DOWNLOAD_PHOTOS), false), GlobalErrorCode.FORBIDDEN);
+        assertThat(grantOf(customer).permissions()).containsExactly(PhotoPermission.VIEW_PHOTOS);
+
+        // 초대 수락으로 더해도 같다 — 거절돼도 토큰은 쓰지 않아 다른 사람이 받을 수 있다
+        String token = eventGrantService.inviteCustomer(operator.getPublicId(), event.getPublicId(),
+                new MemberDtos.EventInvitationRequest(Set.of(PhotoPermission.DOWNLOAD_PHOTOS), null)).inviteToken();
+        assertCode(() -> invitationService.accept(customer.getPublicId(), token), GlobalErrorCode.FORBIDDEN);
+        assertThat(grantOf(customer).permissions()).containsExactly(PhotoPermission.VIEW_PHOTOS);
+        User fresh = userRepository.save(User.localUser("fresh@harucut.com", "e", "새 담당자"));
+        assertThat(invitationService.accept(fresh.getPublicId(), token).photosFrom()).isNotNull();
+
+        // 자기 범위 안의 대상에게는 더할 수 있다
+        assertThat(eventGrantService.update(operator.getPublicId(), event.getPublicId(), grantOf(fresh).grantId(),
+                Set.of(PhotoPermission.VIEW_PHOTOS, PhotoPermission.DOWNLOAD_PHOTOS), false).permissions()).hasSize(2);
+
+        // 넓은 범위의 대상이어도 빼는 것은 된다
+        eventGrantService.update(owner.getPublicId(), event.getPublicId(), customerGrant,
+                Set.of(PhotoPermission.VIEW_PHOTOS, PhotoPermission.DOWNLOAD_PHOTOS), false);
+        assertThat(eventGrantService.update(operator.getPublicId(), event.getPublicId(), customerGrant,
+                Set.of(PhotoPermission.VIEW_PHOTOS), false).permissions()).containsExactly(PhotoPermission.VIEW_PHOTOS);
+    }
+
+    @Test
     @DisplayName("includePast: 미리보기·열린 초대에 알리고, 수락하면 제한 없이 과거 사진까지 본다. 감사에 남는다. 기본 초대의 미리보기는 false")
     void includePastOpensPastPhotos() {
         MemberDtos.InvitationIssued open = invite(ALL, true);
@@ -217,6 +300,9 @@ class PhotosFromIntegrationTest {
     @DisplayName("나중에 열기: 권한 수정 includePast·제한을 푸는 새 초대는 열고, 그 밖의 수정·재수락은 범위를 바꾸지 않는다. 연 범위는 다시 줄지 않는다")
     void laterChanges() {
         accept(customer, Set.of(PhotoPermission.VIEW_PHOTOS), null);
+        // 저장된 값으로 비교한다 — 메모리 값은 JVM 시계 정밀도(리눅스는 나노초), DB 는 마이크로초로 반올림한다
+        entityManager.flush();
+        entityManager.clear();
         OffsetDateTime from = grantOf(customer).photosFrom();
         Long grantId = grantOf(customer).grantId();
 
@@ -282,7 +368,7 @@ class PhotosFromIntegrationTest {
     }
 
     @Test
-    @DisplayName("사용량 — 범위가 제한된 수신자는 403(숨긴 사진 수를 짐작하지 못하게), 제한이 없는 고객은 그대로")
+    @DisplayName("사용량 — 범위가 제한된 수신자는 403(숨긴 사진 수를 짐작하지 못하게), 사진 권한을 받은 디자이너도 같다. 제한이 없으면 그대로")
     void usage() {
         accept(customer, Set.of(PhotoPermission.VIEW_PHOTOS), null);
         assertThat(mvc.get().uri("/api/auth/events/{id}/usage", event.getPublicId()).cookie(cookie(customer)))
@@ -291,6 +377,28 @@ class PhotosFromIntegrationTest {
         eventGrantService.update(owner.getPublicId(), event.getPublicId(), grantOf(customer).grantId(), Set.of(PhotoPermission.VIEW_PHOTOS), true);
         entityManager.flush();
         assertThat(mvc.get().uri("/api/auth/events/{id}/usage", event.getPublicId()).cookie(cookie(customer))).hasStatusOk();
+
+        User designer = userRepository.save(User.localUser("designer@harucut.com", "e", "디자이너"));
+        membershipRepository.save(WorkspaceMembership.member(workspaceId, designer.getId(), WorkspaceRole.DESIGNER));
+        accept(designer, Set.of(PhotoPermission.VIEW_PHOTOS), null);
+        entityManager.flush();
+        assertThat(mvc.get().uri("/api/auth/events/{id}/usage", event.getPublicId()).cookie(cookie(designer)))
+                .hasStatus(403).bodyJson().extractingPath("$.code").isEqualTo("GEN-021");
+
+        eventGrantService.update(owner.getPublicId(), event.getPublicId(), grantOf(designer).grantId(), Set.of(PhotoPermission.VIEW_PHOTOS), true);
+        entityManager.flush();
+        assertThat(mvc.get().uri("/api/auth/events/{id}/usage", event.getPublicId()).cookie(cookie(designer))).hasStatusOk();
+    }
+
+    // 워커 없이 묶음을 다 만든 상태로 — 수령 판정만 본다
+    private String finish(ExportDtos.Export export) {
+        ExportJob job = exportJobRepository.findByPublicId(export.exportId()).orElseThrow();
+        LocalDateTime now = LocalDateTime.now();
+        exportJobRepository.claim(job.getId(), now);
+        exportJobRepository.complete(job.getId(), 10L, now.plusDays(1), now);
+        entityManager.flush();
+        entityManager.clear();
+        return job.getS3Key();
     }
 
     private MemberDtos.InvitationIssued invite(Set<PhotoPermission> permissions, Boolean includePast) {

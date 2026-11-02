@@ -122,13 +122,14 @@ public class ExportService {
     }
 
     /**
-     * 수령 — 권한·상태·기한·담긴 사진을 다시 본다. 무효면 그 자리에서 EXPIRED 로 바꾸고 객체를 지운 뒤 410.
+     * 수령 — 권한·상태·기한·담긴 사진·지금 사진 범위를 다시 본다. 무효면 그 자리에서 EXPIRED 로 바꾸고 객체를 지운 뒤 410.
      * 그 변경이 예외로 롤백되지 않게 BusinessException 으로 롤백하지 않는다(판정 전에는 아무것도 쓰지 않는다).
      */
     @Transactional(noRollbackFor = BusinessException.class)
     public DownloadUrlResponse download(String actorPublicId, String eventPublicId, String exportPublicId) {
         Long actorId = userId(actorPublicId);
-        Event event = policy.requirePhoto(actorId, eventPublicId, PhotoPermission.BULK_DOWNLOAD);
+        EventAccessPolicy.PhotoScope scope = policy.requirePhotoScope(actorId, eventPublicId, PhotoPermission.BULK_DOWNLOAD);
+        Event event = scope.event();
         ExportJob export = own(event, actorId, exportPublicId);
         switch (export.getStatus()) {
             case PENDING, RUNNING -> throw new BusinessException(ExportErrorCode.NOT_READY);
@@ -137,7 +138,7 @@ public class ExportService {
             }
         }
         LocalDateTime now = LocalDateTime.now(clock);
-        if (!now.isBefore(export.getExpiresAt()) || itemRepository.containsUnavailable(export.getId(), now)) {
+        if (!now.isBefore(export.getExpiresAt()) || itemRepository.containsUnavailable(export.getId(), now) || outOfScope(export, scope)) {
             expire(export);
             throw new BusinessException(ExportErrorCode.GONE);
         }
@@ -152,6 +153,11 @@ public class ExportService {
     /** 사진 삭제 — 그 사진을 담은 살아 있는 묶음을 무효로 하고 객체를 지운다(진행 중이면 워커가 완료하지 못하고 스스로 지운다) */
     public void invalidateContaining(Long composeJobId) {
         exportJobRepository.findLiveContaining(composeJobId).forEach(this::expire);
+    }
+
+    // 묶음을 만든 뒤 범위가 좁아졌을 수 있다(권한 회수 뒤 기본 초대 재수락 등) — 지금 범위 밖 사진이 담겼으면 받지 못한다
+    boolean outOfScope(ExportJob export, EventAccessPolicy.PhotoScope scope) {
+        return scope.photosFrom() != null && itemRepository.containsBefore(export.getId(), scope.event().getId(), scope.photosFrom());
     }
 
     void expire(ExportJob export) {

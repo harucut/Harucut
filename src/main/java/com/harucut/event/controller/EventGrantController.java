@@ -61,6 +61,7 @@ public class EventGrantController {
             description = """
                     INVITE_CUSTOMERS 권한. 사진 권한 집합을 통째로 바꾼다. OPERATOR 는 자기 사진 권한 안에서만, 다른 운영자의 행은 못 바꾼다.
                     처음 사진 권한을 받으면 그 시각 이후 사진만 보인다. `includePast: true` 면 제한을 푼다(감사에 남는다).
+                    범위가 제한된 OPERATOR 는 대상의 범위가 자기보다 넓으면 권한을 더하지 못한다(빼는 것은 된다).
                     """)
     @ApiErrors({"GEN-031: 없는 행사·권한이거나 볼 수 없다", "GEN-021: 권한 밖"})
     @PatchMapping("/api/auth/events/{eventId}/grants/{grantId}")

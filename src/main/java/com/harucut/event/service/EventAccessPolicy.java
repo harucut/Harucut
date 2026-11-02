@@ -66,9 +66,23 @@ public class EventAccessPolicy {
             return permissions.isEmpty() && operations.equals(EnumSet.of(OperationPermission.EDIT_THEME));
         }
 
-        /** 범위가 제한된 수신자 — 사용량으로 숨긴 사진 수를 짐작하지 못하게 한다 */
+        /** 범위가 제한됐고 테마 말고는 운영 권한이 없는 사람 — 사용량으로 숨긴 사진 수를 짐작하지 못하게 한다 */
         public boolean limitedRecipient() {
-            return operations.isEmpty() && photosFrom != null;
+            return photosFrom != null && operations.stream().allMatch(operation -> operation == OperationPermission.EDIT_THEME);
+        }
+
+        /**
+         * 이 범위의 사진 권한을 남에게 넘길 수 있는가 — OWNER·ADMIN 은 늘, 아니면 자기 범위 안에서만.
+         * 범위는 권한마다가 아니라 행마다라, 넓은 범위의 행에 권한을 더하면 그 범위까지 함께 넘기는 셈이다
+         */
+        public boolean canShare(LocalDateTime scope) {
+            if (admin()) {
+                return true;
+            }
+            if (scope == null) {
+                return photosFrom == null && !permissions.isEmpty();
+            }
+            return photosFrom == null || !scope.isBefore(photosFrom);
         }
     }
 

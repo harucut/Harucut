@@ -7,6 +7,7 @@ import com.harucut.common.utils.OpaqueTokens;
 import com.harucut.event.entity.Event;
 import com.harucut.event.entity.EventGrant;
 import com.harucut.event.repository.EventGrantRepository;
+import com.harucut.event.service.EventAccessPolicy;
 import com.harucut.event.repository.EventRepository;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
@@ -45,6 +46,7 @@ public class InvitationService {
     private final WorkspaceMembershipRepository membershipRepository;
     private final WorkspaceRepository workspaceRepository;
     private final EventGrantRepository grantRepository;
+    private final EventAccessPolicy accessPolicy;
     private final EventRepository eventRepository;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
@@ -92,10 +94,17 @@ public class InvitationService {
                 && !(invitation.isIncludePast() && grant.getPhotosFrom() != null)).isPresent()) {
             throw new BusinessException(MemberErrorCode.ALREADY_MEMBER);
         }
+        LocalDateTime now = LocalDateTime.now(clock);
+        // 수락하면 받을 범위가 초대한 사람의 지금 범위 안이어야 한다 — 넓은 범위의 행에 더하면 그 범위까지 넘기는 셈이다. 토큰은 쓰지 않는다
+        LocalDateTime scope = existing.isPresent() ? existing.get().photosFromAfter(invitation.isIncludePast(), now)
+                : invitation.isIncludePast() ? null : now;
+        if (!accessPolicy.accessOf(event, invitation.getInvitedByUserId()).canShare(scope)) {
+            throw new BusinessException(GlobalErrorCode.FORBIDDEN, "초대한 사람의 사진 범위 밖까지 권한을 넓힐 수 없습니다.");
+        }
         consume(invitation, actor);
         EventGrant grant = grantRepository.findByEventIdAndUserId(event.getId(), actor.getId()).orElseGet(() -> grantRepository.save(
                 new EventGrant(event.getId(), actor.getId(), Set.of(), invitation.getInvitedByUserId())));
-        grant.merge(invitation.getPermissions(), invitation.isIncludePast(), LocalDateTime.now(clock));
+        grant.merge(invitation.getPermissions(), invitation.isIncludePast(), now);
         auditLogService.record(actor.getId(), workspace.getId(), event.getId(), "CUSTOMER_JOINED", "INVITATION",
                 invitation.getPublicId(), Map.of("includePast", invitation.isIncludePast()));
         return new MemberDtos.InvitationAccepted(InvitationKind.EVENT, null, event.getPublicId(), null, grant.getPermissions(),

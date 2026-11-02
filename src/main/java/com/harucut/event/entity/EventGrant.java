@@ -90,7 +90,8 @@ public class EventGrant extends BaseEntity {
         this.photosFrom = from;
     }
 
-    private LocalDateTime photosFromAfter(boolean includePast, LocalDateTime now) {
+    /** 이 행에 사진 권한을 주면 범위가 어떻게 되는가 */
+    public LocalDateTime photosFromAfter(boolean includePast, LocalDateTime now) {
         if (includePast) {
             return null;
         }

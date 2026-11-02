@@ -10,6 +10,7 @@ import com.harucut.export.service.ExportService;
 import com.harucut.media.entity.ComposeJob;
 import com.harucut.media.enums.ComposeStatus;
 import com.harucut.media.repository.ComposeJobRepository;
+import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.service.ComposeService;
 import com.harucut.participant.enums.ParticipantChannel;
 import com.harucut.result.dto.DownloadUrlResponse;
@@ -50,6 +51,7 @@ public class PhotoService {
     private final ComposeJobRepository composeJobRepository;
     private final FileStorageService fileStorageService;
     private final S3Deleter s3Deleter;
+    private final ComposeService composeService;
     private final StorageProperties storageProperties;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
@@ -99,10 +101,15 @@ public class PhotoService {
             throw new BusinessException(GlobalErrorCode.NOT_FOUND);   // 동시에 다른 삭제가 먼저 했다
         }
         exportService.invalidateContaining(job.getId());   // 이 사진을 담은 묶음은 더는 받을 수 없다
-        // 읽은 뒤 완료됐을 수 있다 — 잠금 읽기로 지금 결과 key 를 다시 본다. 아직 없으면 완료 쪽이 지운다(ComposeService.completeJob)
+        // 읽은 뒤 완료됐을 수 있다 — 잠금 읽기로 지금 결과 key 를 다시 본다
         String resultKey = composeJobRepository.lockResultKey(job.getId()).stream().filter(Objects::nonNull).findFirst().orElse(null);
         if (resultKey != null) {
-            s3Deleter.deleteAfterCommit(List.of(resultKey, ComposeService.thumbnailKeyFor(job)));
+            // 이미 돌고 있던 실행이 나중에 다시 쓸 수 있다 — 지금 한 번, 그 기간 뒤 한 번 더(R5 L498)
+            s3Deleter.deleteAfterCommit(List.of(resultKey, ComposeService.thumbnailKeyFor(job)), ComposeService.LATE_WRITE_WINDOW);
+        } else {
+            // 아직 합성 중이다 — 여기서 끝낸다. 새로 던지지 않고 예약을 돌려주며 입력을 지우고, 늦게 쓰인 결과는 재삭제가 치운다.
+            // 완료 통지가 먼저 커밋됐으면 위에서 결과 key 가 보이고, 늦게 오면 PENDING 이 아니라 반영되지 않는다
+            composeService.failJob(job.getId(), "사진함에서 삭제", ComposeFailureCode.UNKNOWN);
         }
         auditLogService.record(actorId, event.getWorkspaceId(), event.getId(), "PHOTO_DELETED", "PHOTO",
                 job.getId().toString(), null);

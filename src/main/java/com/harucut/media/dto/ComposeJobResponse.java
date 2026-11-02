@@ -35,7 +35,8 @@ public record ComposeJobResponse(
                 실패 종류. **`FAILED` 일 때만 실린다** — 화면 문구는 이 값으로 고른다.
                 `SOURCE_MISSING` 원본이 저장소에 없음(만료·삭제) · `SOURCE_UNREADABLE` 원본을 읽을 수 없음(손상·형식) ·
                 `ASSET_MISSING` 프레임·배경 자산 없음 · `ASSET_UNREADABLE` 자산을 읽을 수 없음 · `TIMED_OUT` 시간 초과 ·
-                `RENDER_FAILED` 그 밖의 렌더 실패 · `UNKNOWN` 종류를 알리지 않는 실행기의 실패.
+                `RENDER_FAILED` 그 밖의 렌더 실패 · `OUTPUT_CONFLICT` 저장된 결과·썸네일 쌍을 검증하지 못함 ·
+                `DISPATCH_EXHAUSTED` 재접수 횟수·총 기한 초과(일시 장애가 풀리지 않음, 원본이 지워져 다시 촬영) · `UNKNOWN` 종류를 알리지 않는 실행기의 실패.
                 이 값이 생기기 전에 실패한 작업은 키가 없다.""",
                 example = "SOURCE_UNREADABLE")
         ComposeFailureCode failureCode

@@ -105,7 +105,8 @@ class ComposeServiceTest {
         composeService = new ComposeService(userRepository, composeJobRepository,
                 userMediaRepository, frameService, composeSpecAssembler, new FreeCellsGate(false, JsonMapper.builder().build()), s3Deleter,
                 eventPublisher, new ComposeMetrics(new SimpleMeterRegistry()), fixed, JsonMapper.builder().build(),
-                entitlementService, new ComposeOutputPolicy(1));
+                entitlementService, new ComposeOutputPolicy(1),
+                new com.harucut.media.compose.ComposeRetryPolicy(4, java.time.Duration.ofMinutes(90), java.time.Duration.ofMinutes(10), java.time.Duration.ofMinutes(30)));
         user = User.localUser("owner@harucut.com", "encoded", "소유자");
         ReflectionTestUtils.setField(user, "id", 1L);
         // 결과 key 는 작업이 생성 때 고정한 storage_root(= 사용자 폴더)에서 나온다
@@ -553,5 +554,18 @@ class ComposeServiceTest {
                 FrameType.CLASSIC.getLayout().slots(),
                 List.of(false, false, false, false),
                 List.of());
+    }
+
+    @Test
+    @DisplayName("통지가 왔는데 작업 행이 없으면(탈퇴) 결과 자리를 재삭제까지 걸어 지운다 — 있으면 건드리지 않는다")
+    void discardsOutputsOfMissingJob() {
+        given(composeJobRepository.existsById(99L)).willReturn(false);
+        given(composeJobRepository.existsById(100L)).willReturn(true);
+
+        assertThat(composeService.discardIfJobGone(100L, "uploads/r.jpg", "uploads/t.jpg")).isFalse();
+        then(s3Deleter).shouldHaveNoInteractions();
+
+        assertThat(composeService.discardIfJobGone(99L, "uploads/r.jpg", "uploads/t.jpg")).isTrue();
+        then(s3Deleter).should().deleteAfterCommit(java.util.Arrays.asList("uploads/r.jpg", "uploads/t.jpg"), ComposeService.LATE_WRITE_WINDOW);
     }
 }

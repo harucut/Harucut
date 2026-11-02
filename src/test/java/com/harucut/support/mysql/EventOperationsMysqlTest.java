@@ -105,12 +105,10 @@ class EventOperationsMysqlTest {
 
         Integer first = transaction.execute(s -> composeJobRepository.markDeleted(job.getId(), LocalDateTime.now()));
         Integer second = transaction.execute(s -> composeJobRepository.markDeleted(job.getId(), LocalDateTime.now()));
-        List<Object> deletedAt = transaction.execute(s -> composeJobRepository.lockDeletedAt(job.getId()));
         List<String> resultKey = transaction.execute(s -> composeJobRepository.lockResultKey(job.getId()));
 
         assertThat(first).isEqualTo(1);
         assertThat(second).isZero();
-        assertThat(deletedAt).hasSize(1).doesNotContainNull();
         assertThat(resultKey).containsExactly((String) null);
     }
 }

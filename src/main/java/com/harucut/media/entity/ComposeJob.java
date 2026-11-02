@@ -129,6 +129,10 @@ public class ComposeJob extends BaseEntity {
     @Column(name = "attempt_no", nullable = false)
     private int attemptNo;
 
+    // 이 시각 전에는 다시 던지지 않는다(claim 때 백오프·지터로 정한다). 쓰는 곳은 claim 쿼리뿐이라 값을 읽을 일이 없다
+    @Column(name = "next_attempt_at")
+    private LocalDateTime nextAttemptAt;
+
     // 출력 계약(ComposeOutputContract) — 접수 때 고정, 재시도가 바꾸지 않는다. null = 도입 전 작업(예전 계약)
     @Column(name = "render_contract")
     private Integer renderContract;

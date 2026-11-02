@@ -38,6 +38,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("ComposeJobRepository")
 class ComposeJobRepositoryTest {
 
+    private static final LocalDateTime FAR_PAST = LocalDateTime.of(2000, 1, 1, 0, 0);
+    private static final java.time.Duration STALE_AFTER = java.time.Duration.ofMinutes(10);
+
     private static final List<String> FOUR_KEYS = List.of(
             "uploads/users/abc/fourcuts/sources/1.jpg",
             "uploads/users/abc/fourcuts/sources/2.jpg",
@@ -197,8 +200,9 @@ class ComposeJobRepositoryTest {
             markDone(done.getId(), "uploads/results/r1.png");
             markDone(othersDone.getId(), "uploads/results/r2.png");
 
-            assertThat(composeJobRepository.findResultKeysByUserId(mine.getId()))
-                    .containsExactly("uploads/results/r1.png");
+            em.clear();
+            assertThat(composeJobRepository.findAllByUserId(mine.getId())).extracting(ComposeJob::getResultKey)
+                    .containsExactlyInAnyOrder("uploads/results/r1.png", null);
         }
 
         @Test
@@ -223,7 +227,6 @@ class ComposeJobRepositoryTest {
     @DisplayName("claim — 조건부 UPDATE 선점")
     class Claim {
 
-        private static final Duration STALE_AFTER = Duration.ofMinutes(10);
 
         @Test
         @DisplayName("갓 만든 PENDING(started_at IS NULL)은 선점된다")
@@ -375,12 +378,90 @@ class ComposeJobRepositoryTest {
             persistJob("idem-2");
             persistJob("idem-3");
 
-            assertThat(composeJobRepository.findStalled(STALE_BEFORE, PageRequest.of(0, 2)))
-                    .hasSize(2);
+            assertThat(stalled(PageRequest.of(0, 2))).hasSize(2);
+        }
+
+        @Test
+        @DisplayName("삭제된 작업은 다시 던지지 않는다(R5 L494) — 선점도 거절된다")
+        void excludesDeleted() {
+            Long jobId = persistJob("idem-deleted");
+            composeJobRepository.markDeleted(jobId, NOW);
+            em.flush();
+            em.clear();
+
+            assertThat(stalled()).isEmpty();
+            assertThat(composeJobRepository.claim(jobId, NOW, NOW.minus(STALE_AFTER))).isZero();
+        }
+
+        @Test
+        @DisplayName("다음 시도 시각 전에는 잡히지 않고 선점도 거절된다 — 백오프 동안 다시 던지지 않는다")
+        void respectsNextAttemptAt() {
+            Long jobId = persistJob("idem-backoff");
+            composeJobRepository.scheduleNextAttempt(jobId, NOW.plusMinutes(1));
+            em.flush();
+            em.clear();
+
+            assertThat(stalled()).isEmpty();
+            assertThat(composeJobRepository.claim(jobId, NOW, NOW.minus(STALE_AFTER))).isZero();
+
+            composeJobRepository.scheduleNextAttempt(jobId, NOW);
+            em.flush();
+            em.clear();
+            assertThat(stalled()).extracting(ComposeJob::getId).containsExactly(jobId);
+            assertThat(composeJobRepository.claim(jobId, NOW, NOW.minus(STALE_AFTER))).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("횟수를 다 쓰면 재접수에서 빠지고 기다린 뒤 만료로 잡힌다 — 조용히 남지 않는다")
+        void exhaustedByAttempts() {
+            Long jobId = persistJob("idem-exhausted");
+            claimTimes(jobId, 2);
+            startedAt(jobId, NOW.minusMinutes(5));
+            em.clear();
+
+            // 마지막 시도를 기다리는 중 — 재접수도 만료도 아니다
+            assertThat(composeJobRepository.findStalled(NOW, STALE_BEFORE, 2, FAR_PAST, firstTwenty)).isEmpty();
+            assertThat(composeJobRepository.findDispatchExpired(STALE_BEFORE, 2, FAR_PAST, firstTwenty)).isEmpty();
+
+            startedAt(jobId, NOW.minusMinutes(30));
+            em.clear();
+            assertThat(composeJobRepository.findStalled(NOW, STALE_BEFORE, 2, FAR_PAST, firstTwenty)).isEmpty();
+            assertThat(composeJobRepository.findDispatchExpired(STALE_BEFORE, 2, FAR_PAST, firstTwenty))
+                    .extracting(ComposeJob::getId).containsExactly(jobId);
+        }
+
+        @Test
+        @DisplayName("총 기한이 지나면 횟수가 남아도 재접수에서 빠지고 만료로 잡힌다 — 삭제된 작업도 만료로 끝나 예약이 돌아온다")
+        void exhaustedByDeadline() {
+            Long jobId = persistJob("idem-deadline");
+            Long deleted = persistJob("idem-deadline-deleted");
+            composeJobRepository.markDeleted(deleted, NOW);
+            em.flush();
+            em.clear();
+            LocalDateTime cutoffAfterCreated = FixedClockConfig.FIXED_NOW.plusSeconds(1);
+
+            assertThat(composeJobRepository.findStalled(NOW, STALE_BEFORE, 99, cutoffAfterCreated, firstTwenty)).isEmpty();
+            assertThat(composeJobRepository.findDispatchExpired(STALE_BEFORE, 99, cutoffAfterCreated, firstTwenty))
+                    .extracting(ComposeJob::getId).containsExactly(jobId, deleted);
+            // 기한 전이면 만료가 아니다
+            assertThat(composeJobRepository.findDispatchExpired(STALE_BEFORE, 99, FAR_PAST, firstTwenty)).isEmpty();
+        }
+
+        private void claimTimes(Long jobId, int times) {
+            for (int i = 0; i < times; i++) {
+                startedAt(jobId, NOW.minusMinutes(30));
+                em.clear();
+                assertThat(composeJobRepository.claim(jobId, NOW, NOW.minus(STALE_AFTER))).isEqualTo(1);
+            }
+            em.flush();
         }
 
         private List<ComposeJob> stalled() {
-            return composeJobRepository.findStalled(STALE_BEFORE, firstTwenty);
+            return stalled(firstTwenty);
+        }
+
+        private List<ComposeJob> stalled(Pageable pageable) {
+            return composeJobRepository.findStalled(NOW, STALE_BEFORE, 99, FAR_PAST, pageable);
         }
     }
 

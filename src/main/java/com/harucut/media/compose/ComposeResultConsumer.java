@@ -175,9 +175,14 @@ public class ComposeResultConsumer implements SmartLifecycle {
             return;
         }
 
+        ComposeLambdaPayload payload = notification.requestPayload();
+        if (composeService.discardIfJobGone(jobId, payload.resultKey(), payload.thumbnailKey())) {
+            log.info("[합성 통지] 작업이 사라졌다(탈퇴) — 결과를 지우고 통지를 끝낸다: jobId={} condition={}", jobId, notification.condition());
+            return;
+        }
+
         String condition = notification.condition();
         if ("Success".equals(condition)) {
-            ComposeLambdaPayload payload = notification.requestPayload();
             if (payload.verifiedPair()) {
                 // 출력 계약 2(R5 D09) — 저장된 한 쌍을 대조한 뒤에만 확정한다. 다르거나 검증할 수 없으면 공개하지 않고 최종 실패
                 ComposeLambdaResult result = notification.result();
@@ -204,7 +209,7 @@ public class ComposeResultConsumer implements SmartLifecycle {
             // 함수가 최초 1회 + 재시도 2회를 모두 예외로 끝냈다 — 영구 실패로 본다
             // 지금 시도의 실패만 반영한다 — 이전 시도의 늦은 실패가 다음 시도의 성공을 버리게 하지 않는다(R5 D09).
             // 시도 번호가 없는 예전 payload 는 대조하지 않는다
-            Integer attemptNo = notification.requestPayload() == null ? null : notification.requestPayload().attemptNo();
+            Integer attemptNo = payload.attemptNo();
             if (composeService.failJob(jobId, notification.failureReason(), notification.failureCode(), attemptNo)) {
                 metrics.notifiedFailed();
                 log.warn("[합성 통지] 영구 실패: jobId={} attempt={} reason={}", jobId, attemptNo, notification.failureReason());

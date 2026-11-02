@@ -73,12 +73,9 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
     int markDeleted(@Param("id") Long id, @Param("now") LocalDateTime now);
 
     // 자기 UPDATE 뒤의 잠금 읽기(FOR UPDATE) — 영속성 컨텍스트를 거치지 않고 최신 커밋 값을 본다.
-    // 삭제 요청과 완료 통지가 엇갈려도 나중에 커밋하는 쪽이 상대의 변경을 보고 결과 객체를 정리한다
+    // 삭제 요청이 완료 통지와 엇갈려도 먼저 커밋된 완료의 결과 key 를 보고 객체를 정리한다
     @Query(value = "select result_key from compose_job where compose_job_id = :id for update", nativeQuery = true)
     List<String> lockResultKey(@Param("id") Long id);
-
-    @Query(value = "select deleted_at from compose_job where compose_job_id = :id for update", nativeQuery = true)
-    List<Object> lockDeletedAt(@Param("id") Long id);
 
     // 부스 화면이 지금 회차의 합성 상태를 본다 — 회차에 작업이 여럿이면 마지막 것
     Optional<ComposeJob> findFirstByCaptureRunIdOrderByIdDesc(Long captureRunId);
@@ -87,8 +84,8 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
     // PENDING 이 적을 때 싸고, 많을 때 비싸진다. 그 순간이 알아야 하는 순간이라 감수한다
     long countByStatus(ComposeStatus status);
 
-    @Query("SELECT j.resultKey FROM ComposeJob j WHERE j.user.id = :userId AND j.resultKey IS NOT NULL")
-    List<String> findResultKeysByUserId(Long userId);
+    @Query("SELECT j FROM ComposeJob j WHERE j.user.id = :userId")
+    List<ComposeJob> findAllByUserId(Long userId);
 
     @Modifying(clearAutomatically = true)
     @Query("DELETE FROM ComposeJob j WHERE j.user.id = :userId")
@@ -100,9 +97,16 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
             SET j.startedAt = :now, j.attemptNo = j.attemptNo + 1
             WHERE j.id = :jobId
                 AND j.status = ComposeStatus.PENDING
+                AND j.deletedAt IS NULL
                 AND (j.startedAt IS NULL OR j.startedAt < :staleBefore)
+                AND (j.nextAttemptAt IS NULL OR j.nextAttemptAt <= :now)
             """)
     int claim(Long jobId, LocalDateTime now, LocalDateTime staleBefore);
+
+    // claim 을 이긴 같은 트랜잭션에서 — 시도 번호로 백오프를 계산한 뒤 적는다
+    @Modifying
+    @Query("UPDATE ComposeJob j SET j.nextAttemptAt = :at WHERE j.id = :jobId")
+    int scheduleNextAttempt(Long jobId, LocalDateTime at);
 
     // claim 을 이긴 같은 트랜잭션에서 — 방금 올린 시도 번호
     @Query("SELECT j.attemptNo FROM ComposeJob j WHERE j.id = :jobId")
@@ -157,8 +161,22 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
             SELECT j FROM ComposeJob j
             LEFT JOIN FETCH j.user
             WHERE j.status = ComposeStatus.PENDING
+                AND j.deletedAt IS NULL
                 AND (j.startedAt IS NULL OR j.startedAt < :staleBefore)
+                AND (j.nextAttemptAt IS NULL OR j.nextAttemptAt <= :now)
+                AND j.attemptNo < :maxAttempts
+                AND j.createdAt >= :deadlineCutoff
             ORDER BY j.id
             """)
-    List<ComposeJob> findStalled(LocalDateTime staleBefore, Pageable pageable);
+    List<ComposeJob> findStalled(LocalDateTime now, LocalDateTime staleBefore, int maxAttempts,
+                                 LocalDateTime deadlineCutoff, Pageable pageable);
+
+    // 더 던지지 않을 작업 — 총 기한이 지났거나, 마지막 시도까지 던지고 기다릴 만큼 기다렸다
+    @Query("""
+            SELECT j FROM ComposeJob j
+            WHERE j.status = ComposeStatus.PENDING
+                AND (j.createdAt < :deadlineCutoff OR (j.attemptNo >= :maxAttempts AND j.startedAt < :staleBefore))
+            ORDER BY j.id
+            """)
+    List<ComposeJob> findDispatchExpired(LocalDateTime staleBefore, int maxAttempts, LocalDateTime deadlineCutoff, Pageable pageable);
 }

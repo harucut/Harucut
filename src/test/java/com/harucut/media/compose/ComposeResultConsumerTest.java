@@ -89,6 +89,18 @@ class ComposeResultConsumerTest {
     class Conditions {
 
         @Test
+        @DisplayName("작업 행이 없으면(탈퇴) 결과를 지우고 통지를 끝낸다 — 재전달을 돌다 DLQ 로 가지 않는다")
+        void discardsWhenJobGone() throws Exception {
+            given(composeService.discardIfJobGone(anyLong(), any(), any())).willReturn(true);
+
+            CountDownLatch deleted = runWith(notification("Success", """
+                    "responsePayload":{"ok":true}"""));
+
+            assertThat(deleted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            then(composeService).should(never()).completeJob(anyLong(), any(), any());
+        }
+
+        @Test
         @DisplayName("Success 는 Job 을 완료로 확정하고 메시지를 지운다")
         void successCompletesJobAndDeletesMessage() throws Exception {
             CountDownLatch deleted = runWith(notification("Success", """
@@ -171,7 +183,8 @@ class ComposeResultConsumerTest {
                     "responseContext": null"""));
 
             assertThat(deleted.await(5, TimeUnit.SECONDS)).isTrue();
-            then(composeService).shouldHaveNoInteractions();
+            then(composeService).should().discardIfJobGone(JOB_ID, RESULT_KEY, THUMB_KEY);
+            then(composeService).shouldHaveNoMoreInteractions();
         }
 
         @Test
@@ -181,7 +194,8 @@ class ComposeResultConsumerTest {
                     "responseContext": null"""));
 
             assertThat(deleted.await(5, TimeUnit.SECONDS)).isTrue();
-            then(composeService).shouldHaveNoInteractions();
+            then(composeService).should().discardIfJobGone(JOB_ID, RESULT_KEY, THUMB_KEY);
+            then(composeService).shouldHaveNoMoreInteractions();
         }
     }
 

@@ -62,6 +62,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willAnswer;
@@ -126,7 +127,7 @@ class EventRetentionIntegrationTest {
         assertThat(result.purgedResults()).isEqualTo(1);
         // 정리 때 한 번 예약한다 — 실패하면 삭제 예약 큐(s3_deletion)가 다시 지운다
         then(s3Deleter).should(times(1)).deleteAfterCommit(List.of("uploads/r/old.jpg",
-                ComposeService.thumbnailKeyFor(composeJobRepository.findById(old.getId()).orElseThrow())));
+                ComposeService.thumbnailKeyFor(composeJobRepository.findById(old.getId()).orElseThrow())), ComposeService.LATE_WRITE_WINDOW);
         assertThat(composeJobRepository.findById(old.getId()).orElseThrow().getPurgedAt()).isNotNull();
         assertThat(photoService.page(owner.getPublicId(), event.getPublicId(), null, null, null, null, null, null, null).items())
                 .extracting(p -> p.photoId()).containsExactly(recent.getId());
@@ -191,12 +192,12 @@ class EventRetentionIntegrationTest {
                 LocalDateTime.now().minusDays(2).minusMinutes(1), other.getId());
         entityManager.clear();
         // 첫 번째로 정리하는 행사의 삭제 예약만 실패한다
-        willThrow(new IllegalStateException("s3 queue down")).willDoNothing().given(s3Deleter).deleteAfterCommit(anyCollection());
+        willThrow(new IllegalStateException("s3 queue down")).willDoNothing().given(s3Deleter).deleteAfterCommit(anyCollection(), any());
 
         EventRetentionService.Result result = retentionService.run();
 
         assertThat(result.purgedResults()).isEqualTo(1);   // 실패한 행사는 0, 다른 행사는 1
-        then(s3Deleter).should(atLeast(2)).deleteAfterCommit(anyCollection());
+        then(s3Deleter).should(atLeast(2)).deleteAfterCommit(anyCollection(), any());
     }
 
     @Test
@@ -214,7 +215,7 @@ class EventRetentionIntegrationTest {
                         objectMapper.valueToTree(Map.of("resultRetentionDays", 30))));
             }
             return null;
-        }).given(s3Deleter).deleteAfterCommit(anyCollection());
+        }).given(s3Deleter).deleteAfterCommit(anyCollection(), any());
 
         assertThat(retentionService.run().purgedResults()).isEqualTo(1);   // 첫 배치(크기 1)만 예전 기준
         entityManager.flush();

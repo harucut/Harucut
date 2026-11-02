@@ -118,7 +118,11 @@ class ComposeClaimTransactionTest {
         assertThat(composeService.claim(jobId, Duration.ofMinutes(10)))
                 .as("유예 시간 안에서는 뒤늦은 재실행이 같은 Job 을 다시 집으면 안 된다")
                 .isNull();
-        // 유예가 지나 다시 집으면 시도 번호가 오른다
+        // 유예가 지나도 다음 시도 시각 전이면 집지 못한다(백오프)
+        assertThat(composeService.claim(jobId, Duration.ZERO)).isNull();
+        // 그 시각도 지나 다시 집으면 시도 번호가 오른다
+        transactionTemplate.executeWithoutResult(status ->
+                composeJobRepository.scheduleNextAttempt(jobId, java.time.LocalDateTime.of(2000, 1, 1, 0, 0)));
         assertThat(composeService.claim(jobId, Duration.ZERO)).isEqualTo(2);
     }
 }

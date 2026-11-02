@@ -22,6 +22,8 @@ public enum ComposeFailureCode {
      * 덮어써 복구하지 않고 공개하지 않는다
      */
     OUTPUT_CONFLICT,
+    /** 앱 재접수 횟수·총 기한을 넘겼다 — 일시 장애가 풀리지 않았다(R5 O05). 서버가 판정한다. 원본이 지워지므로 다시 촬영해야 한다 */
+    DISPATCH_EXHAUSTED,
     /** 실패 종류를 알리지 않는 실행기(코드 도입 전 Lambda 등) */
     UNKNOWN;
 

@@ -133,7 +133,7 @@ public class EventRetentionService {
                 for (ComposeJob job : jobs) {
                     // purged_at 만 원자적으로 — 엔티티를 고쳐 저장하면 그사이 커밋된 삭제 요청(deleted_at)을 덮는다
                     if (composeJobRepository.markPurged(job.getId(), now) == 1) {
-                        s3Deleter.deleteAfterCommit(List.of(job.getResultKey(), ComposeService.thumbnailKeyFor(job)));
+                        s3Deleter.deleteAfterCommit(List.of(job.getResultKey(), ComposeService.thumbnailKeyFor(job)), ComposeService.LATE_WRITE_WINDOW);
                         exportService.invalidateContaining(job.getId());
                     }
                 }

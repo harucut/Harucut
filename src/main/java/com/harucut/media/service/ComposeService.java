@@ -11,6 +11,7 @@ import com.harucut.frame.service.FrameService;
 import com.harucut.media.compose.ComposeMetrics;
 import com.harucut.media.compose.ComposeOutputPolicy;
 import com.harucut.media.compose.ComposeRequestedEvent;
+import com.harucut.media.compose.ComposeRetryPolicy;
 import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeSpec;
 import com.harucut.media.compose.ComposeSpecAssembler;
@@ -41,8 +42,8 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -63,6 +64,7 @@ public class ComposeService {
     private final ObjectMapper objectMapper;
     private final EntitlementService entitlementService;
     private final ComposeOutputPolicy outputPolicy;
+    private final ComposeRetryPolicy retryPolicy;
 
     // 최종 실패한 작업의 결과·썸네일 자리를 다시 지우기까지 — 늦게 도착한 실행(AWS 비동기 큐 최대 6시간 + 실행 시간)이
     // 그 자리에 쓸 수 있는 동안. 실패 확정 때 한 번, 이 시간 뒤 한 번 더 지운다(R5 D09 지연 재삭제)
@@ -217,11 +219,6 @@ public class ComposeService {
         if (job.getEventId() != null) {
             // 사용량 예약을 확정한다 — 전이를 이긴 이 트랜잭션에서만(늦은 통지는 위에서 false 로 끝났다)
             entitlementService.commit(jobId);
-            // 합성 중에 사진함에서 삭제 요청됐다 — 방금 만든 결과·썸네일을 남기지 않는다.
-            // 잠금 읽기(FOR UPDATE)라 엇갈려 커밋된 삭제 요청을 놓치지 않는다(삭제 쪽도 잠금 읽기로 결과 key 를 다시 본다)
-            if (composeJobRepository.lockDeletedAt(jobId).stream().anyMatch(Objects::nonNull)) {
-                s3Deleter.deleteAfterCommit(List.of(resultKey, thumbnailKey), LATE_WRITE_WINDOW);
-            }
         }
         // 원본은 성공 시 삭제 — 결과만 보관함에 남는다.
         // 원본은 합성 재료일 뿐 사용자의 보관 대상이 아니라 저장 비용만 먹는다
@@ -282,17 +279,47 @@ public class ComposeService {
         if (composeJobRepository.claim(jobId, now, now.minus(staleAfter)) != 1) {
             return null;
         }
-        return composeJobRepository.findAttemptNo(jobId);
+        Integer attemptNo = composeJobRepository.findAttemptNo(jobId);
+        composeJobRepository.scheduleNextAttempt(jobId, now.plus(retryPolicy.backoffAfter(attemptNo)));
+        return attemptNo;
     }
 
     // 재실행 대상을 실행 payload 로 바꿔 내보낸다. 엔티티를 밖으로 내보내지 않는 이유는
     // 워커가 트랜잭션 밖에서 돌기 때문이다 — 지연 로딩이 거기서 터진다
     @Transactional(readOnly = true)
     public List<ComposeRequestedEvent> findStalled(Duration staleAfter, int limit) {
-        LocalDateTime staleBefore = LocalDateTime.now(clock).minus(staleAfter);
-        return composeJobRepository.findStalled(staleBefore, PageRequest.of(0, limit)).stream()
+        LocalDateTime now = LocalDateTime.now(clock);
+        return composeJobRepository.findStalled(now, now.minus(staleAfter), retryPolicy.maxAttempts(),
+                        now.minus(retryPolicy.totalDeadline()), PageRequest.of(0, limit)).stream()
                 .map(ComposeService::requested)
                 .toList();
+    }
+
+    /** 재접수 예산을 다 쓴 작업 — 호출자가 시도 번호를 대조해 하나씩 최종 실패로 끝낸다 */
+    @Transactional(readOnly = true)
+    public List<ExpiredDispatch> findDispatchExpired(Duration staleAfter, int limit) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        return composeJobRepository.findDispatchExpired(now.minus(staleAfter), retryPolicy.maxAttempts(),
+                        now.minus(retryPolicy.totalDeadline()), PageRequest.of(0, limit)).stream()
+                .map(job -> new ExpiredDispatch(job.getId(), job.getAttemptNo()))
+                .toList();
+    }
+
+    public record ExpiredDispatch(Long jobId, int attemptNo) {
+    }
+
+    /**
+     * 통지가 왔는데 작업 행이 없다 — 탈퇴로 함께 지워졌다. 늦게 끝난 실행이 다시 만든 결과를 지운다(되살리지 않는다, R5 L498~499).
+     * 예외로 두면 통지가 재전달을 돌다 DLQ 로 간다
+     *
+     * @return 작업이 없어 정리했으면 true
+     */
+    public boolean discardIfJobGone(Long jobId, String resultKey, String thumbnailKey) {
+        if (composeJobRepository.existsById(jobId)) {
+            return false;
+        }
+        s3Deleter.deleteAfterCommit(Arrays.asList(resultKey, thumbnailKey), LATE_WRITE_WINDOW);
+        return true;
     }
 
     private static ComposeRequestedEvent requested(ComposeJob job) {

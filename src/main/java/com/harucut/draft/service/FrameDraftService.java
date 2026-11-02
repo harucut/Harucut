@@ -61,9 +61,7 @@ public class FrameDraftService {
         if (request.frameId() != null) {
             frameService.getEditableFrame(user, request.frameId());
         }
-        Workspace workspace = request.workspaceId() == null
-                ? workspaceService.personalWorkspaceOf(user.getId())
-                : workspaceService.requireRole(request.workspaceId(), user.getId(), EDIT_ROLES);
+        Workspace workspace = workspaceOf(user, request.workspaceId());
         List<Asset> assets = resolveAssets(request.assetIds(), user.getId());
 
         FrameDraft draft = frameDraftRepository.save(
@@ -72,28 +70,28 @@ public class FrameDraftService {
         return DraftResponse.full(draft, request.document());
     }
 
-    @Transactional(readOnly = true)
-    public List<DraftResponse> list(String publicId, String frameIdFilter) {
-        return list(publicId, frameIdFilter, null);
-    }
-
-    /** workspacePublicId 가 있으면 그 공간의 초안만 — 개인·조직 편집기가 서로의 새 프레임 초안을 복구하지 않게(R5 L258) */
+    /** 한 공간의 초안만 — 생략하면 개인 공간. 개인·조직 편집기가 서로의 새 프레임 초안을 복구하지 않게(R5 L258) */
     @Transactional(readOnly = true)
     public List<DraftResponse> list(String publicId, String frameIdFilter, String workspacePublicId) {
         User user = getUser(publicId);
-        Long workspaceId = workspacePublicId == null ? null
-                : workspaceService.requireRole(workspacePublicId, user.getId(), EDIT_ROLES).getId();
+        Long workspaceId = workspaceOf(user, workspacePublicId).getId();
         List<FrameDraft> drafts;
         if (frameIdFilter == null) {
-            drafts = frameDraftRepository.findAllByUserIdOrderByUpdatedAtDesc(user.getId());
+            drafts = frameDraftRepository.findAllByUserIdAndWorkspaceIdOrderByUpdatedAtDesc(user.getId(), workspaceId);
         } else if (NEW_FRAME.equals(frameIdFilter)) {
-            drafts = frameDraftRepository.findAllByUserIdAndFrameIdIsNullOrderByUpdatedAtDesc(user.getId());
+            drafts = frameDraftRepository.findAllByUserIdAndWorkspaceIdAndFrameIdIsNullOrderByUpdatedAtDesc(user.getId(), workspaceId);
         } else {
-            drafts = frameDraftRepository.findAllByUserIdAndFrameIdOrderByUpdatedAtDesc(user.getId(), parseFrameId(frameIdFilter));
+            drafts = frameDraftRepository.findAllByUserIdAndWorkspaceIdAndFrameIdOrderByUpdatedAtDesc(
+                    user.getId(), workspaceId, parseFrameId(frameIdFilter));
         }
-        return drafts.stream()
-                .filter(draft -> workspaceId == null || workspaceId.equals(draft.getWorkspaceId()))
-                .map(DraftResponse::summary).toList();
+        return drafts.stream().map(DraftResponse::summary).toList();
+    }
+
+    // 만들 때와 볼 때 같은 기본값 — 공간을 생략하면 개인 공간이다
+    private Workspace workspaceOf(User user, String workspacePublicId) {
+        return workspacePublicId == null
+                ? workspaceService.personalWorkspaceOf(user.getId())
+                : workspaceService.requireRole(workspacePublicId, user.getId(), EDIT_ROLES);
     }
 
     @Transactional(readOnly = true)

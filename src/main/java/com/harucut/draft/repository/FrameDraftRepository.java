@@ -14,11 +14,11 @@ public interface FrameDraftRepository extends JpaRepository<FrameDraft, Long> {
 
     Optional<FrameDraft> findByPublicIdAndUserId(String publicId, Long userId);
 
-    List<FrameDraft> findAllByUserIdOrderByUpdatedAtDesc(Long userId);
+    List<FrameDraft> findAllByUserIdAndWorkspaceIdOrderByUpdatedAtDesc(Long userId, Long workspaceId);
 
-    List<FrameDraft> findAllByUserIdAndFrameIdOrderByUpdatedAtDesc(Long userId, Long frameId);
+    List<FrameDraft> findAllByUserIdAndWorkspaceIdAndFrameIdOrderByUpdatedAtDesc(Long userId, Long workspaceId, Long frameId);
 
-    List<FrameDraft> findAllByUserIdAndFrameIdIsNullOrderByUpdatedAtDesc(Long userId);
+    List<FrameDraft> findAllByUserIdAndWorkspaceIdAndFrameIdIsNullOrderByUpdatedAtDesc(Long userId, Long workspaceId);
 
     /**
      * revision 이 기대값일 때만 저장하고 1 올린다. 영향 행 0 = 다른 기기가 먼저 저장했다.

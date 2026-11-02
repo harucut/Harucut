@@ -27,6 +27,7 @@ import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -61,6 +62,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.times;
 
 /*
  * 로그인 없는 개인 휴대폰 참가 흐름을 실제 행사 보안 체인 + 컨트롤러 + JPA 로 끝까지 본다(ADR-0007 §5).
@@ -238,6 +241,52 @@ class ParticipantFlowIntegrationTest {
 
         assertThat(data(post("/api/participant/events/" + eventId + "/compose-jobs", token, compose), 202).path("jobId").asLong())
                 .isEqualTo(jobId);
+    }
+
+    @Test
+    @DisplayName("결과 저장은 파일로 내려받는 URL(attachment)이고, 화면에는 결과 원본의 바로 보기 URL 을 준다 — 준비 전에는 둘 다 없다")
+    void resultDeliveryUrls() throws Exception {
+        given(fileStorageService.generatePresignedGetUrl(eq("uploads/r/delivery.jpg"), any())).willReturn("https://s3/image");
+        given(fileStorageService.generatePresignedDownloadUrl(eq("uploads/r/delivery.jpg"), anyString(), any())).willReturn("https://s3/attachment");
+
+        String token = activeParticipant();
+        String runId = data(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId)
+                .header(TOKEN_HEADER, token).exchange(), 201).path("captureRunId").asString();
+        List<String> assetIds = new ArrayList<>();
+        for (int slot = 0; slot < 4; slot++) {
+            String assetId = data(post("/api/participant/events/" + eventId + "/upload-intents", token,
+                    Map.of("captureRunId", runId, "slotIndex", slot, "contentType", "PNG", "fileSize", png.length)), 201)
+                    .path("assetId").asString();
+            ok(mvc.post().uri("/api/participant/assets/{id}/complete", assetId).header(TOKEN_HEADER, token).exchange());
+            assetIds.add(assetId);
+        }
+        JsonNode accepted = data(post("/api/participant/events/" + eventId + "/compose-jobs", token, Map.of("captureRunId", runId,
+                "frameVersionId", frameVersionId, "sourceAssetIds", assetIds, "idempotencyKey", "key-delivery")), 202);
+        long jobId = accepted.path("jobId").asLong();
+        String bearer = "Bearer " + accepted.path("resultToken").asString();
+
+        JsonNode pending = ok(mvc.get().uri("/api/public/results").header(HttpHeaders.AUTHORIZATION, bearer).exchange());
+        assertThat(pending.has("imageUrl")).isFalse();
+        assertThat(pending.has("thumbnailUrl")).isFalse();
+
+        assertThat(composeService.completeJob(jobId, "uploads/r/delivery.jpg", "uploads/r/delivery_thumb.jpg")).isTrue();
+
+        JsonNode done = ok(mvc.get().uri("/api/public/results").header(HttpHeaders.AUTHORIZATION, bearer).exchange());
+        assertThat(done.path("status").asString()).isEqualTo("DONE");
+        assertThat(done.path("imageUrl").asString()).isEqualTo("https://s3/image");
+        // 썸네일은 목록용으로 그대로 — key 는 작업에서 계산되므로 기본 응답을 받는다
+        assertThat(done.path("thumbnailUrl").asString()).isEqualTo("https://s3/get-short");
+
+        // 결과 링크·재방문 다운로드 모두 attachment, 파일 이름은 행사 이름-찍은 시각.jpg (내부 작업 번호 없음)
+        assertThat(ok(mvc.post().uri("/api/public/results/download").header(HttpHeaders.AUTHORIZATION, bearer).exchange())
+                .path("url").asString()).isEqualTo("https://s3/attachment");
+        assertThat(ok(mvc.post().uri("/api/participant/compose-jobs/{id}/download", jobId).header(TOKEN_HEADER, token).exchange())
+                .path("url").asString()).isEqualTo("https://s3/attachment");
+
+        ArgumentCaptor<String> filename = ArgumentCaptor.forClass(String.class);
+        then(fileStorageService).should(times(2))
+                .generatePresignedDownloadUrl(eq("uploads/r/delivery.jpg"), filename.capture(), any());
+        assertThat(filename.getAllValues()).allSatisfy(name -> assertThat(name).matches("민지 ♥ 준호-\\d{8}-\\d{6}\\.jpg"));
     }
 
     @Test

@@ -16,6 +16,7 @@ import com.harucut.result.dto.DownloadUrlResponse;
 import com.harucut.result.exception.ResultErrorCode;
 import com.harucut.storage.config.StorageProperties;
 import com.harucut.storage.service.FileStorageService;
+import com.harucut.storage.util.S3Keys;
 import com.harucut.storage.service.S3Deleter;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
@@ -82,7 +83,7 @@ public class PhotoService {
         if (job.getStatus() != ComposeStatus.DONE || job.getResultKey() == null) {
             throw new BusinessException(ResultErrorCode.NOT_READY);
         }
-        String filename = event.getName() + "-" + job.getId() + extensionOf(job.getResultKey());
+        String filename = event.getName() + "-" + job.getId() + S3Keys.extensionOf(job.getResultKey());
         String url = fileStorageService.generatePresignedDownloadUrl(job.getResultKey(), filename,
                 storageProperties.download().getTtl());
         return new DownloadUrlResponse(url, offset(LocalDateTime.now(clock).plus(storageProperties.download().getTtl())));
@@ -132,11 +133,6 @@ public class PhotoService {
             return new PhotoDtos.Failure("TIMEOUT", true);
         }
         return new PhotoDtos.Failure("COMPOSE_FAILED", true);
-    }
-
-    private static String extensionOf(String key) {
-        int dot = key.lastIndexOf('.');
-        return dot < 0 ? ".jpg" : key.substring(dot);
     }
 
     private Long userId(String publicId) {

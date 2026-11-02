@@ -22,6 +22,7 @@ import com.harucut.result.exception.ResultErrorCode;
 import com.harucut.result.repository.ResultAccessRepository;
 import com.harucut.storage.config.StorageProperties;
 import com.harucut.storage.service.FileStorageService;
+import com.harucut.storage.util.S3Keys;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +31,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 
 /**
  * 개인 결과 링크(/r#<token>)의 서버 쪽 (ADR-0007 §8). 토큰은 경로·쿼리가 아니라 Authorization 헤더로만 받는다.
@@ -39,6 +41,9 @@ import java.time.OffsetDateTime;
 @Transactional
 @RequiredArgsConstructor
 public class ResultService {
+
+    private static final int DOWNLOAD_NAME_LENGTH = 40;
+    private static final DateTimeFormatter DOWNLOAD_TIME = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
     private final ResultAccessRepository resultAccessRepository;
     private final ComposeJobRepository composeJobRepository;
@@ -66,10 +71,15 @@ public class ResultService {
         // 사진함에서 삭제된 결과도 참가자에게는 「만료」로 보인다 — 삭제 사실을 따로 알리지 않는다(ADR-0008 §3)
         boolean expired = access.expiredAt(LocalDateTime.now(clock)) || job.isDeleted();
         String status = expired ? "EXPIRED" : job.getStatus().name();
-        String thumbnailUrl = !expired && job.getStatus() == ComposeStatus.DONE
-                ? fileStorageService.generatePresignedGetUrl(ComposeService.thumbnailKeyFor(job), storageProperties.download().getTtl())
-                : null;
-        return new ResultStatusResponse(status, event.getName(), thumbnailUrl, offset(access.getExpiresAt()), theme(job));
+        boolean ready = !expired && job.getStatus() == ComposeStatus.DONE;
+        String thumbnailUrl = ready ? shortGetUrl(ComposeService.thumbnailKeyFor(job)) : null;
+        // 썸네일은 긴 변 512px 라 세로 4컷이면 폭이 170px 이다 — 처음 보는 화면은 원본으로 그린다
+        String imageUrl = ready && job.getResultKey() != null ? shortGetUrl(job.getResultKey()) : null;
+        return new ResultStatusResponse(status, event.getName(), thumbnailUrl, imageUrl, offset(access.getExpiresAt()), theme(job));
+    }
+
+    private String shortGetUrl(String key) {
+        return fileStorageService.generatePresignedGetUrl(key, storageProperties.download().getTtl());
     }
 
     @Transactional(readOnly = true)
@@ -79,24 +89,37 @@ public class ResultService {
         if (access.expiredAt(LocalDateTime.now(clock)) || job.isDeleted()) {
             throw new BusinessException(ResultErrorCode.EXPIRED);
         }
-        return downloadUrl(job);
+        return downloadUrl(job, event(job));
     }
 
     /** 참가자 재방문 다운로드(BYOD) — 결과 토큰 없이 세션으로. 같은 보관·준비 검사 */
     @Transactional(readOnly = true)
     public DownloadUrlResponse downloadForParticipant(ComposeJob job) {
-        if (job.isDeleted() || !LocalDateTime.now(clock).isBefore(retentionEnd(job, event(job)))) {
+        Event event = event(job);
+        if (job.isDeleted() || !LocalDateTime.now(clock).isBefore(retentionEnd(job, event))) {
             throw new BusinessException(ResultErrorCode.EXPIRED);
         }
-        return downloadUrl(job);
+        return downloadUrl(job, event);
     }
 
-    private DownloadUrlResponse downloadUrl(ComposeJob job) {
+    // attachment 로 서명한다 — 그냥 GET URL 이면 브라우저가 결과 이미지로 페이지를 옮겨 행사 화면을 잃는다
+    private DownloadUrlResponse downloadUrl(ComposeJob job, Event event) {
         if (job.getStatus() != ComposeStatus.DONE || job.getResultKey() == null) {
             throw new BusinessException(ResultErrorCode.NOT_READY);
         }
-        String url = fileStorageService.generatePresignedGetUrl(job.getResultKey(), storageProperties.download().getTtl());
+        LocalDateTime takenAt = job.getCreatedAt() != null ? job.getCreatedAt() : LocalDateTime.now(clock);
+        String url = fileStorageService.generatePresignedDownloadUrl(job.getResultKey(),
+                downloadName(event.getName(), takenAt, job.getResultKey()), storageProperties.download().getTtl());
         return new DownloadUrlResponse(url, offset(LocalDateTime.now(clock).plus(storageProperties.download().getTtl())));
+    }
+
+    // 「행사 이름 일부-찍은 시각.jpg」. 결과 링크는 여러 사람에게 전달되므로 내부 작업 번호는 싣지 않는다.
+    // 행사 이름은 주최자 입력이다 — 보이지 않는 제어·서식 문자(방향 바꾸기 등)를 빼고 URL 이 길어지지 않게 자른다
+    static String downloadName(String eventName, LocalDateTime takenAt, String resultKey) {
+        String name = eventName.replaceAll("[\\p{Cc}\\p{Cf}]", "").strip();
+        String part = name.codePointCount(0, name.length()) <= DOWNLOAD_NAME_LENGTH ? name
+                : name.substring(0, name.offsetByCodePoints(0, DOWNLOAD_NAME_LENGTH)).strip();
+        return (part.isEmpty() ? "harucut" : part) + "-" + takenAt.format(DOWNLOAD_TIME) + S3Keys.extensionOf(resultKey);
     }
 
     private LocalDateTime retentionEnd(ComposeJob job, Event event) {

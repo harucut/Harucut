@@ -409,6 +409,9 @@ public class EventService {
                 violations.add(violation(field, "없는 프레임 발행본이다"));
                 continue;
             }
+            if (version.revoked()) {
+                violations.add(violation(field, "긴급 회수된 발행본이다"));
+            }
             if (version.getFrameType() != ref.layoutType()) {
                 violations.add(violation(field, "발행본의 레이아웃(" + version.getFrameType() + ")과 다르다"));
             }

@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -26,6 +27,15 @@ public interface FrameVersionRepository extends JpaRepository<FrameVersion, Long
             and v.versionNo = (select max(v2.versionNo) from FrameVersion v2 where v2.frameId = v.frameId)
             """)
     List<FrameVersion> findLatestByFrameIdIn(Collection<Long> frameIds);
+
+    // 긴급 회수 — 이미 회수했으면 0 이고 처음 시각·사유를 덮지 않는다. 벌크 UPDATE 라 updated_at 을 직접 넣는다
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update FrameVersion v set v.revokedAt = :now, v.revokedReason = :reason, v.updatedAt = :now where v.id = :id and v.revokedAt is null")
+    int revoke(@Param("id") Long id, @Param("reason") String reason, @Param("now") LocalDateTime now);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update FrameVersion v set v.revokedAt = null, v.revokedReason = null, v.updatedAt = :now where v.id = :id and v.revokedAt is not null")
+    int restore(@Param("id") Long id, @Param("now") LocalDateTime now);
 
     @Query("select v.id from FrameVersion v where v.frameId in :frameIds")
     List<Long> findIdsByFrameIdIn(Collection<Long> frameIds);

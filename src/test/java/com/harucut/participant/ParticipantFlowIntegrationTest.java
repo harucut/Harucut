@@ -1,5 +1,6 @@
 package com.harucut.participant;
 
+import com.harucut.common.exception.BusinessException;
 import com.harucut.entitlement.enums.Feature;
 import com.harucut.event.service.EventFeatures;
 import com.harucut.participant.config.ParticipationProperties;
@@ -104,6 +105,7 @@ class ParticipantFlowIntegrationTest {
     @MockitoSpyBean private EventFeatures eventFeatures;
 
     private String operatorPublicId;
+    private Long frameId;
     private String slug;
     private String eventId;
     private Long frameVersionId;
@@ -124,7 +126,7 @@ class ParticipantFlowIntegrationTest {
         operatorPublicId = operator.getPublicId();
         WorkspaceResponse org = workspaceService.createOrganization(operator.getPublicId(), "웨딩팀");
         TestEntitlements.grant(entitlementRepository, workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId());
-        Long frameId = frameService.createFrame(operator.getPublicId(), new FrameCreateRequest("프레임", null,
+        frameId = frameService.createFrame(operator.getPublicId(), new FrameCreateRequest("프레임", null,
                 S3Keys.userRoot(operator.getPublicId()) + "frames/p.png", FrameType.CLASSIC, null, null,
                 new BackgroundAttributes.Color("#FFFFFF"), null, List.of(), null, org.workspaceId())).frameId();
         frameVersionId = frameVersionService.publish(operator.getPublicId(), frameId).frameVersionId();
@@ -473,6 +475,42 @@ class ParticipantFlowIntegrationTest {
     }
 
     @Test
+    @DisplayName("프레임 긴급 회수(R5 L297·L302, F32) — 공개 목록에서 빠지고 발행본 조회·합성 접수는 PART-004, 대체 프레임 없음. 접수한 작업은 그대로 끝나고, 해제하면 다시 된다")
+    void revokedFrameVersion() throws Exception {
+        String token = activeParticipant();
+        String runId = run(token);
+        Map<String, Object> accepted = composeRequest(token, runId, 0, "key-before-revoke");
+        JsonNode first = data(post("/api/participant/events/" + eventId + "/compose-jobs", token, accepted), 202);
+        Map<String, Object> blocked = composeRequest(token, runId, 4, "key-after-revoke");
+
+        assertThat(frameVersionService.revoke(operatorPublicId, frameId, 1, "저작권 문의").revokedReason()).isEqualTo("저작권 문의");
+
+        assertThat(ok(mvc.get().uri("/api/public/events/{slug}", slug).exchange()).path("frames")).isEmpty();
+        assertCode(mvc.get().uri("/api/participant/events/{id}/frame-versions/{fv}?captureRunId={run}", eventId, frameVersionId, runId)
+                .header(TOKEN_HEADER, token).exchange(), 403, "PART-004");
+        assertCode(post("/api/participant/events/" + eventId + "/compose-jobs", token, blocked), 403, "PART-004");
+
+        // 이미 접수한 작업: 같은 요청을 다시 보내도 같은 작업이고, 끝까지 간다
+        assertThat(data(post("/api/participant/events/" + eventId + "/compose-jobs", token, accepted), 202).path("jobId").asLong())
+                .isEqualTo(first.path("jobId").asLong());
+        assertThat(composeService.completeJob(first.path("jobId").asLong(), "uploads/r/revoked.jpg", "uploads/r/revoked_thumb.jpg")).isTrue();
+        assertThat(ok(mvc.get().uri("/api/public/results").header(HttpHeaders.AUTHORIZATION, "Bearer " + first.path("resultToken").asString()).exchange())
+                .path("status").asString()).isEqualTo("DONE");
+
+        // 다시 게시해도 회수된 발행본은 쓰지 못한다 — EVENT-003 위반 목록
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> eventService.publish(operatorPublicId, eventId))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode().getCode()).isEqualTo("EVENT-003");
+                    assertThat(String.valueOf(e.getData())).contains("frames[0]").contains("긴급 회수");
+                });
+
+        assertThat(frameVersionService.restore(operatorPublicId, frameId, 1).revokedAt()).isNull();
+
+        assertThat(ok(mvc.get().uri("/api/public/events/{slug}", slug).exchange()).path("frames")).hasSize(1);
+        data(post("/api/participant/events/" + eventId + "/compose-jobs", token, blocked), 202);
+    }
+
+    @Test
     @DisplayName("결과 링크 회수(R5 L208) — 그 작업의 링크가 전부 401 RESULT-001, 사진은 남고 새 링크는 다시 받는다. 남의 작업은 404, 수령 토큰으로는 못 한다")
     void revokeResultAccess() throws Exception {
         String token = activeParticipant();
@@ -601,6 +639,19 @@ class ParticipantFlowIntegrationTest {
     }
 
     // ── helpers ──────────────────────────────
+
+    // from 번 칸부터 입력 4장을 올리고 합성 요청을 만든다
+    private Map<String, Object> composeRequest(String token, String runId, int from, String key) {
+        List<String> assetIds = new ArrayList<>();
+        for (int slot = from; slot < from + 4; slot++) {
+            String assetId = data(post("/api/participant/events/" + eventId + "/upload-intents", token,
+                    Map.of("captureRunId", runId, "slotIndex", slot % 4, "contentType", "PNG", "fileSize", png.length)), 201)
+                    .path("assetId").asString();
+            ok(mvc.post().uri("/api/participant/assets/{id}/complete", assetId).header(TOKEN_HEADER, token).exchange());
+            assetIds.add(assetId);
+        }
+        return Map.of("captureRunId", runId, "frameVersionId", frameVersionId, "sourceAssetIds", assetIds, "idempotencyKey", key);
+    }
 
     private String run(String token) {
         return data(mvc.post().uri("/api/participant/events/{id}/capture-runs", eventId)

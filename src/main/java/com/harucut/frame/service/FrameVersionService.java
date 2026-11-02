@@ -4,6 +4,7 @@ import com.harucut.asset.entity.Asset;
 import com.harucut.asset.enums.AssetPurpose;
 import com.harucut.asset.repository.AssetRepository;
 import com.harucut.asset.service.AssetService;
+import com.harucut.audit.service.AuditLogService;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.frame.attributes.BackgroundAttributes;
@@ -33,6 +34,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
@@ -70,6 +73,8 @@ public class FrameVersionService {
     private final FileStorageService fileStorageService;
     private final StorageProperties storageProperties;
     private final ObjectMapper objectMapper;
+    private final AuditLogService auditLogService;
+    private final Clock clock;
 
     public FrameVersionResponse publish(String publicId, Long frameId) {
         User user = getUser(publicId);
@@ -104,6 +109,16 @@ public class FrameVersionService {
                 .toList();
     }
 
+    /** 시스템 프레임의 발행본 목록(CMS) — 사용자 경로로는 시스템 프레임을 읽지 못한다 */
+    @Transactional(readOnly = true)
+    public List<FrameVersionResponse> listSystem(Long frameId) {
+        frameRepository.findById(frameId).filter(Frame::isSystem)
+                .orElseThrow(() -> new BusinessException(FrameErrorCode.SYSTEM_FRAME_NOT_FOUND));
+        return frameVersionRepository.findAllByFrameIdOrderByVersionNoDesc(frameId).stream()
+                .map(FrameVersionResponse::summary)
+                .toList();
+    }
+
     @Transactional(readOnly = true)
     public FrameVersionResponse get(String publicId, Long frameId, int versionNo) {
         frameService.getReadableFrame(getUser(publicId), frameId);
@@ -113,7 +128,66 @@ public class FrameVersionService {
     }
 
     /**
-     * 운영자가 행사에 연결할 발행본을 고르는 목록 — 시스템 프레임과 이 공간 프레임의 최신 발행본. 발행 안 된 프레임은 없다.
+     * 긴급 회수 — 공개 목록·고르기·게시·합성 접수에서 막는다. 이미 접수한 작업과 결과는 그대로 두고, 다른 프레임으로 대체하지 않는다(R5 L302, F32).
+     * 프레임을 고칠 수 있는 사람만(조직 공간이면 OWNER·ADMIN·DESIGNER). 이미 회수했으면 처음 사유가 남는다
+     */
+    public FrameVersionResponse revoke(String publicId, Long frameId, int versionNo, String reason) {
+        User user = getUser(publicId);
+        Frame frame = frameService.getEditableFrame(user, frameId);
+        return revoke(user.getId(), frame, versionOf(frameId, versionNo), reason);
+    }
+
+    public FrameVersionResponse restore(String publicId, Long frameId, int versionNo) {
+        User user = getUser(publicId);
+        Frame frame = frameService.getEditableFrame(user, frameId);
+        return restore(user.getId(), frame, versionOf(frameId, versionNo));
+    }
+
+    /** 플랫폼 관리자 — 시스템 프레임과 어느 공간의 프레임이든 발행본 id 로 */
+    public FrameVersionResponse revokeByAdmin(String adminPublicId, Long frameVersionId, String reason) {
+        FrameVersion version = versionById(frameVersionId);
+        return revoke(getUser(adminPublicId).getId(), frameOf(version), version, reason);
+    }
+
+    public FrameVersionResponse restoreByAdmin(String adminPublicId, Long frameVersionId) {
+        FrameVersion version = versionById(frameVersionId);
+        return restore(getUser(adminPublicId).getId(), frameOf(version), version);
+    }
+
+    private FrameVersionResponse revoke(Long actorId, Frame frame, FrameVersion version, String reason) {
+        if (frameVersionRepository.revoke(version.getId(), reason, LocalDateTime.now(clock)) == 1) {
+            auditLogService.record(actorId, frame.getWorkspaceId(), null, "FRAME_VERSION_REVOKED", "FRAME_VERSION",
+                    version.getId().toString(), Map.of("reason", reason));
+        }
+        return FrameVersionResponse.summary(versionById(version.getId()));
+    }
+
+    private FrameVersionResponse restore(Long actorId, Frame frame, FrameVersion version) {
+        if (frameVersionRepository.restore(version.getId(), LocalDateTime.now(clock)) == 1) {
+            auditLogService.record(actorId, frame.getWorkspaceId(), null, "FRAME_VERSION_RESTORED", "FRAME_VERSION",
+                    version.getId().toString(), null);
+        }
+        return FrameVersionResponse.summary(versionById(version.getId()));
+    }
+
+    private FrameVersion versionOf(Long frameId, int versionNo) {
+        return frameVersionRepository.findByFrameIdAndVersionNo(frameId, versionNo)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+    }
+
+    private FrameVersion versionById(Long frameVersionId) {
+        return frameVersionRepository.findById(frameVersionId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+    }
+
+    private Frame frameOf(FrameVersion version) {
+        return frameRepository.findById(version.getFrameId())
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+    }
+
+    /**
+     * 운영자가 행사에 연결할 발행본을 고르는 목록 — 시스템 프레임과 이 공간 프레임의 최신 발행본. 발행 안 된 프레임과
+     * 최신 발행본이 회수된 프레임은 없다(이전 발행본으로 몰래 내려가지 않는다 — 다시 발행하면 돌아온다).
      * 공간 멤버면 누구나(설정 PATCH 권한은 행사 API 가 따로 본다)
      */
     @Transactional(readOnly = true)
@@ -129,7 +203,7 @@ public class FrameVersionService {
         Map<Long, FrameVersion> latest = new HashMap<>();
         frameVersionRepository.findLatestByFrameIdIn(frames.keySet()).forEach(v -> latest.put(v.getFrameId(), v));
         return frames.values().stream()
-                .filter(frame -> latest.containsKey(frame.getId()))
+                .filter(frame -> latest.containsKey(frame.getId()) && !latest.get(frame.getId()).revoked())
                 .map(frame -> {
                     FrameVersion version = latest.get(frame.getId());
                     return new PickableFrameVersion(version.getId(), frame.getId(), version.getVersionNo(),

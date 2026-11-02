@@ -27,15 +27,21 @@ public record FrameVersionResponse(
         LocalDateTime createdAt,
 
         @Schema(description = "FrameSpec v2 — 목록 조회에서는 빠진다. 자산 url 은 짧은 GET URL(기본 5분)")
-        FrameSpecV2 spec
+        FrameSpecV2 spec,
+
+        @Schema(description = "긴급 회수 시각. 회수되지 않았으면 키가 없다")
+        LocalDateTime revokedAt,
+
+        @Schema(description = "긴급 회수 사유. 회수되지 않았으면 키가 없다", example = "저작권 문의")
+        String revokedReason
 ) {
     public static FrameVersionResponse summary(FrameVersion version) {
         return new FrameVersionResponse(version.getId(), version.getFrameId(), version.getVersionNo(),
-                version.getFrameType(), version.getCreatedAt(), null);
+                version.getFrameType(), version.getCreatedAt(), null, version.getRevokedAt(), version.getRevokedReason());
     }
 
     public static FrameVersionResponse full(FrameVersion version, FrameSpecV2 spec) {
         return new FrameVersionResponse(version.getId(), version.getFrameId(), version.getVersionNo(),
-                version.getFrameType(), version.getCreatedAt(), spec);
+                version.getFrameType(), version.getCreatedAt(), spec, version.getRevokedAt(), version.getRevokedReason());
     }
 }

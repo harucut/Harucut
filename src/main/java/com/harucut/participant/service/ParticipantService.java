@@ -24,6 +24,8 @@ import com.harucut.event.repository.EventExperienceVersionRepository;
 import com.harucut.event.repository.EventFrameRepository;
 import com.harucut.event.repository.EventRepository;
 import com.harucut.frame.dto.FrameVersionResponse;
+import com.harucut.frame.entity.FrameVersion;
+import com.harucut.frame.repository.FrameVersionRepository;
 import com.harucut.frame.service.FrameVersionService;
 import com.harucut.media.dto.ComposeJobResponse;
 import com.harucut.media.entity.ComposeJob;
@@ -85,6 +87,7 @@ public class ParticipantService {
     private final ComposeJobRepository composeJobRepository;
     private final AssetService assetService;
     private final FrameVersionService frameVersionService;
+    private final FrameVersionRepository frameVersionRepository;
     private final ResultService resultService;
     private final RateLimiter rateLimiter;
     private final EntitlementService entitlementService;
@@ -363,9 +366,11 @@ public class ParticipantService {
         return run;
     }
 
+    // 회차의 경험 버전이 제공하고 긴급 회수되지 않은 발행본만(R5 L297). 이미 접수한 작업의 재전송은 이 검사 앞에서 끝난다
     boolean offers(Long experienceVersionId, Long frameVersionId) {
         return eventFrameRepository.findAllByExperienceVersionIdOrderBySortOrderAsc(experienceVersionId).stream()
-                .anyMatch(frame -> frame.getFrameVersionId().equals(frameVersionId));
+                .anyMatch(frame -> frame.getFrameVersionId().equals(frameVersionId))
+                && frameVersionRepository.findById(frameVersionId).filter(FrameVersion::revoked).isEmpty();
     }
 
     private CaptureRun ownRun(ParticipantPrincipal principal, String captureRunId) {

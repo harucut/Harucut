@@ -29,11 +29,13 @@ public class AdminWorkspaceService {
 
     /** 조직 공간의 종류를 바꾼다. 개인 공간·없는 공간은 404. 같은 값이면 기록 없이 그대로 답한다 */
     public AdminWorkspaceDtos.KindResponse changeKind(String adminPublicId, String workspacePublicId, WorkspaceKind kind, String reason) {
-        User actor = userRepository.findByPublicId(adminPublicId)
-                .orElseThrow(() -> new BusinessException(GlobalErrorCode.FORBIDDEN));
-        Workspace workspace = workspaceRepository.findByPublicId(workspacePublicId)
+        // 잠금 읽기가 이 트랜잭션의 첫 읽기다 — 브랜드 기본값 저장(ProjectService.patchWorkspaceDefaults)과 같은 공간 쓰기와 줄을 선다.
+        // Workspace 는 전체 열을 쓰므로, 잠그지 않고 읽으면 그사이 커밋된 기본값을 낡은 값으로 되쓴다
+        Workspace workspace = workspaceRepository.lockByPublicId(workspacePublicId)
                 .filter(found -> !found.isPersonal())
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        User actor = userRepository.findByPublicId(adminPublicId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.FORBIDDEN));
         if (workspace.getKind() != kind) {
             workspace.changeKind(kind);
             auditLogService.record(actor.getId(), workspace.getId(), null, "WORKSPACE_KIND_CHANGED", "WORKSPACE",

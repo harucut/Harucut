@@ -1,6 +1,5 @@
 package com.harucut.frame.dto;
 
-import com.fasterxml.jackson.annotation.JsonAlias;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.cell.PhotoCell;
 import com.harucut.frame.enums.ComponentType;
@@ -169,9 +168,7 @@ public record FrameCreateRequest(
             @Schema(description = "회전 각도. 생략하면 0", example = "0.0")
             Double rotation,
 
-            @JsonAlias("zindex")
-            @Schema(description = "겹침 순서. 생략하면 0. **소문자 `zindex` 로 보내도 받는다**(하위 호환)",
-                    example = "1")
+            @Schema(description = "겹침 순서. 생략하면 0", example = "1")
             Integer zIndex,
 
             @Schema(description = "자유 형식 스타일 맵. 응답에서는 `style` 이라는 이름으로 나온다",

@@ -79,14 +79,6 @@ public record FrameResponse(
                 example = "2026-10-27T10:15:30")
         LocalDateTime updatedAt
 ) {
-    // 자유 칸이 없던 시절의 생성자 — 기존 테스트 호환
-    public FrameResponse(Long frameId, String title, String description, String previewUrl, FrameType frameType,
-                         int canvasWidth, int canvasHeight, BackgroundAttributes background, List<Boolean> cellCutouts,
-                         List<ComponentResponse> components, boolean isSystem, Long version, String workspaceId) {
-        this(frameId, title, description, previewUrl, frameType, canvasWidth, canvasHeight, background, cellCutouts,
-                components, isSystem, version, workspaceId, null, null);
-    }
-
     // presign이 필요한 조립은 어셈블러 몫이고, 이 팩토리는 캔버스 파생만 강제한다 —
     // 캔버스에 다른 값을 넣는 코드를 쓸 수 없게 파라미터에서 뺐다
     public static FrameResponse of(Frame frame, String workspacePublicId, String previewUrl,

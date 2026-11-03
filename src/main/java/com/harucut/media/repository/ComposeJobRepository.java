@@ -170,16 +170,6 @@ public interface ComposeJobRepository extends JpaRepository<ComposeJob, Long> {
     int markFailed(Long jobId, String reason, ComposeFailureCode code, Integer attemptNo,
                    ComposeStatus pending, ComposeStatus failed);
 
-    // 시도 번호를 대조하지 않는 실패(예전 계약 통지·서버 판정 실패)
-    default int markFailed(Long jobId, String reason, ComposeFailureCode code, ComposeStatus pending, ComposeStatus failed) {
-        return markFailed(jobId, reason, code, null, pending, failed);
-    }
-
-    // 실패 종류가 없던 시절의 호출 — 테스트 픽스처 호환(종류는 비운다)
-    default int markFailed(Long jobId, String reason, ComposeStatus pending, ComposeStatus failed) {
-        return markFailed(jobId, reason, null, null, pending, failed);
-    }
-
     @Query("""
             SELECT j FROM ComposeJob j
             LEFT JOIN FETCH j.user

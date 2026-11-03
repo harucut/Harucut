@@ -127,6 +127,10 @@ tasks.register('mysqlTest', Test) {
     useJUnitPlatform {
         includeTags 'mysql'
     }
+    // 클래스마다 제 MySQL 컨테이너(@ServiceConnection)를 띄우므로 컨텍스트도 클래스마다 새로 뜨고, 나눠 쓸 일이 없다.
+    // 그런데 스프링은 다 쓴 컨텍스트를 32개까지 캐시에 쥐고 있다 — 이미 멈춘 컨테이너를 보는 커넥션 풀째로.
+    // 클래스가 22개가 되자 워커 기본 힙 512MB 가 CI 에서 바닥났다(OOM). 캐시를 1개로 두면 다음 컨텍스트가 뜰 때 앞 것이 닫힌다
+    systemProperty 'spring.test.context.cache.maxSize', '1'
 }
 
 jacoco {

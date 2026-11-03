@@ -18,6 +18,7 @@ import com.harucut.frame.repository.FrameRepository;
 import com.harucut.frame.repository.FrameVersionRepository;
 import com.harucut.storage.config.StorageProperties;
 import com.harucut.storage.service.FileStorageService;
+import com.harucut.workspace.service.WorkspaceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,6 +44,7 @@ public class PublicEventService {
     private final StorageProperties storageProperties;
     private final ObjectMapper objectMapper;
     private final ThemeResolver themeResolver;
+    private final WorkspaceService workspaceService;
     private final Clock clock;
 
     public PublicEventResponse getBySlug(String slug) {
@@ -64,8 +66,11 @@ public class PublicEventService {
                 .map(frame -> new PublicEventResponse.OfferedFrame(frame.getFrameVersionId(), frame.getLayoutType(),
                         frame.getSortOrder(), frame.isDefault(), previewUrl(frame.getFrameVersionId()), cells(frame.getFrameVersionId())))
                 .toList();
+        // 공간 OWNER 가 전부 정지면 닫힌 것으로 보여 준다 — 세션·회차·합성이 EVENT-006 으로 막히는 것을 화면이 미리 안다
+        boolean captureOpen = event.captureOpen(LocalDateTime.now(clock))
+                && !workspaceService.participationSuspended(event.getWorkspaceId());
         return new PublicEventResponse(event.getPublicId(), event.getName(), event.getStatus(),
-                event.captureOpen(LocalDateTime.now(clock)), event.isByodEnabled(), event.isBoothEnabled(),
+                captureOpen, event.isByodEnabled(), event.isBoothEnabled(),
                 version.getVersionNo(), document.allowedLayouts(), frames, document.consentItems(), themeResolver.resolve(document.theme()),
                 document.offeredFreeText().map(PublicEventResponse.OfferedFreeText::of).orElse(null));
     }

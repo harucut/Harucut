@@ -593,8 +593,10 @@ public class EventService {
                 .map(EventExperienceVersion::getVersionNo).orElse(null);
         // 설정 = 지금 게시하면 들어갈 유효값(공간 ⊕ 프로젝트 ⊕ 행사). 어디서 왔는지는 effective-settings 가 준다
         Resolved resolved = effective(event, workspace);
+        // 공간 OWNER 가 전부 정지면 참가 화면과 같은 값으로 닫힌 것을 보여 준다(WorkspaceService.participationSuspended)
+        boolean captureOpen = event.captureOpen(LocalDateTime.now(clock)) && !workspaceService.participationSuspended(workspace.getId());
         return new EventResponse(event.getPublicId(), workspace.getPublicId(), event.getStatus(), event.isPaused(),
-                event.captureOpen(LocalDateTime.now(clock)), event.getSettingsVersion(), settings(event, resolved), currentVersion,
+                captureOpen, event.getSettingsVersion(), settings(event, resolved), currentVersion,
                 "/e/" + event.getSlug(), hasUnpublishedChanges(event, resolved.effective()));
     }
 

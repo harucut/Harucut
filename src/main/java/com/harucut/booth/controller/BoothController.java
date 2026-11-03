@@ -55,7 +55,8 @@ public class BoothController {
                     새 참가자(BOOTH)와 RESTRICTED 세션(30분). 이후 동의·회차·업로드·합성은 이 participantToken 으로 `/api/participant/**` 를 쓴다.
                     부스 세션의 회차는 기기당 활성 1개(BOOTH-004). 결과 목록·다운로드는 열리지 않는다(PART-006).
                     """)
-    @ApiErrors({"EVENT-002: 부스 참가를 허용하지 않는 행사", "EVENT-001: 지금 촬영할 수 없다"})
+    @ApiErrors({"EVENT-002: 부스 참가를 허용하지 않는 행사", "EVENT-001: 지금 촬영할 수 없다",
+            "EVENT-006: 지금은 참여할 수 없다(공간 OWNER 전원 정지 — 참가자에게 사유를 보이지 않는다)"})
     @PostMapping("/api/booth/participant-sessions")
     @ResponseStatus(HttpStatus.CREATED)
     public Response<ParticipantDtos.SessionResponse> nextParticipant(@AuthenticationPrincipal BoothPrincipal principal) {

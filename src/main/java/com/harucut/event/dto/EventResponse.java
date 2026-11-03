@@ -9,7 +9,7 @@ public record EventResponse(
         @Schema(description = "공간 public id", example = "Ws1aB2cD3eF4") String workspaceId,
         @Schema(description = "상태", example = "LIVE") EventStatus status,
         @Schema(description = "일시 중지 여부", example = "false") boolean paused,
-        @Schema(description = "지금 새 참가·촬영을 받는가(LIVE·중지 아님·촬영 기간 안)", example = "true") boolean captureOpen,
+        @Schema(description = "지금 새 참가·촬영을 받는가(LIVE·중지 아님·촬영 기간 안·공간 OWNER 가 전부 정지된 상태는 아님)", example = "true") boolean captureOpen,
         @Schema(description = "PATCH 에 그대로 보낼 낙관적 잠금 값", example = "3") int settingsVersion,
         @Schema(description = "설정 초안") EventSettings settings,
         @Schema(description = "현재 게시된 경험 버전 번호 — 게시 전이면 null", example = "2") Integer currentExperienceVersion,

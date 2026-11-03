@@ -203,6 +203,10 @@
   "status" : 409,
   "message" : "The event settings were modified by another save."
 }, {
+  "code" : "EVENT-006",
+  "status" : 409,
+  "message" : "The event is not accepting participation now."
+}, {
   "code" : "EXPORT-001",
   "status" : 409,
   "message" : "The export is not ready yet."

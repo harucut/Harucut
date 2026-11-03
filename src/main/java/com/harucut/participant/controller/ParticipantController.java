@@ -63,7 +63,8 @@ public class ParticipantController {
     }
 
     @Operation(summary = "새 촬영 회차", description = "서버가 현재 경험 버전을 부여한다. 회차는 기본 30분.")
-    @ApiErrors({"PART-001: 세션 무효", "PART-002: 필수 동의 전", "EVENT-001: 지금 촬영할 수 없다", "GEN-031: 내 행사가 아니다"})
+    @ApiErrors({"PART-001: 세션 무효", "PART-002: 필수 동의 전", "EVENT-001: 지금 촬영할 수 없다",
+            "EVENT-006: 지금은 참여할 수 없다(공간 OWNER 전원 정지 — 참가자에게 사유를 보이지 않는다)", "GEN-031: 내 행사가 아니다"})
     @PostMapping("/events/{eventId}/capture-runs")
     @ResponseStatus(HttpStatus.CREATED)
     public Response<ParticipantDtos.RunStartResponse> startRun(@AuthenticationPrincipal ParticipantPrincipal principal,
@@ -133,6 +134,7 @@ public class ParticipantController {
     @ApiErrors({"PART-002: 필수 동의 전", "PART-003: 회차가 활성 상태가 아니다", "PART-004: 제공되지 않은 프레임",
             "PART-007: 이 행사는 문구를 바꿀 수 없다", "PART-008: 문구 검증 실패(data.reason·maxLength·maxLines)",
             "PART-005: 쓸 수 없는 입력(미검증·다른 회차·이미 다른 작업에 묶임)", "EVENT-001: 지금 촬영할 수 없다",
+            "EVENT-006: 지금은 참여할 수 없다(공간 OWNER 전원 정지 — 참가자에게 사유를 보이지 않는다)",
             "MEDIA-001: 같은 키에 다른 요청", "FRAME-004: 합성 스펙 크기 초과", "GEN-031: 내 행사가 아니다"})
     @PostMapping("/events/{eventId}/compose-jobs")
     @ResponseStatus(HttpStatus.ACCEPTED)

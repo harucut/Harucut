@@ -14,7 +14,7 @@ public record PublicEventResponse(
         @Schema(description = "행사 public id") String eventId,
         @Schema(description = "행사명") String name,
         @Schema(description = "상태") EventStatus status,
-        @Schema(description = "지금 새 참가·촬영을 받는가") boolean captureOpen,
+        @Schema(description = "지금 새 참가·촬영을 받는가. false 면 세션·회차·합성이 409 다(EVENT-001 촬영 시간 밖, EVENT-006 참여 중지)") boolean captureOpen,
         @Schema(description = "개인 휴대폰 참가 허용") boolean byodEnabled,
         @Schema(description = "부스 참가 허용") boolean boothEnabled,
         @Schema(description = "현재 경험 버전 번호") int experienceVersion,

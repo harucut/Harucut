@@ -4,27 +4,27 @@ import com.harucut.auth.exception.AuthErrorCode;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.common.mail.MailService;
+import com.harucut.common.mail.MailTemplate;
 import com.harucut.user.enums.Provider;
 import com.harucut.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.mail.MailException;
 import org.springframework.stereotype.Service;
-import org.thymeleaf.ITemplateEngine;
-import org.thymeleaf.context.Context;
+
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class EmailVerificationService {
 
     private static final String SUBJECT = "[Harucut] 회원가입 이메일 인증 코드입니다.";
-    private static final String TEMPLATE = "mail/verification-code";
+    private static final String TEMPLATE = "templates/mail/verification-code.html";
 
     private final VerificationCodeGenerator generator;
     private final EmailVerificationRepository repository;
     private final EmailRateLimit emailRateLimit;
     private final UserRepository userRepository;
     private final MailService mailService;
-    private final ITemplateEngine templateEngine;
 
     public void sendVerificationCode(String email) {
         if (!emailRateLimit.tryAcquireCooldown(email)) {
@@ -44,9 +44,7 @@ public class EmailVerificationService {
         String code = generator.generate();
         repository.saveCode(email, code);
 
-        Context context = new Context();
-        context.setVariable("code", code);
-        String html = templateEngine.process(TEMPLATE, context);
+        String html = MailTemplate.render(TEMPLATE, Map.of("code", code));
 
         try {
             mailService.sendHtml(email, SUBJECT, html);

@@ -20,14 +20,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.MailSendException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.thymeleaf.ITemplateEngine;
-import org.thymeleaf.context.IContext;
 
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.*;
 import static org.mockito.Mockito.never;
@@ -37,8 +36,6 @@ class PasswordResetServiceTest {
 
     private static final String EMAIL = "user@harucut.com";
     private static final String CODE = "ABC234";
-    private static final String HTML = "<html>ABC234</html>";
-    private static final String TEMPLATE = "mail/password-reset-code";
     private static final String RAW_PASSWORD = "newpassword123";
 
     @Mock
@@ -59,9 +56,6 @@ class PasswordResetServiceTest {
     @Mock
     private MailService mailService;
 
-    @Mock
-    private ITemplateEngine templateEngine;
-
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
 
     private PasswordResetService service;
@@ -75,8 +69,7 @@ class PasswordResetServiceTest {
                 userRepository,
                 passwordEncoder,
                 refreshTokenService,
-                mailService,
-                templateEngine
+                mailService
         );
     }
 
@@ -98,15 +91,15 @@ class PasswordResetServiceTest {
         }
 
         @Test
-        @DisplayName("재설정 템플릿을 렌더해서 발송한다")
+        @DisplayName("재설정 템플릿의 코드 자리에 생성한 코드를 넣어 발송한다")
         void sendsResetTemplate() {
             givenCooldownAcquired();
             givenRegistered(true);
-            given(templateEngine.process(eq(TEMPLATE), any(IContext.class))).willReturn(HTML);
+            given(generator.generate()).willReturn(CODE);
 
             service.sendResetCode(EMAIL);
 
-            then(mailService).should().sendHtml(eq(EMAIL), any(), eq(HTML));
+            then(mailService).should().sendHtml(eq(EMAIL), any(), contains(CODE));
         }
 
         @Test
@@ -144,6 +137,7 @@ class PasswordResetServiceTest {
         void releasesCooldownOnMailFailure() {
             givenCooldownAcquired();
             givenRegistered(true);
+            given(generator.generate()).willReturn(CODE);
             willThrow(new MailSendException("smtp down"))
                     .given(mailService).sendHtml(any(), any(), any());
 

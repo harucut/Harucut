@@ -13,8 +13,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.MailSendException;
-import org.thymeleaf.ITemplateEngine;
-import org.thymeleaf.context.IContext;
 
 import java.time.Duration;
 import java.util.Optional;
@@ -22,6 +20,7 @@ import java.util.Optional;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatCode;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.*;
 import static org.mockito.Mockito.never;
@@ -31,8 +30,6 @@ class EmailVerificationServiceTest {
 
     private static final String EMAIL = "user@harucut.com";
     private static final String CODE = "ABC234";
-    private static final String HTML = "<html>ABC234</html>";
-    private static final String TEMPLATE = "mail/verification-code";
 
     @Mock
     private VerificationCodeGenerator generator;
@@ -47,9 +44,6 @@ class EmailVerificationServiceTest {
     private MailService mailService;
 
     @Mock
-    private ITemplateEngine templateEngine;
-
-    @Mock
     private EmailRateLimit emailRateLimit;
 
     private EmailVerificationService service;
@@ -61,8 +55,7 @@ class EmailVerificationServiceTest {
                 repository,
                 emailRateLimit,
                 userRepository,
-                mailService,
-                templateEngine
+                mailService
         );
     }
 
@@ -84,15 +77,15 @@ class EmailVerificationServiceTest {
         }
 
         @Test
-        @DisplayName("렌더링한 템플릿 본문으로 메일을 발송한다")
+        @DisplayName("템플릿의 코드 자리에 생성한 코드를 넣은 본문으로 메일을 발송한다")
         void sendsRenderedTemplate() {
             givenCooldownAcquired(EMAIL);
             given(userRepository.existsByProviderAndEmail(Provider.HARUCUT, EMAIL)).willReturn(false);
-            given(templateEngine.process(eq(TEMPLATE), any(IContext.class))).willReturn(HTML);
+            given(generator.generate()).willReturn(CODE);
 
             service.sendVerificationCode(EMAIL);
 
-            then(mailService).should().sendHtml(eq(EMAIL), any(), eq(HTML));
+            then(mailService).should().sendHtml(eq(EMAIL), any(), contains(CODE));
         }
 
         @Test
@@ -130,6 +123,7 @@ class EmailVerificationServiceTest {
         void wrapsMailFailure() {
             givenCooldownAcquired(EMAIL);
             given(userRepository.existsByProviderAndEmail(Provider.HARUCUT, EMAIL)).willReturn(false);
+            given(generator.generate()).willReturn(CODE);
             willThrow(new MailSendException("smtp down"))
                     .given(mailService).sendHtml(any(), any(), any());
 
@@ -144,6 +138,7 @@ class EmailVerificationServiceTest {
         void releasesCooldownOnMailFailure() {
             givenCooldownAcquired(EMAIL);
             given(userRepository.existsByProviderAndEmail(Provider.HARUCUT, EMAIL)).willReturn(false);
+            given(generator.generate()).willReturn(CODE);
             willThrow(new MailSendException("smtp down"))
                     .given(mailService).sendHtml(any(), any(), any());
 

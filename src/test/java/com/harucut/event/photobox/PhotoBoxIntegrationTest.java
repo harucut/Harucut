@@ -123,7 +123,7 @@ class PhotoBoxIntegrationTest {
         failed = job(byod, "k3", 41L);
         composeJobRepository.markDone(byodDone.getId(), "uploads/events/e/results/1.jpg", ComposeStatus.PENDING, ComposeStatus.DONE);
         composeJobRepository.markDone(boothDone.getId(), "uploads/events/e/results/2.jpg", ComposeStatus.PENDING, ComposeStatus.DONE);
-        composeJobRepository.markFailed(failed.getId(), "S3 NoSuchKey: input missing", ComposeStatus.PENDING, ComposeStatus.FAILED);
+        composeJobRepository.markFailed(failed.getId(), "S3 NoSuchKey: input missing", null, null, ComposeStatus.PENDING, ComposeStatus.FAILED);
         // 생성 순서를 시각으로 고정한다(같은 마이크로초에 만들어져도 커서 정렬이 흔들리지 않게)
         entityManager.flush();
         age(byodDone, 3);

@@ -148,7 +148,7 @@ class ExportIntegrationTest {
         first = done(participant, "k1", "uploads/events/e/results/1.jpg");
         second = done(participant, "k2", "uploads/events/e/results/2.jpg");
         failed = job(participant, "k3");
-        composeJobRepository.markFailed(failed.getId(), "x", ComposeStatus.PENDING, ComposeStatus.FAILED);
+        composeJobRepository.markFailed(failed.getId(), "x", null, null, ComposeStatus.PENDING, ComposeStatus.FAILED);
         // 상태 전이는 벌크 UPDATE 라 영속성 컨텍스트의 작업은 아직 PENDING 이다 — 운영에서는 전이가 다른 트랜잭션이다
         entityManager.flush();
         entityManager.clear();

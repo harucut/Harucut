@@ -66,7 +66,7 @@ class ComposeControllerTest extends SecurityBeansMockSupport {
     @DisplayName("접수는 202이고 jobId와 PENDING이 실린다")
     void acceptedWithJobId() {
         given(composeService.requestCompose(eq(PUBLIC_ID), any()))
-                .willReturn(new ComposeJobResponse(5L, ComposeStatus.PENDING, null, null));
+                .willReturn(new ComposeJobResponse(5L, ComposeStatus.PENDING, null, null, null));
 
         assertThat(mockMvc.post().uri(BASE_URI)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -84,7 +84,7 @@ class ComposeControllerTest extends SecurityBeansMockSupport {
         given(composeService.requestCompose(eq(PUBLIC_ID), any()))
                 .willThrow(new DataIntegrityViolationException("uk_compose_job_user_idempotency"));
         given(composeService.replayAfterConflict(eq(PUBLIC_ID), any()))
-                .willReturn(new ComposeJobResponse(5L, ComposeStatus.PENDING, null, null));
+                .willReturn(new ComposeJobResponse(5L, ComposeStatus.PENDING, null, null, null));
 
         assertThat(mockMvc.post().uri(BASE_URI)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -182,7 +182,7 @@ class ComposeControllerTest extends SecurityBeansMockSupport {
     @DisplayName("배경색이 #RRGGBB면 202로 접수된다")
     void validBackgroundColorAccepted() {
         given(composeService.requestCompose(eq(PUBLIC_ID), any()))
-                .willReturn(new ComposeJobResponse(5L, ComposeStatus.PENDING, null, null));
+                .willReturn(new ComposeJobResponse(5L, ComposeStatus.PENDING, null, null, null));
 
         String body = """
                 {
@@ -204,7 +204,7 @@ class ComposeControllerTest extends SecurityBeansMockSupport {
     @DisplayName("폴링에서 DONE이면 mediaId가 실린다")
     void pollDoneCarriesMediaId() {
         given(composeService.getJob(PUBLIC_ID, 5L))
-                .willReturn(new ComposeJobResponse(5L, ComposeStatus.DONE, 42L, null));
+                .willReturn(new ComposeJobResponse(5L, ComposeStatus.DONE, 42L, null, null));
 
         assertThat(mockMvc.get().uri(BASE_URI + "/5").cookie(accessCookie()))
                 .hasStatusOk()

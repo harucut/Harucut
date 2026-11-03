@@ -41,11 +41,6 @@ public record ComposeJobResponse(
                 example = "SOURCE_UNREADABLE")
         ComposeFailureCode failureCode
 ) {
-    // 실패 종류가 없던 시절의 생성자 — 기존 테스트 호환
-    public ComposeJobResponse(Long jobId, ComposeStatus status, Long mediaId, String failureReason) {
-        this(jobId, status, mediaId, failureReason, null);
-    }
-
     public static ComposeJobResponse from(ComposeJob job) {
         return new ComposeJobResponse(
                 job.getId(), job.getStatus(), job.getMediaId(), job.getFailureReason(), job.getFailureCode());

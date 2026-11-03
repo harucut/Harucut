@@ -461,6 +461,6 @@ class FrameServiceTest {
 
     private static FrameResponse response(Long frameId) {
         return new FrameResponse(frameId, "제목", "설명", "https://preview", FrameType.CLASSIC,
-                2000, 6000, COLOR, List.of(false, false, false, false), List.of(), false, 0L, null);
+                2000, 6000, COLOR, List.of(false, false, false, false), List.of(), false, 0L, null, null, null);
     }
 }

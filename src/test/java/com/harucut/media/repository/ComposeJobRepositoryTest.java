@@ -508,7 +508,7 @@ class ComposeJobRepositoryTest {
         @DisplayName("실패 종류도 같은 조건부 UPDATE 로 남는다(V26)")
         void failureCodeStored() {
             Long jobId = persistJob("idem-failure-code");
-            assertThat(composeJobRepository.markFailed(jobId, "원본 없음", ComposeFailureCode.SOURCE_MISSING,
+            assertThat(composeJobRepository.markFailed(jobId, "원본 없음", ComposeFailureCode.SOURCE_MISSING, null,
                     ComposeStatus.PENDING, ComposeStatus.FAILED)).isEqualTo(1);
             em.clear();
             assertThat(composeJobRepository.findById(jobId).orElseThrow().getFailureCode()).isEqualTo(ComposeFailureCode.SOURCE_MISSING);
@@ -570,7 +570,7 @@ class ComposeJobRepositoryTest {
     }
 
     private int markFailed(Long jobId, String reason) {
-        int affected = composeJobRepository.markFailed(jobId, reason,
+        int affected = composeJobRepository.markFailed(jobId, reason, null, null,
                 ComposeStatus.PENDING, ComposeStatus.FAILED);
         em.clear();
         return affected;

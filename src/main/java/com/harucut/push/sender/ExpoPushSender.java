@@ -33,16 +33,16 @@ public class ExpoPushSender implements PushSender {
 
     static final int BATCH = 100;
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
+    // Expo 의 고정 주소 — 설정으로 바꿀 일이 없다. 시험은 RestClient 를 직접 넣는 생성자를 쓴다
+    private static final String EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 
     private final RestClient restClient;
 
-    public ExpoPushSender(RestClient.Builder builder,
-                          @Value("${push.expo.url:https://exp.host/--/api/v2/push/send}") String url,
-                          @Value("${push.expo.access-token:}") String accessToken) {
+    public ExpoPushSender(RestClient.Builder builder, @Value("${push.expo.access-token:}") String accessToken) {
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(
                 HttpClient.newBuilder().connectTimeout(TIMEOUT).build());
         factory.setReadTimeout(TIMEOUT);
-        RestClient.Builder configured = builder.clone().requestFactory(factory).baseUrl(url);
+        RestClient.Builder configured = builder.clone().requestFactory(factory).baseUrl(EXPO_PUSH_URL);
         if (StringUtils.hasText(accessToken)) {
             configured.defaultHeader("Authorization", "Bearer " + accessToken);
         }

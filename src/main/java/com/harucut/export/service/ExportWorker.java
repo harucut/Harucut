@@ -16,7 +16,7 @@ import com.harucut.storage.service.S3Deleter;
 import com.harucut.storage.service.S3MultipartOutputStream;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -92,12 +92,23 @@ public class ExportWorker {
         return thread;
     });
 
+    // 묶음의 수명·업로드 책임 시간·진행 신호 끊김 판정 — 설정으로 바꾼 적이 없어 상수다. 시험은 아래 생성자로 값을 넣는다
+    private static final Duration TTL = Duration.ofHours(24);
+    private static final Duration UPLOAD_HOLD = Duration.ofHours(6);
+    private static final Duration STALE_AFTER = Duration.ofMinutes(5);
+
+    @Autowired
+    public ExportWorker(ExportJobRepository exportJobRepository, ExportJobItemRepository itemRepository,
+                        ComposeJobRepository composeJobRepository, EventRepository eventRepository,
+                        FileStorageService fileStorageService, S3Deleter s3Deleter, PlatformTransactionManager transactionManager, Clock clock) {
+        this(exportJobRepository, itemRepository, composeJobRepository, eventRepository, fileStorageService, s3Deleter,
+                transactionManager, clock, TTL, UPLOAD_HOLD, STALE_AFTER);
+    }
+
     public ExportWorker(ExportJobRepository exportJobRepository, ExportJobItemRepository itemRepository,
                         ComposeJobRepository composeJobRepository, EventRepository eventRepository,
                         FileStorageService fileStorageService, S3Deleter s3Deleter, PlatformTransactionManager transactionManager, Clock clock,
-                        @Value("${event.export.ttl:24h}") Duration ttl,
-                        @Value("${event.export.upload-hold:6h}") Duration uploadHold,
-                        @Value("${event.export.stale-after:5m}") Duration staleAfter) {
+                        Duration ttl, Duration uploadHold, Duration staleAfter) {
         this.exportJobRepository = exportJobRepository;
         this.itemRepository = itemRepository;
         this.composeJobRepository = composeJobRepository;

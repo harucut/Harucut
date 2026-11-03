@@ -1825,7 +1825,7 @@
         "description" : "행사(운영자 화면)",
         "properties" : {
           "captureOpen" : {
-            "description" : "지금 새 참가·촬영을 받는가(LIVE·중지 아님·촬영 기간 안)",
+            "description" : "지금 새 참가·촬영을 받는가(LIVE·중지 아님·촬영 기간 안·공간 OWNER 가 전부 정지된 상태는 아님)",
             "example" : true,
             "type" : "boolean"
           },
@@ -4492,7 +4492,7 @@
             "type" : "boolean"
           },
           "captureOpen" : {
-            "description" : "지금 새 참가·촬영을 받는가",
+            "description" : "지금 새 참가·촬영을 받는가. false 면 세션·회차·합성이 409 다(EVENT-001 촬영 시간 밖, EVENT-006 참여 중지)",
             "type" : "boolean"
           },
           "consentItems" : {
@@ -28922,6 +28922,14 @@
                       "message" : "The event is not open for capture.",
                       "status" : 409
                     }
+                  },
+                  "EVENT-006" : {
+                    "summary" : "EVENT-006 — 지금은 참여할 수 없다(공간 OWNER 전원 정지 — 참가자에게 사유를 보이지 않는다)",
+                    "value" : {
+                      "code" : "EVENT-006",
+                      "message" : "The event is not accepting participation now.",
+                      "status" : 409
+                    }
                   }
                 },
                 "schema" : {
@@ -28929,7 +28937,7 @@
                 }
               }
             },
-            "description" : "- `EVENT-001` — 지금 촬영할 수 없다 _(The event is not open for capture.)_"
+            "description" : "- `EVENT-001` — 지금 촬영할 수 없다 _(The event is not open for capture.)_\n- `EVENT-006` — 지금은 참여할 수 없다(공간 OWNER 전원 정지 — 참가자에게 사유를 보이지 않는다) _(The event is not accepting participation now.)_"
           }
         },
         "security" : [ {
@@ -31254,6 +31262,14 @@
                       "message" : "The event is not open for capture.",
                       "status" : 409
                     }
+                  },
+                  "EVENT-006" : {
+                    "summary" : "EVENT-006 — 지금은 참여할 수 없다(공간 OWNER 전원 정지 — 참가자에게 사유를 보이지 않는다)",
+                    "value" : {
+                      "code" : "EVENT-006",
+                      "message" : "The event is not accepting participation now.",
+                      "status" : 409
+                    }
                   }
                 },
                 "schema" : {
@@ -31261,7 +31277,7 @@
                 }
               }
             },
-            "description" : "- `EVENT-001` — 지금 촬영할 수 없다 _(The event is not open for capture.)_"
+            "description" : "- `EVENT-001` — 지금 촬영할 수 없다 _(The event is not open for capture.)_\n- `EVENT-006` — 지금은 참여할 수 없다(공간 OWNER 전원 정지 — 참가자에게 사유를 보이지 않는다) _(The event is not accepting participation now.)_"
           }
         },
         "security" : [ {
@@ -31433,6 +31449,14 @@
                       "status" : 409
                     }
                   },
+                  "EVENT-006" : {
+                    "summary" : "EVENT-006 — 지금은 참여할 수 없다(공간 OWNER 전원 정지 — 참가자에게 사유를 보이지 않는다)",
+                    "value" : {
+                      "code" : "EVENT-006",
+                      "message" : "The event is not accepting participation now.",
+                      "status" : 409
+                    }
+                  },
                   "MEDIA-001" : {
                     "summary" : "MEDIA-001 — 같은 키에 다른 요청",
                     "value" : {
@@ -31463,7 +31487,7 @@
                 }
               }
             },
-            "description" : "- `PART-003` — 회차가 활성 상태가 아니다 _(The capture run is not active.)_\n- `PART-005` — 쓸 수 없는 입력(미검증·다른 회차·이미 다른 작업에 묶임) _(The capture input cannot be used.)_\n- `EVENT-001` — 지금 촬영할 수 없다 _(The event is not open for capture.)_\n- `MEDIA-001` — 같은 키에 다른 요청 _(The idempotency key was already used with a different request.)_"
+            "description" : "- `PART-003` — 회차가 활성 상태가 아니다 _(The capture run is not active.)_\n- `PART-005` — 쓸 수 없는 입력(미검증·다른 회차·이미 다른 작업에 묶임) _(The capture input cannot be used.)_\n- `EVENT-001` — 지금 촬영할 수 없다 _(The event is not open for capture.)_\n- `EVENT-006` — 지금은 참여할 수 없다(공간 OWNER 전원 정지 — 참가자에게 사유를 보이지 않는다) _(The event is not accepting participation now.)_\n- `MEDIA-001` — 같은 키에 다른 요청 _(The idempotency key was already used with a different request.)_"
           }
         },
         "security" : [ {
@@ -32595,6 +32619,14 @@
                       "message" : "The event is not open for capture.",
                       "status" : 409
                     }
+                  },
+                  "EVENT-006" : {
+                    "summary" : "EVENT-006 — 지금은 참여할 수 없는 행사(공간 OWNER 전원 정지 — 참가자에게 사유를 보이지 않는다)",
+                    "value" : {
+                      "code" : "EVENT-006",
+                      "message" : "The event is not accepting participation now.",
+                      "status" : 409
+                    }
                   }
                 },
                 "schema" : {
@@ -32602,7 +32634,7 @@
                 }
               }
             },
-            "description" : "- `EVENT-001` — 지금 촬영할 수 없는 행사 _(The event is not open for capture.)_"
+            "description" : "- `EVENT-001` — 지금 촬영할 수 없는 행사 _(The event is not open for capture.)_\n- `EVENT-006` — 지금은 참여할 수 없는 행사(공간 OWNER 전원 정지 — 참가자에게 사유를 보이지 않는다) _(The event is not accepting participation now.)_"
           },
           "429" : {
             "content" : {

@@ -49,6 +49,7 @@ public class PublicEventController {
                     """)
     @ApiErrors({
             "EVENT-001: 지금 촬영할 수 없는 행사",
+            "EVENT-006: 지금은 참여할 수 없는 행사(공간 OWNER 전원 정지 — 참가자에게 사유를 보이지 않는다)",
             "EVENT-002: 개인 휴대폰 참가를 허용하지 않는 행사",
             "GEN-061: 요청이 너무 잦다",
             "GEN-031: 없는 행사이거나 게시 전"

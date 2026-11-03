@@ -50,6 +50,7 @@ import com.harucut.result.dto.DownloadUrlResponse;
 import com.harucut.result.dto.ResultAccessRevokeResponse;
 import com.harucut.result.dto.ResultTokenResponse;
 import com.harucut.result.service.ResultService;
+import com.harucut.workspace.service.WorkspaceService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
@@ -97,6 +98,7 @@ public class ParticipantService {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final EntityManager entityManager;
+    private final WorkspaceService workspaceService;
 
     // ── 세션 ──────────────────────
 
@@ -346,6 +348,10 @@ public class ParticipantService {
         // accept-enabled 는 장애 때 새 접수만 멈추는 스위치다(R5 L694) — 이미 접수한 작업의 읽기·정리는 그대로 돈다
         if (!properties.acceptEnabled() || !event.captureOpen(now())) {
             throw new BusinessException(EventErrorCode.CAPTURE_NOT_OPEN);
+        }
+        // 공간의 OWNER 가 전부 정지면 새 참여를 받지 않는다 — 개인·부스 세션, 회차, 업로드, 합성이 전부 여기를 지난다. 결과 수령은 무관하다
+        if (workspaceService.participationSuspended(event.getWorkspaceId())) {
+            throw new BusinessException(EventErrorCode.PARTICIPATION_SUSPENDED);
         }
     }
 

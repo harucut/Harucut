@@ -38,7 +38,6 @@ repositories {
 
 dependencies {
     implementation project(':compose-core')   // 렌더러·스펙 타입 — Lambda와 공유하는 합성 코어
-    implementation 'org.springframework.boot:spring-boot-h2console'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-mail'
     implementation 'org.springframework.boot:spring-boot-starter-security'
@@ -64,7 +63,8 @@ dependencies {
     implementation 'io.micrometer:micrometer-registry-prometheus'
 
     compileOnly 'org.projectlombok:lombok'
-    runtimeOnly 'com.h2database:h2'
+    // H2 는 시험(test 프로필, 메모리 DB)에서만 쓴다 — 로컬·운영은 MySQL 이다
+    testRuntimeOnly 'com.h2database:h2'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.7'
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.7'
     annotationProcessor 'org.projectlombok:lombok'

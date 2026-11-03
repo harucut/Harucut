@@ -57,6 +57,15 @@ public class WorkspaceService {
         }
     }
 
+    /**
+     * 이 공간의 행사에 새 참여를 받지 않는가 — 활성 OWNER 가 전부 정지(또는 탈퇴 중)면 그렇다. 요청마다 조회하므로 해제하면 바로 풀린다.
+     * 새 세션·회차·업로드·합성만 막는다(ParticipantService.requireCaptureOpen). 이미 찍은 사람의 결과 수령은 보지 않는다
+     */
+    @Transactional(readOnly = true)
+    public boolean participationSuspended(Long workspaceId) {
+        return membershipRepository.countUsableOwners(workspaceId) == 0;
+    }
+
     public List<WorkspaceResponse> listMine(String publicId) {
         User user = getUser(publicId);
         personalWorkspaceOf(user.getId());

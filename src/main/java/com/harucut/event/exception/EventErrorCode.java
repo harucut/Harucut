@@ -16,7 +16,9 @@ public enum EventErrorCode implements ErrorCode {
     PUBLISH_INVALID("EVENT-003", HttpStatus.BAD_REQUEST, "The event settings cannot be published."),
     SLUG_TAKEN("EVENT-004", HttpStatus.CONFLICT, "The event slug is already in use."),
     // data.currentSettingsVersion
-    SETTINGS_VERSION_CONFLICT("EVENT-005", HttpStatus.CONFLICT, "The event settings were modified by another save.");
+    SETTINGS_VERSION_CONFLICT("EVENT-005", HttpStatus.CONFLICT, "The event settings were modified by another save."),
+    // 공간의 OWNER 가 전부 정지 — 새 참여만 막고, 이미 찍은 사람의 결과 수령은 그대로다. 참가자에게 사유는 보이지 않는다
+    PARTICIPATION_SUSPENDED("EVENT-006", HttpStatus.CONFLICT, "The event is not accepting participation now.");
 
     private final String code;
     private final HttpStatus httpStatus;

@@ -28,6 +28,13 @@ public interface WorkspaceMembershipRepository extends JpaRepository<WorkspaceMe
             + "where workspace_id = :workspaceId and role = 'OWNER' and status = 'ACTIVE' for update", nativeQuery = true)
     List<Long> lockActiveOwnerIds(@Param("workspaceId") Long workspaceId);
 
+    // 참여 중지 판정 — 활성 OWNER 중 계정이 ACTIVE 인 사람 수(WorkspaceService.participationSuspended). 요청마다 세므로 해제가 바로 보인다
+    @Query("select count(m) from WorkspaceMembership m, User u where u.id = m.userId and m.workspaceId = :workspaceId "
+            + "and m.role = com.harucut.workspace.enums.WorkspaceRole.OWNER "
+            + "and m.status = com.harucut.workspace.enums.MembershipStatus.ACTIVE "
+            + "and u.userStatus = com.harucut.user.enums.UserStatus.ACTIVE")
+    long countUsableOwners(@Param("workspaceId") Long workspaceId);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM WorkspaceMembership m WHERE m.userId = :userId")
     void deleteByUserId(Long userId);

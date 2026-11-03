@@ -1,6 +1,7 @@
 package com.harucut.admin.dto;
 
 import com.harucut.event.enums.EventStatus;
+import com.harucut.workspace.enums.WorkspaceKind;
 import com.harucut.workspace.enums.WorkspaceType;
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -15,6 +16,7 @@ public final class AdminSearchDtos {
 
     @Schema(name = "AdminWorkspaceItem", description = "조직 공간 검색 결과")
     public record WorkspaceItem(String workspaceId, String name, WorkspaceType type,
+                                @Schema(description = "업체/주최자 — PATCH /api/admin/workspaces/{workspaceId}/kind 로 바꾼다") WorkspaceKind kind,
                                 @Schema(description = "활성 OWNER 의 이메일") List<String> ownerEmails, OffsetDateTime createdAt) {
     }
 

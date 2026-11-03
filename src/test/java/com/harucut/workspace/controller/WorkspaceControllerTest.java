@@ -9,6 +9,7 @@ import com.harucut.support.SecurityBeansMockSupport;
 import com.harucut.user.enums.UserRole;
 import com.harucut.user.enums.UserStatus;
 import com.harucut.workspace.dto.WorkspaceResponse;
+import com.harucut.workspace.enums.WorkspaceKind;
 import com.harucut.workspace.enums.WorkspaceRole;
 import com.harucut.workspace.enums.WorkspaceType;
 import com.harucut.workspace.service.WorkspaceService;
@@ -50,14 +51,15 @@ class WorkspaceControllerTest extends SecurityBeansMockSupport {
     @DisplayName("내 공간 목록을 돌려준다")
     void listsMine() {
         given(workspaceService.listMine(PUBLIC_ID)).willReturn(List.of(
-                new WorkspaceResponse("Ws1aB2cD3eF4", WorkspaceType.PERSONAL, "내 공간", WorkspaceRole.OWNER)));
+                new WorkspaceResponse("Ws1aB2cD3eF4", WorkspaceType.PERSONAL, "내 공간", WorkspaceRole.OWNER, WorkspaceKind.HOST)));
 
         assertThat(mockMvc.get().uri("/api/auth/workspaces").cookie(cookie()))
                 .hasStatusOk()
                 .bodyJson()
                 .hasPathSatisfying("$.data[0].workspaceId", v -> assertThat(v).isEqualTo("Ws1aB2cD3eF4"))
                 .hasPathSatisfying("$.data[0].type", v -> assertThat(v).isEqualTo("PERSONAL"))
-                .hasPathSatisfying("$.data[0].role", v -> assertThat(v).isEqualTo("OWNER"));
+                .hasPathSatisfying("$.data[0].role", v -> assertThat(v).isEqualTo("OWNER"))
+                .hasPathSatisfying("$.data[0].kind", v -> assertThat(v).isEqualTo("HOST"));
     }
 
     @Test

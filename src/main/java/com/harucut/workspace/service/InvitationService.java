@@ -88,6 +88,11 @@ public class InvitationService {
         if (existing.filter(grant -> grant.getPermissions().containsAll(invitation.getPermissions())).isPresent()) {
             throw new BusinessException(MemberErrorCode.ALREADY_MEMBER);
         }
+        // 업체 공간의 멤버는 사진 권한을 받을 수 없다(WorkspaceKind.ENTERPRISE) — 토큰을 쓰지 않고 거절해 고객에게 그대로 건넬 수 있게
+        if (workspace.isEnterprise() && membershipRepository.findByWorkspaceIdAndUserId(workspace.getId(), actor.getId())
+                .filter(WorkspaceMembership::isActive).isPresent()) {
+            throw new BusinessException(MemberErrorCode.ENTERPRISE_MEMBER_NO_PHOTOS);
+        }
         consume(invitation, actor);
         EventGrant grant = grantRepository.findByEventIdAndUserId(event.getId(), actor.getId()).orElseGet(() -> grantRepository.save(
                 new EventGrant(event.getId(), actor.getId(), invitation.getPermissions(), invitation.getInvitedByUserId())));

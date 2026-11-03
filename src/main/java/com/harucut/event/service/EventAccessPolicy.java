@@ -30,6 +30,8 @@ import java.util.Set;
  * 공간 역할이 OPERATOR 일 때만 효력이 있다(역할을 내리면 운영 권한도 사라진다).
  * <p>사진 권한: EventGrant ∪ 프로젝트 멤버 권한(공간 역할이 OWNER·ADMIN·OPERATOR 일 때 — OPERATOR 를 ADMIN 으로 올려도 남고,
  * VIEWER·DESIGNER 로 내리거나 멤버가 아니면 프로젝트 쪽은 빠진다). (a) 공간 OWNER·ADMIN 도 사진은 이 둘로만 본다 — 결정이 바뀌면 여기만 고친다.
+ * <p>업체(ENTERPRISE) 공간의 멤버는 사진을 보지 않는다(WorkspaceKind, 사용자 결정 2026-11-03) — 권한 행이 있어도 여기서 뺀다.
+ * 고객(공간 멤버가 아닌 EventGrant)은 그대로다.
  */
 @Component
 @RequiredArgsConstructor
@@ -68,13 +70,15 @@ public class EventAccessPolicy {
     @Transactional(readOnly = true)
     public Access accessOf(Event event, Long userId) {
         WorkspaceRole role = workspaceService.roleOf(event.getWorkspaceId(), userId).orElse(null);
+        // 업체 공간의 멤버는 사진을 보지 않는다 — 행사·프로젝트 권한 행이 있어도 판정에서 뺀다. 멤버가 아닌 고객은 그대로
+        boolean enterpriseMember = role != null && workspaceService.isEnterprise(event.getWorkspaceId());
         Optional<EventGrant> grant = grantRepository.findByEventIdAndUserId(event.getId(), userId);
         Optional<ProjectMembership> member = event.getProjectId() == null ? Optional.empty()
                 : projectMembershipRepository.findByProjectIdAndUserId(event.getProjectId(), userId);
 
-        Set<PhotoPermission> eventPhotos = grant.map(EventGrant::getPermissions).orElse(Set.of());
+        Set<PhotoPermission> eventPhotos = enterpriseMember ? Set.of() : grant.map(EventGrant::getPermissions).orElse(Set.of());
         boolean managing = role == WorkspaceRole.OPERATOR || (role != null && OPERATOR_ROLES.contains(role));
-        Set<PhotoPermission> projectPhotos = managing
+        Set<PhotoPermission> projectPhotos = managing && !enterpriseMember
                 ? member.map(ProjectMembership::getPermissions).orElse(Set.of()) : Set.of();
         Set<PhotoPermission> permissions = union(PhotoPermission.class, eventPhotos, projectPhotos);
 

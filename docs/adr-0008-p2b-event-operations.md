@@ -34,6 +34,8 @@ P3 로 넘기는 것: 프로젝트·상시 캠페인·기업 총량과 행사 �
 ### 2-1. 공간 멤버
 - 역할은 지금처럼 `OWNER · ADMIN · DESIGNER · VIEWER`. 의미:
   - OWNER·ADMIN: 공간·행사 설정, 게시, 부스, 멤버·고객 초대, EventGrant 관리. **사진은 EventGrant 가 있어야 본다**(자기에게 줄 수 있다).
+    2026-11-03 추가: 공간 종류가 `ENTERPRISE`(업체)면 멤버는 사진을 보지 않는다 — 권한 행이 있어도 판정에서 빠지고 자기 초대 수락은 `MEMBER-005`.
+    `HOST`(기본, 주최자)는 위 그대로다(`docs/decisions.md` 2026-11-03).
   - DESIGNER: 공간 프레임·테마 자산 제작. 게시·부스·사진 없음.
   - VIEWER: 공간 프레임 조회만.
 - `POST /api/auth/workspaces/{workspaceId}/invitations { role, email? }` (OWNER·ADMIN) → `{ invitationId, inviteToken, expiresAt }`

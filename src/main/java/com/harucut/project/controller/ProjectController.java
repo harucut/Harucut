@@ -80,7 +80,8 @@ public class ProjectController {
                     판정 때 행사 권한과 합친다. 권한을 통째로 바꾸고(없으면 만든다), 둘 다 비면 멤버에서 뺀다.
                     MANAGE_EVENT 를 받으면 그 프로젝트 안에서 행사를 만들 수 있다.
                     """)
-    @ApiErrors({"GEN-031: 프로젝트·사용자가 없거나 멤버가 아니다", "GEN-021: OWNER·ADMIN 이 아니다", "GEN-002: 대상이 OPERATOR 멤버가 아니다"})
+    @ApiErrors({"GEN-031: 프로젝트·사용자가 없거나 멤버가 아니다", "GEN-021: OWNER·ADMIN 이 아니다", "GEN-002: 대상이 OPERATOR 멤버가 아니다",
+            "MEMBER-005: 업체(ENTERPRISE) 공간의 멤버에게는 사진 권한을 줄 수 없다(운영 권한만 된다)"})
     @PutMapping("/api/auth/projects/{projectId}/members/{userId}")
     public Response<ProjectDtos.Member> putMember(@AuthenticationPrincipal AuthenticatedUser principal,
                                                   @Parameter(description = "프로젝트 public id") @PathVariable String projectId,

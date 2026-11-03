@@ -14,6 +14,7 @@ import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.entity.Workspace;
 import com.harucut.workspace.enums.MembershipStatus;
 import com.harucut.workspace.enums.WorkspaceRole;
+import com.harucut.workspace.exception.MemberErrorCode;
 import com.harucut.workspace.repository.WorkspaceMembershipRepository;
 import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.workspace.service.WorkspaceService;
@@ -101,6 +102,10 @@ public class ProjectService {
         if (workspaceMembershipRepository.findByWorkspaceIdAndUserIdAndStatus(project.getWorkspaceId(), target.getId(), MembershipStatus.ACTIVE)
                 .filter(m -> m.getRole() == WorkspaceRole.OPERATOR).isEmpty()) {
             throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "이 공간의 OPERATOR 멤버만 프로젝트 멤버가 될 수 있습니다.");
+        }
+        // 업체(ENTERPRISE) 공간의 멤버에게는 사진 권한을 주지 않는다 — 운영 권한만(WorkspaceKind)
+        if (!request.permissions().isEmpty() && workspaceService.isEnterprise(project.getWorkspaceId())) {
+            throw new BusinessException(MemberErrorCode.ENTERPRISE_MEMBER_NO_PHOTOS);
         }
         ProjectMembership member = membershipRepository.findByProjectIdAndUserId(project.getId(), target.getId())
                 .orElseGet(() -> new ProjectMembership(project.getId(), target.getId(), actor.getId()));

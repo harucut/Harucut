@@ -327,6 +327,10 @@
   "status" : 409,
   "message" : "The last owner cannot be demoted or removed."
 }, {
+  "code" : "MEMBER-005",
+  "status" : 403,
+  "message" : "Members of an enterprise workspace cannot receive photo access."
+}, {
   "code" : "NOTICE-001",
   "status" : 404,
   "message" : "The requested notice does not exist or is not published."

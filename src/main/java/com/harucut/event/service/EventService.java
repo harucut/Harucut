@@ -125,7 +125,8 @@ public class EventService {
         nulls.forEach(sent::remove);
         apply(event, sent, true, workspace, true);
         Event saved = eventRepository.save(event);
-        if (admin) {
+        // 업체(ENTERPRISE) 공간에서는 만든 사람도 사진을 받지 않는다 — 고객 초대로만 연다(WorkspaceKind)
+        if (admin && !workspace.isEnterprise()) {
             eventGrantService.grantCreator(saved.getId(), user.getId());
         }
         auditLogService.record(user.getId(), workspace.getId(), saved.getId(), "EVENT_CREATED", "EVENT", saved.getPublicId(), null);
@@ -159,7 +160,7 @@ public class EventService {
             copy.assignProject(source.getProjectId());
         }
         Event saved = eventRepository.save(copy);
-        if (operated.admin()) {
+        if (operated.admin() && !operated.workspace().isEnterprise()) {
             eventGrantService.grantCreator(saved.getId(), operated.user().getId());
         }
         auditLogService.record(operated.user().getId(), saved.getWorkspaceId(), saved.getId(), "EVENT_CLONED", "EVENT",

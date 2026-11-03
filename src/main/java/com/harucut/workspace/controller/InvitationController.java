@@ -37,7 +37,8 @@ public class InvitationController {
                     1회 소비. 멤버 초대면 공간 멤버가 되고, 행사 고객 초대면 그 행사의 사진 권한만 생긴다(이미 있으면 합친다).
                     이미 같은 권한이면 토큰을 쓰지 않고 MEMBER-003.
                     """)
-    @ApiErrors({"MEMBER-001: 기한이 지난 초대", "MEMBER-002: 틀렸거나 이미 쓴·회수된 초대", "MEMBER-003: 이미 같은 권한"})
+    @ApiErrors({"MEMBER-001: 기한이 지난 초대", "MEMBER-002: 틀렸거나 이미 쓴·회수된 초대", "MEMBER-003: 이미 같은 권한",
+            "MEMBER-005: 업체(ENTERPRISE) 공간의 멤버가 그 공간 행사의 고객 초대를 수락했다 — 토큰은 남는다"})
     @PostMapping("/accept")
     public Response<MemberDtos.InvitationAccepted> accept(@AuthenticationPrincipal AuthenticatedUser principal,
                                                           @RequestBody @Valid MemberDtos.InvitationTokenRequest request) {

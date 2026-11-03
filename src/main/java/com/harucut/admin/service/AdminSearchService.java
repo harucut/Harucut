@@ -44,7 +44,7 @@ public class AdminSearchService {
 
     public List<AdminSearchDtos.WorkspaceItem> workspaces(String query) {
         List<Workspace> found = workspaceRepository.searchOrganizations(pattern(query), PageRequest.of(0, LIMIT));
-        return found.stream().map(w -> new AdminSearchDtos.WorkspaceItem(w.getPublicId(), w.getName(), w.getType(),
+        return found.stream().map(w -> new AdminSearchDtos.WorkspaceItem(w.getPublicId(), w.getName(), w.getType(), w.getKind(),
                 ownerEmails(w.getId()), offset(w.getCreatedAt()))).toList();
     }
 

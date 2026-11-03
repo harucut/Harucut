@@ -57,7 +57,7 @@ public class EventGrantController {
 
     @Operation(summary = "행사 사진 권한 바꾸기",
             description = "INVITE_CUSTOMERS 권한. 사진 권한 집합을 통째로 바꾼다. OPERATOR 는 자기 사진 권한 안에서만, 다른 운영자의 행은 못 바꾼다.")
-    @ApiErrors({"GEN-031: 없는 행사·권한이거나 볼 수 없다", "GEN-021: 권한 밖"})
+    @ApiErrors({"GEN-031: 없는 행사·권한이거나 볼 수 없다", "GEN-021: 권한 밖", "MEMBER-005: 업체(ENTERPRISE) 공간의 멤버에게는 사진 권한을 줄 수 없다"})
     @PatchMapping("/api/auth/events/{eventId}/grants/{grantId}")
     public Response<MemberDtos.EventGrantView> update(@AuthenticationPrincipal AuthenticatedUser principal,
                                                       @Parameter(description = "행사 public id") @PathVariable String eventId,

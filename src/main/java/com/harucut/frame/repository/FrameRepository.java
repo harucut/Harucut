@@ -69,7 +69,7 @@ public interface FrameRepository extends JpaRepository<Frame, Long> {
     @Query("select count(f) from Frame f where f.user = :user and f.createdAt > :createdAt and " + PERSONAL)
     long countPersonalByUserCreatedAfter(@Param("user") User user, @Param("createdAt") LocalDateTime createdAt);
 
-    // FrameCountPort 어댑터용 — subscription의 사용량 API(개인 프레임만)
+    // 구독 사용량 API(SubscriptionUsageService)용 — 개인 프레임만 센다
     @Query("select count(f) from Frame f where f.user.id = :userId and " + PERSONAL)
     long countPersonalByUserId(@Param("userId") Long userId);
 

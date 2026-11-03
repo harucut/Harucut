@@ -141,6 +141,7 @@
 - **이유**: frame 부재 상태에서 사용량 기능을 완성할 수 있었고(포트+임시 어댑터), Phase 8~9의 frame·media가 subscription 내부를 모른 채 개발된다. Kotlin의 Clock 미경유 버그도 이 재작성에서 함께 고쳤다 — `resolveHistoryCutoff`뿐 아니라 `assertHistoryAccessible`에도 맨 `LocalDateTime.now()`가 있었고, Java는 등급 판정(`resolvePolicy`)까지 세 곳 모두 `LocalDateTime.now(clock)`으로 통일했다.
 - **포기한 것**: user↔subscription 패키지 순환(수용 — 빈 순환은 아님), 구현 추적의 간접성 한 단계, 임시 어댑터 교체를 잊을 위험(잊으면 빈 충돌로 기동이 죽으므로 조용히 잘못되진 않는다). 그리고 **이 포트가 막는 것은 엔티티 레벨 결합까지다** — 서비스 계층은 뚫려 있다. `frame`은 `SubscriptionErrorCode`를 직접 import해 소프트 캡 초과를 스스로 던지고(`FrameService.assertWithinRetentionCap`), `subscription`은 `coupon`(`GrantActivationService`)과 `payment`(`BillingKeyRepository`)를 직접 import한다. `media`만 subscription을 전혀 import하지 않는다.
 - **다시 볼 시점**: **임시 어댑터는 예정대로 제거됐다** — `FrameCountPort`의 구현은 `frame/adapter/FrameCountAdapter` 하나다(삭제 커밋 `4124886`). 남은 재검토 사유는 훗날 모듈 분리를 하게 될 때 인터페이스를 공유 모듈로 옮길지 하나뿐이다.
+  **2026-11-03 되돌림(과구현 정리)**: `FrameCountPort`·`FrameCountAdapter` 를 지우고 `SubscriptionUsageService` 가 `FrameRepository.countPersonalByUserId` 를 직접 부른다. frame 이 생긴 뒤로 이 포트가 막는 것은 없었고 간접성만 남았다 — "바뀔 가능성이 실재하거나 아직 없는 곳에만 친다"는 위 원칙 그대로다. 정책 쪽 포트(`FrameSubscriptionPolicy`·`MediaSubscriptionPolicy`)는 요금제 한도 결정(지금은 전부 무제한)과 함께 다시 본다.
 
 ---
 

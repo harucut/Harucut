@@ -34,20 +34,20 @@ public class ComposeWorker {
     private static final int DISPATCH_THREADS = 4;
     private static final int DISPATCH_QUEUE = 1000;
 
-    private final ComposeExecutor composeExecutor;
+    private final LambdaComposeExecutor composeExecutor;
     private final ComposeService composeService;
     private final ComposeMetrics metrics;
     private final Duration staleAfter;
     private final Executor dispatcher;
 
     @Autowired
-    public ComposeWorker(ComposeExecutor composeExecutor, ComposeService composeService,
+    public ComposeWorker(LambdaComposeExecutor composeExecutor, ComposeService composeService,
                          ComposeMetrics metrics,
                          @Value("${compose.stale-after:10m}") Duration staleAfter) {
         this(composeExecutor, composeService, metrics, staleAfter, newDispatcher());
     }
 
-    ComposeWorker(ComposeExecutor composeExecutor, ComposeService composeService, ComposeMetrics metrics,
+    ComposeWorker(LambdaComposeExecutor composeExecutor, ComposeService composeService, ComposeMetrics metrics,
                   Duration staleAfter, Executor dispatcher) {
         this.composeExecutor = composeExecutor;
         this.composeService = composeService;

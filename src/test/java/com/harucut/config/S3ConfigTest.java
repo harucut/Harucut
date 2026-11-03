@@ -20,7 +20,7 @@ class S3ConfigTest {
         AwsProperties properties = mock(AwsProperties.class);
         given(properties.region()).willReturn("ap-northeast-2");
 
-        try (S3Client client = new S3Config().s3Client(properties, Duration.ofMinutes(2))) {
+        try (S3Client client = new S3Config().s3Client(properties)) {
             assertThat(client.serviceClientConfiguration().overrideConfiguration().apiCallTimeout()).contains(Duration.ofMinutes(2));
         }
     }

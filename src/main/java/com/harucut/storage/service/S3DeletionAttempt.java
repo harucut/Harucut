@@ -3,7 +3,6 @@ package com.harucut.storage.service;
 import com.harucut.common.utils.OpaqueTokens;
 import com.harucut.storage.repository.S3DeletionRepository;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -26,23 +25,22 @@ public class S3DeletionAttempt {
     // n 번째 실패 뒤 다음 시도까지 — 마지막 값이 상한 간격이다. 기본 상한 8회면 첫 예약부터 약 이틀
     static final List<Duration> BACKOFF = List.of(Duration.ofMinutes(5), Duration.ofMinutes(15), Duration.ofHours(1),
             Duration.ofHours(3), Duration.ofHours(6), Duration.ofHours(12), Duration.ofHours(24));
+    // 포기까지의 시도 횟수 — 설정으로 바꾼 적이 없어 상수다
+    static final int MAX_ATTEMPTS = 8;
 
     private final FileStorageService fileStorageService;
     private final S3DeletionRepository repository;
     private final TransactionTemplate newTransaction;
     private final Clock clock;
-    private final int maxAttempts;
 
     public S3DeletionAttempt(FileStorageService fileStorageService, S3DeletionRepository repository,
-                             PlatformTransactionManager transactionManager, Clock clock,
-                             @Value("${storage.deletion.max-attempts:8}") int maxAttempts) {
+                             PlatformTransactionManager transactionManager, Clock clock) {
         this.fileStorageService = fileStorageService;
         this.repository = repository;
         // 커밋 뒤(AFTER_COMMIT) 단계에서도 불린다 — 끝난 트랜잭션에 참여하지 않게 늘 새 트랜잭션
         this.newTransaction = new TransactionTemplate(transactionManager);
         this.newTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.clock = clock;
-        this.maxAttempts = maxAttempts;
     }
 
     /** 커밋 뒤 첫 시도 — 방금 만든 행이라 고른 일정이 없다(재시도 배치는 첫 백오프 전에 이 행을 고르지 않는다) */
@@ -67,8 +65,8 @@ public class S3DeletionAttempt {
             String reason = truncate(e.getClass().getSimpleName() + ": " + e.getMessage());
             update(() -> repository.recordFailure(keyHash, previousFailures, seenNextAttemptAt, now.plus(backoff(failures)),
                     reason, now));
-            if (failures >= maxAttempts) {
-                log.error("[S3 삭제] 재시도 상한({}회)에 닿아 남겨 둔다 — 고아 객체: {} ({})", maxAttempts, key, reason);
+            if (failures >= MAX_ATTEMPTS) {
+                log.error("[S3 삭제] 재시도 상한({}회)에 닿아 남겨 둔다 — 고아 객체: {} ({})", MAX_ATTEMPTS, key, reason);
             } else {
                 log.warn("[S3 삭제] 실패 {}회 — 다시 시도한다: {} ({})", failures, key, reason);
             }
@@ -85,7 +83,7 @@ public class S3DeletionAttempt {
     }
 
     public int maxAttempts() {
-        return maxAttempts;
+        return MAX_ATTEMPTS;
     }
 
     static Duration backoff(int failures) {

@@ -55,16 +55,15 @@ public class EventRetentionService {
     private final TransactionTemplate transaction;
     private final Clock clock;
     private final int batchSize;
-    private final Duration cleanupAfterArchive;
-    private final Duration captureInputReplay;
+    // 보관 종료 뒤 부가 행 정리까지의 기간과 촬영 입력 재생 보관 기간 — 설정으로 바꾼 적이 없어 상수다(batch-size 는 시험이 1 로 줄인다)
+    private static final Duration CLEANUP_AFTER_ARCHIVE = Duration.ofDays(30);
+    private static final Duration CAPTURE_INPUT_REPLAY = Duration.ofDays(30);
 
     public EventRetentionService(EventRepository eventRepository, ComposeJobRepository composeJobRepository,
                                  AssetRepository assetRepository, ResultAccessRepository resultAccessRepository,
                                  ParticipantSessionRepository sessionRepository, BoothDeviceRepository boothDeviceRepository,
                                  ExportService exportService, S3Deleter s3Deleter, PlatformTransactionManager transactionManager,
-                                 Clock clock, @Value("${event.retention.batch-size:500}") int batchSize,
-                                 @Value("${event.retention.cleanup-after-archive:30d}") Duration cleanupAfterArchive,
-                                 @Value("${event.retention.capture-input-replay:30d}") Duration captureInputReplay) {
+                                 Clock clock, @Value("${event.retention.batch-size:500}") int batchSize) {
         this.eventRepository = eventRepository;
         this.composeJobRepository = composeJobRepository;
         this.assetRepository = assetRepository;
@@ -76,8 +75,6 @@ public class EventRetentionService {
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
         this.batchSize = batchSize;
-        this.cleanupAfterArchive = cleanupAfterArchive;
-        this.captureInputReplay = captureInputReplay;
     }
 
     public Result run() {
@@ -86,7 +83,7 @@ public class EventRetentionService {
             purged += isolated("결과 정리", event, () -> purge(event.getId()), 0);
         }
         // 재생 기간이 지난 작업의 입력 행만 — 그 안에서는 같은 합성 요청을 다시 보내면 기존 작업을 돌려줘야 한다
-        Integer inputs = transaction.execute(status -> assetRepository.deleteSettledCaptureInputs(now().minus(captureInputReplay)));
+        Integer inputs = transaction.execute(status -> assetRepository.deleteSettledCaptureInputs(now().minus(CAPTURE_INPUT_REPLAY)));
         int archived = 0;
         for (Event event : eventRepository.findAllByStatusIn(EnumSet.of(EventStatus.LIVE, EventStatus.CAPTURE_CLOSED))) {
             if (isolated("보관 종료", event, () -> archiveIfDone(event.getId()), false)) {
@@ -94,7 +91,7 @@ public class EventRetentionService {
             }
         }
         int cleaned = 0;
-        for (Event event : eventRepository.findAllByStatusAndArchivedAtBefore(EventStatus.ARCHIVED, now().minus(cleanupAfterArchive))) {
+        for (Event event : eventRepository.findAllByStatusAndArchivedAtBefore(EventStatus.ARCHIVED, now().minus(CLEANUP_AFTER_ARCHIVE))) {
             if (isolated("부가 행 정리", event, () -> {
                 cleanupArchived(event.getId());
                 return true;

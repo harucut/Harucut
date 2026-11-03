@@ -3,7 +3,7 @@ package com.harucut.terms.service;
 import com.harucut.terms.entity.TermsAgreement;
 import com.harucut.terms.repository.CurrentTermsVersionRepository;
 import com.harucut.terms.repository.TermsAgreementRepository;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +24,9 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class TermsConsentGuard {
 
+    // 활성 필수 약관 목록의 캐시 시간 — 개정 직후 이만큼은 옛 기준으로 판정해도 된다
+    private static final Duration CACHE_TTL = Duration.ofSeconds(10);
+
     private final CurrentTermsVersionRepository currentTermsVersionRepository;
     private final TermsAgreementRepository termsAgreementRepository;
     private final Clock clock;
@@ -31,10 +34,16 @@ public class TermsConsentGuard {
 
     private volatile Cached cached;
 
+    @Autowired
     public TermsConsentGuard(CurrentTermsVersionRepository currentTermsVersionRepository,
-                             TermsAgreementRepository termsAgreementRepository,
-                             Clock clock,
-                             @Value("${terms.consent.required-cache-ttl:10s}") Duration cacheTtl) {
+                             TermsAgreementRepository termsAgreementRepository, Clock clock) {
+        this(currentTermsVersionRepository, termsAgreementRepository, clock, CACHE_TTL);
+    }
+
+    // 시험이 TTL 을 바꾼다 — 운영 설정으로 바꾼 적은 없어 키를 두지 않는다
+    TermsConsentGuard(CurrentTermsVersionRepository currentTermsVersionRepository,
+                      TermsAgreementRepository termsAgreementRepository,
+                      Clock clock, Duration cacheTtl) {
         this.currentTermsVersionRepository = currentTermsVersionRepository;
         this.termsAgreementRepository = termsAgreementRepository;
         this.clock = clock;

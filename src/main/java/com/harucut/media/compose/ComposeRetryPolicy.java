@@ -1,5 +1,6 @@
 package com.harucut.media.compose;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -17,16 +18,23 @@ import java.util.concurrent.ThreadLocalRandom;
 public class ComposeRetryPolicy {
 
     private static final double JITTER = 0.1;
+    // 횟수·총 기한·간격 상한 — 설정으로 바꾼 적이 없어 상수다. 간격의 시작(stale-after)만 설정에서 온다(Lambda 이벤트 수명에서 파생)
+    private static final int MAX_ATTEMPTS = 4;
+    private static final Duration TOTAL_DEADLINE = Duration.ofMinutes(90);
+    private static final Duration MAX_BACKOFF = Duration.ofMinutes(30);
 
     private final int maxAttempts;
     private final Duration totalDeadline;
     private final Duration baseBackoff;
     private final Duration maxBackoff;
 
-    public ComposeRetryPolicy(@Value("${compose.rerun.max-attempts:4}") int maxAttempts,
-                              @Value("${compose.rerun.total-deadline:90m}") Duration totalDeadline,
-                              @Value("${compose.stale-after:10m}") Duration baseBackoff,
-                              @Value("${compose.rerun.max-backoff:30m}") Duration maxBackoff) {
+    @Autowired
+    public ComposeRetryPolicy(@Value("${compose.stale-after:10m}") Duration baseBackoff) {
+        this(MAX_ATTEMPTS, TOTAL_DEADLINE, baseBackoff, MAX_BACKOFF);
+    }
+
+    // 시험이 값을 바꾼다
+    public ComposeRetryPolicy(int maxAttempts, Duration totalDeadline, Duration baseBackoff, Duration maxBackoff) {
         this.maxAttempts = maxAttempts;
         this.totalDeadline = totalDeadline;
         this.baseBackoff = baseBackoff;

@@ -5,7 +5,6 @@ import com.harucut.asset.repository.AssetRepository;
 import com.harucut.storage.config.StorageProperties;
 import com.harucut.storage.service.S3Deleter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
@@ -35,20 +34,17 @@ public class AssetOrphanCleaner {
     private final StorageProperties properties;
     private final TransactionTemplate transaction;
     private final Clock clock;
-    private final int batchSize;
-    private final int maxPerRun;
+    // 한 트랜잭션에 지우는 묶음과 한 실행의 상한 — 설정으로 바꾼 적이 없어 상수다
+    private static final int BATCH_SIZE = 200;
+    private static final int MAX_PER_RUN = 5000;
 
     public AssetOrphanCleaner(AssetRepository assetRepository, S3Deleter s3Deleter, StorageProperties properties,
-                              PlatformTransactionManager transactionManager, Clock clock,
-                              @Value("${storage.asset.orphan-cleanup.batch-size:200}") int batchSize,
-                              @Value("${storage.asset.orphan-cleanup.max-per-run:5000}") int maxPerRun) {
+                              PlatformTransactionManager transactionManager, Clock clock) {
         this.assetRepository = assetRepository;
         this.s3Deleter = s3Deleter;
         this.properties = properties;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
-        this.batchSize = batchSize;
-        this.maxPerRun = maxPerRun;
     }
 
     /** @return 지운 자산 수 */
@@ -56,14 +52,14 @@ public class AssetOrphanCleaner {
         LocalDateTime now = LocalDateTime.now(clock);
         LocalDateTime cutoff = now.minus(properties.asset().orphanAfter());
         LocalDateTime captureCutoff = now.minus(properties.asset().captureOrphanAfter());
-        int deleted = sweep(afterId -> assetRepository.findOrphanCandidates(cutoff, afterId, PageRequest.of(0, batchSize)), 0);
-        return sweep(afterId -> assetRepository.findAbandonedCaptureInputs(captureCutoff, afterId, PageRequest.of(0, batchSize)), deleted);
+        int deleted = sweep(afterId -> assetRepository.findOrphanCandidates(cutoff, afterId, PageRequest.of(0, BATCH_SIZE)), 0);
+        return sweep(afterId -> assetRepository.findAbandonedCaptureInputs(captureCutoff, afterId, PageRequest.of(0, BATCH_SIZE)), deleted);
     }
 
     private int sweep(LongFunction<List<Asset>> page, int alreadyDeleted) {
         long afterId = 0;
         int deleted = alreadyDeleted;
-        while (deleted < maxPerRun) {
+        while (deleted < MAX_PER_RUN) {
             List<Asset> candidates = page.apply(afterId);
             if (candidates.isEmpty()) {
                 break;
@@ -71,7 +67,7 @@ public class AssetOrphanCleaner {
             afterId = candidates.getLast().getId();
             Set<String> referencedByKey = referencedByKey(candidates);
             for (Asset asset : candidates) {
-                if (deleted >= maxPerRun) {
+                if (deleted >= MAX_PER_RUN) {
                     break;
                 }
                 if (!referencedByKey.contains(asset.getS3Key()) && deleteOne(asset)) {

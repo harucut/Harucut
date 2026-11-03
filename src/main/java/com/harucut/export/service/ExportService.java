@@ -24,7 +24,6 @@ import com.harucut.storage.service.FileStorageService;
 import com.harucut.storage.service.S3Deleter;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -63,14 +62,14 @@ public class ExportService {
     private final ApplicationEventPublisher eventPublisher;
     private final EntitlementService entitlementService;
     private final Clock clock;
-    private final int maxPhotos;
+    // 묶음 하나에 담는 최대 장수 — 설정으로 바꾼 적이 없어 상수다
+    private static final int MAX_PHOTOS = 2000;
 
     public ExportService(EventAccessPolicy policy, ExportJobRepository exportJobRepository,
                          ExportJobItemRepository itemRepository, ComposeJobRepository composeJobRepository,
                          FileStorageService fileStorageService, S3Deleter s3Deleter, StorageProperties storageProperties,
                          UserRepository userRepository, AuditLogService auditLogService,
-                         ApplicationEventPublisher eventPublisher, EntitlementService entitlementService, Clock clock,
-                         @Value("${event.export.max-photos:2000}") int maxPhotos) {
+                         ApplicationEventPublisher eventPublisher, EntitlementService entitlementService, Clock clock) {
         this.policy = policy;
         this.exportJobRepository = exportJobRepository;
         this.itemRepository = itemRepository;
@@ -83,7 +82,6 @@ public class ExportService {
         this.eventPublisher = eventPublisher;
         this.entitlementService = entitlementService;
         this.clock = clock;
-        this.maxPhotos = maxPhotos;
     }
 
     public ExportDtos.Export create(String actorPublicId, String eventPublicId, ExportDtos.ExportRequest request) {
@@ -91,9 +89,9 @@ public class ExportService {
         Event event = policy.requirePhoto(actorId, eventPublicId, PhotoPermission.BULK_DOWNLOAD);
         entitlementService.requireFeature(event, Feature.BULK_DOWNLOAD);   // 계약 기능 — 없으면 403 ENT-004
         List<ComposeJob> targets = targets(event, request);
-        if (targets.isEmpty() || targets.size() > maxPhotos) {
+        if (targets.isEmpty() || targets.size() > MAX_PHOTOS) {
             throw new BusinessException(ExportErrorCode.INVALID_SELECTION,
-                    "묶을 사진 " + targets.size() + "장 — 1장 이상 " + maxPhotos + "장 이하여야 합니다.");
+                    "묶을 사진 " + targets.size() + "장 — 1장 이상 " + MAX_PHOTOS + "장 이하여야 합니다.");
         }
         ExportJob export = exportJobRepository.save(ExportJob.pending(event.getWorkspaceId(), event.getId(), event.getPublicId(), actorId, targets.size()));
         for (int i = 0; i < targets.size(); i++) {
@@ -172,7 +170,7 @@ public class ExportService {
         List<Object[]> rows = composeJobRepository.findEventPhotos(event.getId(), LocalDateTime.now(clock), ComposeStatus.DONE,
                 filter == null ? null : filter.channel(), filter == null ? null : filter.frameVersionId(),
                 filter == null ? null : local(filter.from()), filter == null ? null : local(filter.to()),
-                null, null, PageRequest.of(0, maxPhotos + 1));
+                null, null, PageRequest.of(0, MAX_PHOTOS + 1));
         List<ComposeJob> jobs = new ArrayList<>();
         rows.forEach(row -> jobs.add((ComposeJob) row[0]));
         return jobs.stream().filter(this::usable).toList();
@@ -202,13 +200,13 @@ public class ExportService {
                 events == null ? null : export.getScope(), events);
     }
 
-    /** 행사의 묶을 수 있는 완성 사진 전부(최대 maxPhotos + 1 장) — 여러 행사 묶음이 행사마다 부른다 */
+    /** 행사의 묶을 수 있는 완성 사진 전부(최대 MAX_PHOTOS + 1 장) — 여러 행사 묶음이 행사마다 부른다 */
     List<ComposeJob> visiblePhotos(Event event) {
         return targets(event, new ExportDtos.ExportRequest(null, null));
     }
 
     int maxPhotos() {
-        return maxPhotos;
+        return MAX_PHOTOS;
     }
 
     private Long userId(String publicId) {

@@ -1,26 +1,26 @@
 package com.harucut.payment.batch;
 
+import com.harucut.payment.enums.OrderStatus;
+import com.harucut.payment.enums.OrderType;
+import com.harucut.payment.repository.PaymentOrderRepository;
+import com.harucut.subscription.repository.UserSubscriptionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.batch.core.job.Job;
-import org.springframework.batch.core.job.parameters.JobParameters;
-import org.springframework.batch.core.launch.JobExecutionAlreadyRunningException;
-import org.springframework.batch.core.launch.JobOperator;
 
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.List;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
 
@@ -30,39 +30,54 @@ class SubscriptionRenewalSchedulerTest {
 
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 8, 18, 2, 0);
     private static final ZoneId ZONE = ZoneId.of("Asia/Seoul");
+    private static final LocalDateTime BASE = LocalDate.of(2026, 8, 18).atStartOfDay();
 
     @Mock
-    private JobOperator jobOperator;
+    private UserSubscriptionRepository userSubscriptionRepository;
 
     @Mock
-    private Job subscriptionRenewalJob;
+    private PaymentOrderRepository paymentOrderRepository;
+
+    @Mock
+    private RenewalPreparationService renewalPreparationService;
+
+    @Mock
+    private RenewalChargeService renewalChargeService;
 
     private SubscriptionRenewalScheduler scheduler;
 
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(NOW.atZone(ZONE).toInstant(), ZONE);
-        scheduler = new SubscriptionRenewalScheduler(jobOperator, subscriptionRenewalJob, clock);
+        scheduler = new SubscriptionRenewalScheduler(userSubscriptionRepository, paymentOrderRepository,
+                renewalPreparationService, renewalChargeService, clock);
     }
 
     @Test
-    @DisplayName("오늘 날짜가 식별 파라미터로 실려 잡이 기동된다")
-    void startsJobWithTodayAsRunDate() throws Exception {
+    @DisplayName("오늘 자정을 기준으로 준비를 다 돌린 뒤 CREATED 주문을 청구한다")
+    void preparesThenCharges() {
+        given(userSubscriptionRepository.findRenewableIds(BASE)).willReturn(List.of(1L, 2L));
+        given(paymentOrderRepository.findIdsByOrderTypeAndStatus(OrderType.RENEWAL, OrderStatus.CREATED)).willReturn(List.of(10L));
+
         scheduler.run();
 
-        ArgumentCaptor<JobParameters> captor = ArgumentCaptor.forClass(JobParameters.class);
-        then(jobOperator).should().start(eq(subscriptionRenewalJob), captor.capture());
-        assertThat(captor.getValue().getLocalDate(SubscriptionRenewalJobConfig.RUN_DATE))
-                .isEqualTo(LocalDate.of(2026, 8, 18));
+        InOrder inOrder = Mockito.inOrder(renewalPreparationService, renewalChargeService);
+        inOrder.verify(renewalPreparationService).prepare(1L, BASE);
+        inOrder.verify(renewalPreparationService).prepare(2L, BASE);
+        inOrder.verify(renewalChargeService).charge(10L, BASE);
     }
 
-    // 서버 2대가 같은 새벽에 깨어나도 한쪽은 이 예외를 받는다 — 스케줄러는 조용히 물러난다
     @Test
-    @DisplayName("이미 진행 중인 실행이 있으면 예외를 삼키고 끝난다")
-    void swallowsDuplicateRun() throws Exception {
-        willThrow(new JobExecutionAlreadyRunningException("이미 실행 중"))
-                .given(jobOperator).start(eq(subscriptionRenewalJob), any(JobParameters.class));
+    @DisplayName("준비·청구 한 건이 터져도 나머지는 계속된다")
+    void oneFailureDoesNotStopTheRest() {
+        given(userSubscriptionRepository.findRenewableIds(any())).willReturn(List.of(1L, 2L));
+        given(paymentOrderRepository.findIdsByOrderTypeAndStatus(OrderType.RENEWAL, OrderStatus.CREATED)).willReturn(List.of(10L, 11L));
+        willThrow(new IllegalStateException("준비 고장")).given(renewalPreparationService).prepare(1L, BASE);
+        willThrow(new IllegalStateException("PG 응답 없음")).given(renewalChargeService).charge(10L, BASE);
 
-        assertThatCode(() -> scheduler.run()).doesNotThrowAnyException();
+        scheduler.run(LocalDate.of(2026, 8, 18));
+
+        then(renewalPreparationService).should().prepare(2L, BASE);
+        then(renewalChargeService).should().charge(11L, BASE);
     }
 }

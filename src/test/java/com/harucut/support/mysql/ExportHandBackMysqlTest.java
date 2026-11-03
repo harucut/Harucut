@@ -64,7 +64,6 @@ import static org.mockito.Mockito.reset;
 @SpringBootTest(properties = {
         "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
-        "spring.sql.init.schema-locations=classpath:org/springframework/batch/core/schema-mysql.sql",
         // 이 테스트가 작업자를 직접 돌린다 — 앱의 주기 재투입이 끼어들지 않게
         "event.export.recover-interval=1h"
 })

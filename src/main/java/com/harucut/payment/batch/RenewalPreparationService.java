@@ -73,7 +73,7 @@ public class RenewalPreparationService {
                 PaymentOrder.createRenewal(userId, subscription.getPlanTier(), amount, idempotencyKey));
     }
 
-    // SubscriptionRenewalJobConfig 의 리더 조건과 같다 — 둘 중 하나만 바꾸면 고르고도 건너뛰거나 재확인 없이 청구한다
+    // UserSubscriptionRepository.findRenewableIds 의 조건과 같다 — 둘 중 하나만 바꾸면 고르고도 건너뛰거나 재확인 없이 청구한다
     static boolean isRenewable(UserSubscription subscription, LocalDateTime baseTime) {
         SubscriptionStatus status = subscription.getSubscriptionStatus();
         SubscriptionSource source = subscription.getSource();

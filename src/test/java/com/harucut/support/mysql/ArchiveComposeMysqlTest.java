@@ -76,7 +76,6 @@ import static org.mockito.BDDMockito.given;
 @SpringBootTest(properties = {
         "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
-        "spring.sql.init.schema-locations=classpath:org/springframework/batch/core/schema-mysql.sql"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")

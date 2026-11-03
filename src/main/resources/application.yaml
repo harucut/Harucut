@@ -79,17 +79,6 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: false
 
-  # Spring Batch 메타테이블(BATCH_*) 생성. Boot 4는 배치 스키마를 만들어주지 않는다
-  # (JDBC 저장소 자체가 옵트인이다 — BatchConfig 참고). 스크립트에 IF NOT EXISTS가 없어
-  # 두 번째 기동부터는 오류가 나지만 continue-on-error가 무시한다 — 재기동에 안전하다.
-  sql:
-    init:
-      mode: always
-      # DB 종류별 스크립트 — test 프로필은 schema-h2.sql로 통째로 덮어쓰고,
-      # 컨테이너(파일 H2)는 SPRING_SQL_INIT_SCHEMA_LOCATIONS 환경변수로 덮어쓴다.
-      schema-locations: classpath:org/springframework/batch/core/schema-mysql.sql
-      continue-on-error: true
-
   task:
     scheduling:
       pool:

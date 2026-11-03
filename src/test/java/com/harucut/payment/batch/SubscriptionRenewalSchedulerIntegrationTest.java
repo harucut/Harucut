@@ -28,12 +28,6 @@ import com.harucut.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.batch.core.BatchStatus;
-import org.springframework.batch.core.job.Job;
-import org.springframework.batch.core.job.JobExecution;
-import org.springframework.batch.core.job.parameters.JobParameters;
-import org.springframework.batch.core.job.parameters.JobParametersBuilder;
-import org.springframework.batch.core.launch.JobOperator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -49,20 +43,16 @@ import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.times;
 
 /*
- * 갱신 잡 통합 검증. 탈퇴 잡 테스트와 같은 이유로 테스트마다 runDate가 다르다
- * (JobInstance = 잡 이름 + 식별 파라미터).
+ * 갱신 통합 검증 — 스케줄러가 준비 → 청구를 한 바퀴 돈다.
  * PaymentGateway를 대역으로 바꿔 성공·실패·예외를 주입한다 — 청구 명령의 빌링키 값으로 사용자를 구분한다.
  */
 @SpringBootTest
 @ActiveProfiles("test")
-@DisplayName("구독 갱신 배치")
-class SubscriptionRenewalJobTest {
+@DisplayName("구독 갱신 — 통합")
+class SubscriptionRenewalSchedulerIntegrationTest {
 
     @Autowired
-    private JobOperator jobOperator;
-
-    @Autowired
-    private Job subscriptionRenewalJob;
+    private SubscriptionRenewalScheduler scheduler;
 
     @Autowired
     private UserRepository userRepository;
@@ -90,7 +80,7 @@ class SubscriptionRenewalJobTest {
 
     /*
      * H2가 테스트 컨텍스트들 사이에 공유된다 — 다른 클래스가 남긴 "만료 도래" 구독·빌링키가
-     * 이 잡의 대상으로 끼어들면 주문 수·스킵 수 검증이 흔들린다. 결제·구독 테이블을 비우고 시작한다.
+     * 대상으로 끼어들면 주문 수 검증이 흔들린다. 결제·구독 테이블을 비우고 시작한다.
      */
     @BeforeEach
     void cleanSlate() {
@@ -104,7 +94,7 @@ class SubscriptionRenewalJobTest {
 
     @Test
     @DisplayName("만료 도래 ACTIVE만 갱신된다 — 미래·BASIC·CANCELED는 건드리지 않는다")
-    void renewsOnlyDueActive() throws Exception {
+    void renewsOnlyDueActive() {
         LocalDate runDate = LocalDate.of(2031, 1, 10);
         LocalDateTime base = runDate.atStartOfDay();
         User due = saveUser("renewal-due@harucut.com");
@@ -123,9 +113,8 @@ class SubscriptionRenewalJobTest {
         given(paymentGateway.charge(any(BillingChargeCommand.class)))
                 .willReturn(PaymentResult.success("tx-1", base.plusHours(2)));
 
-        JobExecution execution = jobOperator.start(subscriptionRenewalJob, params(runDate));
+        scheduler.run(runDate);
 
-        assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED);
         UserSubscription renewed = userSubscriptionRepository.findByUserId(due.getId()).orElseThrow();
         assertThat(renewed.getSubscriptionStatus()).isEqualTo(SubscriptionStatus.ACTIVE);
         assertThat(renewed.getCurrentPeriodStart()).isEqualTo(base);
@@ -148,7 +137,7 @@ class SubscriptionRenewalJobTest {
 
     @Test
     @DisplayName("스토어 구독은 청구하지 않는다 — 기한이 지나도 주문도 PAST_DUE 도 없다(스토어가 갱신한다, ADR-0011 §2)")
-    void skipsStoreSubscriptions() throws Exception {
+    void skipsStoreSubscriptions() {
         LocalDate runDate = LocalDate.of(2033, 7, 7);
         LocalDateTime base = runDate.atStartOfDay();
         User store = saveUser("renewal-store@harucut.com");
@@ -157,9 +146,8 @@ class SubscriptionRenewalJobTest {
                 base.minusMonths(1), base.minusDays(1), true);
         userSubscriptionRepository.save(subscription);
 
-        JobExecution execution = jobOperator.start(subscriptionRenewalJob, params(runDate));
+        scheduler.run(runDate);
 
-        assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED);
         assertThat(paymentOrderRepository.findAll()).isEmpty();
         assertThat(userSubscriptionRepository.findByUserId(store.getId()).orElseThrow().getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.ACTIVE);
@@ -168,7 +156,7 @@ class SubscriptionRenewalJobTest {
     // 유예 3일 동안 매일 재청구한다는 설계 결정을 고정하는 테스트
     @Test
     @DisplayName("PAST_DUE도 대상이다 — 어제 실패한 구독이 오늘 성공하면 ACTIVE로 살아난다")
-    void pastDueIsRetried() throws Exception {
+    void pastDueIsRetried() {
         LocalDate runDate = LocalDate.of(2031, 2, 10);
         LocalDateTime base = runDate.atStartOfDay();
         User user = saveUser("renewal-pastdue@harucut.com");
@@ -180,9 +168,8 @@ class SubscriptionRenewalJobTest {
         given(paymentGateway.charge(any(BillingChargeCommand.class)))
                 .willReturn(PaymentResult.success("tx-retry", base.plusHours(2)));
 
-        JobExecution execution = jobOperator.start(subscriptionRenewalJob, params(runDate));
+        scheduler.run(runDate);
 
-        assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED);
         UserSubscription renewed = userSubscriptionRepository.findByUserId(user.getId()).orElseThrow();
         assertThat(renewed.getSubscriptionStatus()).isEqualTo(SubscriptionStatus.ACTIVE);
         assertThat(renewed.getCurrentPeriodEnd()).isEqualTo(base.plusMonths(1));
@@ -190,7 +177,7 @@ class SubscriptionRenewalJobTest {
 
     @Test
     @DisplayName("청구 실패면 주문 FAILED·결제 FAILED 행이 남고 구독은 PAST_DUE다")
-    void chargeFailureLeavesTrail() throws Exception {
+    void chargeFailureLeavesTrail() {
         LocalDate runDate = LocalDate.of(2031, 3, 10);
         LocalDateTime base = runDate.atStartOfDay();
         LocalDateTime originalPeriodEnd = base.minusDays(1);
@@ -200,9 +187,8 @@ class SubscriptionRenewalJobTest {
         given(paymentGateway.charge(any(BillingChargeCommand.class)))
                 .willReturn(PaymentResult.failure("CARD_DECLINED", "한도 초과"));
 
-        JobExecution execution = jobOperator.start(subscriptionRenewalJob, params(runDate));
+        scheduler.run(runDate);
 
-        assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED);
         assertThat(paymentOrderRepository.findAll()).singleElement()
                 .satisfies(order -> assertThat(order.getStatus()).isEqualTo(OrderStatus.FAILED));
         // 트랜잭션 분리 검증의 갱신판 — 청구가 실패해도 이력은 커밋돼 남는다
@@ -217,7 +203,7 @@ class SubscriptionRenewalJobTest {
 
     @Test
     @DisplayName("예약 쿠폰이 있으면 청구 대신 grant로 전환된다 — PG는 불리지 않는다")
-    void reservedCouponConvertsToGrant() throws Exception {
+    void reservedCouponConvertsToGrant() {
         LocalDate runDate = LocalDate.of(2031, 4, 10);
         LocalDateTime base = runDate.atStartOfDay();
         User user = saveUser("renewal-coupon@harucut.com");
@@ -231,9 +217,8 @@ class SubscriptionRenewalJobTest {
         userSubscriptionRepository.save(subscription);
         saveBillingKey(user, "bk-unused");   // 카드가 있어도 쿠폰이 우선이다
 
-        JobExecution execution = jobOperator.start(subscriptionRenewalJob, params(runDate));
+        scheduler.run(runDate);
 
-        assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED);
         UserSubscription granted = userSubscriptionRepository.findByUserId(user.getId()).orElseThrow();
         assertThat(granted.getSubscriptionStatus()).isEqualTo(SubscriptionStatus.GRANTED);
         assertThat(granted.getPlanTier()).isEqualTo(PlanTier.PRO);
@@ -247,8 +232,8 @@ class SubscriptionRenewalJobTest {
     }
 
     @Test
-    @DisplayName("한 명의 청구가 터져도 나머지는 갱신되고 잡은 스킵 1로 완료된다")
-    void oneChargeFailureDoesNotStopTheRest() throws Exception {
+    @DisplayName("한 명의 청구가 터져도 나머지는 갱신된다 — 터진 주문은 IN_PROGRESS 도장만 남고 PG 는 사용자당 한 번만 불린다")
+    void oneChargeFailureDoesNotStopTheRest() {
         LocalDate runDate = LocalDate.of(2031, 5, 10);
         LocalDateTime base = runDate.atStartOfDay();
         User boom = saveUser("renewal-boom@harucut.com");
@@ -265,9 +250,8 @@ class SubscriptionRenewalJobTest {
             return PaymentResult.success("tx-ok", base.plusHours(2));
         });
 
-        JobExecution execution = jobOperator.start(subscriptionRenewalJob, params(runDate));
+        scheduler.run(runDate);
 
-        assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED);
         assertThat(userSubscriptionRepository.findByUserId(healthy.getId()).orElseThrow()
                 .getCurrentPeriodEnd()).isEqualTo(base.plusMonths(1));
         // 터진 쪽: 도장(IN_PROGRESS)은 남고 결과는 미기록 — 내일의 "미확정 주문" 가드가 이 행을 본다
@@ -278,29 +262,11 @@ class SubscriptionRenewalJobTest {
                 .getSubscriptionStatus()).isEqualTo(SubscriptionStatus.ACTIVE);
         assertThat(paymentRepository.findAll()).singleElement()
                 .satisfies(payment -> assertThat(payment.getPgTransactionId()).isEqualTo("tx-ok"));
-        /*
-         * 스킵 카운트는 0이 정상이다: 예외가 나면 Spring Batch가 청크를 롤백하고 항목을 다시 쓰는데(scan),
-         * 재시도에서 markCharging이 IN_PROGRESS 도장을 보고 null을 돌려줘 "성공"으로 끝난다.
-         * 그래서 실패의 흔적은 롤백 1회로 남고, 같은 주문이 PG로 두 번 나가지 않는다 —
-         * PG 호출 수(사용자당 정확히 1회)가 그 증거다.
-         */
-        assertThat(execution.getStepExecutions())
-                .filteredOn(step -> step.getStepName().equals("renewalChargeStep"))
-                .singleElement()
-                .satisfies(step -> {
-                    assertThat(step.getReadCount()).isEqualTo(2L);
-                    assertThat(step.getRollbackCount()).isEqualTo(1L);
-                });
+        // 같은 주문이 PG로 두 번 나가지 않는다 — 터진 건은 건너뛰고 다시 부르지 않는다
         then(paymentGateway).should(times(2)).charge(any(BillingChargeCommand.class));
     }
 
     // ── helpers ──────────────────────────────
-
-    private JobParameters params(LocalDate runDate) {
-        return new JobParametersBuilder()
-                .addLocalDate(SubscriptionRenewalJobConfig.RUN_DATE, runDate)
-                .toJobParameters();
-    }
 
     private User saveUser(String email) {
         return userRepository.save(UserFixtures.localUser(email, "encoded"));

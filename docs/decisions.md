@@ -125,7 +125,7 @@
 - **선택**: 사용자 API 전부(`user/info`·`subscriptions`·`usage`) 실제 적용 등급. 관리자 조회만 원본+적용 병기. 만료 처리 구조는 배치 유지.
 - **이유**: at-least-once 전달이 보장하는 건 "언젠가 반드시"지 "정시"가 아니다. 읽기 시점 계산(effectiveTier)만이 공백을 모든 경우에 0으로 만들고, 그게 있으면 공백기의 길이가 무해해져 정시 인프라에 투자할 근거가 사라진다. 상태 전이는 "사실의 기록", 권한은 "읽기 시점의 계산"으로 역할을 나눈 것.
 - **포기한 것**: 사용자 응답에서 "원래 결제했던 등급" 정보(재구독 유도 안내 불가 — 필요해지면 필드 추가). 관리자의 등급 강제 변경 수단(`PATCH /plan` 제거 — 무기한 등급 백도어라서).
-- **다시 볼 시점**: **만료 처리 구조는 확정됐다** — `SubscriptionExpirationJobConfig`를 `SubscriptionExpirationScheduler`가 **매일 02:30**에 기동한다(갱신 배치 02:00 뒤 30분. 1:30은 Kotlin 원본 값이다). PAST_DUE 마지막 재청구가 먼저 돌고 실패한 것만 강등되도록 순서를 잡았다. 이벤트 기반 후보는 채택하지 않았다. **수동 등급 부여 공백도 쿠폰 도메인으로 해소됐다** — 관리자가 `CouponAdminController`로 부여하고, 유료 구독 중이면 `reservedUserCouponId`로 예약되어 만료 배치가 활성화한다. **갱신 청구의 전달 보장도 결론이 났다** — RabbitMQ·아웃박스 없이 Spring Batch 잡을 매일 02:00에 기동한다(아래 «기록 후보» 참조).
+- **다시 볼 시점**: **만료 처리 구조는 확정됐다** — `SubscriptionExpirationScheduler`가 **매일 02:30**에 돈다(갱신 02:00 뒤 30분. 1:30은 Kotlin 원본 값이다). PAST_DUE 마지막 재청구가 먼저 돌고 실패한 것만 강등되도록 순서를 잡았다. 이벤트 기반 후보는 채택하지 않았다. **수동 등급 부여 공백도 쿠폰 도메인으로 해소됐다** — 관리자가 `CouponAdminController`로 부여하고, 유료 구독 중이면 `reservedUserCouponId`로 예약되어 만료 배치가 활성화한다. **갱신 청구의 전달 보장도 결론이 났다** — RabbitMQ·아웃박스 없이 `SubscriptionRenewalScheduler`가 매일 02:00에 돈다(아래 «기록 후보» 참조. 2026-11-03 에 Spring Batch 는 걷어 냈다).
 
 ---
 
@@ -264,13 +264,26 @@
 
 ---
 
+## 2026-11-03 — 일일 배치 셋(탈퇴·구독 갱신·만료)에서 Spring Batch 를 걷어 낸다
+
+- **배경**: 세 배치는 "대상 id 를 읽어 건별로 서비스를 부르고, 터진 건은 건너뛴다"가 전부다. 그걸 위해 Job·Step·커서 reader·skip 정책·메타테이블 9개·시작 스크립트(`spring.sql.init`)·`BatchConfig` 를 들고 있었고, 메타테이블이 주는 "같은 runDate 중복 기동 거절"은 앱이 한 대(`deploy/prod/compose.yml`)라 쓰인 적이 없다.
+- **후보**:
+  - 그대로 둔다 — 운영 이력(실행·스킵 수)이 남는다. 대신 Boot 판올림마다 배치 API 변경을 따라간다.
+  - `@Scheduled` 루프 + 저장소 id 조회 + 건별 try/catch (선택)
+- **선택**: 스케줄러 셋이 `UserRepository.findExpiredExitTargetIds`·`UserSubscriptionRepository.findRenewableIds/findExpirableIds`·`PaymentOrderRepository.findIdsByOrderTypeAndStatus` 로 id 를 모아 건별로 서비스를 부른다. 트랜잭션 경계는 그대로다 — 탈퇴·만료·준비는 서비스 메서드가 제 트랜잭션이고, 청구는 트랜잭션 밖에서 `RenewalChargeTransactionService` 가 두 번 커밋한다. 실패는 건너뛰고 로그를 남긴다. 메타테이블은 V38 이 지운다. `spring-boot-starter-batch` 의존성과 `spring.sql.init` 설정이 사라진다.
+- **이유**: 코드가 490줄에서 150줄로 줄고, 처리 직전 재확인(`isRenewable`·`isExpirable`)과 멱등키(`renewal:{id}:{yyyyMMdd}`)가 이미 중복 처리를 막고 있어 배치 프레임워크가 더해 주던 것이 없었다.
+- **포기한 것**: 실행 이력·스킵 수 조회(지금은 로그뿐). "같은 날 두 번 돌지 않는다"는 보장 — 앱이 한 대인 동안만 참이다. 재시작 뒤 이어서 돌기 — 하루 단위라 다음 실행이 같은 대상을 다시 본다.
+- **다시 볼 시점**: 앱을 두 대로 늘릴 때 — ShedLock 이나 DB 잠금 행 하나를 둔다. 실행 이력이 필요해지면 배치 결과를 `audit_log` 에 한 줄 남기는 편이 메타테이블보다 싸다.
+
+---
+
 ## 기록 후보 (아직 안 씀)
 
 - **정기결제 갱신 청구의 전달 보장 방식** — **결론은 이미 코드에 있고, 글로만 안 옮겼다.**
   후보는 RabbitMQ 영속큐+ack / 아웃박스 패턴 / DB 폴링 배치+멱등 재시도였고,
-  선택은 **DB 폴링 배치**다 — `SubscriptionRenewalJobConfig`를 매일 02:00에 기동,
+  선택은 **DB 폴링 배치**다 — `SubscriptionRenewalScheduler`가 매일 02:00에 돌고(2026-11-03 Spring Batch 제거),
   일 단위 멱등키(`renewal:{subscriptionId}:{yyyyMMdd}`), PG 호출 직전 `IN_PROGRESS` 도장,
-  청구 스텝에만 트랜잭션 매니저를 주지 않아 PG 호출을 트랜잭션 밖에 둔다.
+  청구 루프는 트랜잭션 밖에서 돌아 PG 호출이 트랜잭션에 갇히지 않는다.
   즉 결론은 "메시지 인프라를 추가하지 않는다"였다.
   **"포기한 것"에 반드시 들어가야 할 것** — 하루 1회 폴링이라 실패 복구가 최대 하루 늦고,
   **PG 호출 중 프로세스가 죽으면 `IN_PROGRESS`로 남은 주문을 아무도 회수하지 않는다**

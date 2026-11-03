@@ -36,7 +36,6 @@ import static org.mockito.BDDMockito.willThrow;
 @SpringBootTest(properties = {
         "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
-        "spring.sql.init.schema-locations=classpath:org/springframework/batch/core/schema-mysql.sql"
 })
 @ActiveProfiles("test")
 @DisplayName("S3 삭제 예약·재시도 — 실제 MySQL")

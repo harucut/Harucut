@@ -16,7 +16,7 @@
 1. **Flyway 를 넣되 기본은 꺼 둔다** — `spring.flyway.enabled: ${FLYWAY_ENABLED:false}`.
    이 상태로 main 에 들어가도 운영 동작은 지금과 같다(update 가 계속 맞춘다).
 2. **V1 은 로컬 스키마 초안이다** — 로컬 MySQL(update 로 생성)의 `mysqldump --no-data`.
-   파일 머리에 "운영 SHOW CREATE TABLE 대조 전"이라고 적었다. BATCH_* 는 Spring Batch 스크립트가 만들므로 뺐다.
+   파일 머리에 "운영 SHOW CREATE TABLE 대조 전"이라고 적었다. BATCH_* 는 Spring Batch 스크립트가 만들던 것이라 뺐다(2026-11-03 Spring Batch 를 걷어 내며 V38 이 남은 테이블을 지운다).
 3. **이후의 스키마 변경은 모두 V2+ migration 으로 쓴다.** 엔티티만 바꾸는 PR 을 받지 않는다.
    flyway 가 꺼진 동안에는 update 가 같은 변경을 만들지만, migration 이 원본이다.
 4. **실제 MySQL 로 검증한다** — `./gradlew mysqlTest` 가 Testcontainers MySQL 8.0 에 모든 migration 을

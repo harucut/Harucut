@@ -415,8 +415,11 @@ sequenceDiagram
 ## 6. 구독 갱신 배치
 
 세로줄을 고른 기준은 **커밋 경계**다. 이 흐름의 어려움은 전부 "어디서 커밋하고 어디서 PG를 부르는가"에 있고,
-그게 세 파일에 흩어져 있어 코드로는 안 보인다. `Spring Batch`를 한 줄로 남긴 이유는
-중복 기동 거절·커서 조회·건별 skip이 전부 거기서 나기 때문이다.
+그게 세 파일에 흩어져 있어 코드로는 안 보인다.
+
+> **2026-11-03 — Spring Batch 를 걷어 냈다**(`docs/decisions.md`). `SubscriptionRenewalScheduler`가 대상 id 를 읽어 건별로
+> 서비스를 부르고, 터진 건은 로그를 남기고 건너뛴다. 아래 그림의 `Spring Batch` 줄은 그 루프로 읽는다 —
+> "같은 runDate 거절"은 없고(앱이 한 대라 하루 한 번 돈다), 커서 대신 id 목록, skip 대신 try/catch 다.
 
 ```mermaid
 sequenceDiagram
@@ -492,15 +495,8 @@ sequenceDiagram
    흔적은 롤백 1회와 `IN_PROGRESS`로 남은 주문뿐이다.
    **같은 주문이 PG로 두 번 나가지 않는 보장이 바로 여기서 나온다.**
 
-> **⚠️ JobRepository가 인메모리다.** `@EnableJdbcJobRepository`도 커스텀 `JobRepository` 빈도 없어서,
-> Boot 4.1이 꽂아주는 것은 Spring Batch 6의 기본값인 `ResourcelessJobRepository`다
-> (`DefaultBatchConfiguration.jobRepository()`가 `new ResourcelessJobRepository()`를 돌려준다).
-> 메타테이블을 아예 안 쓰고, `jobInstance`·`jobExecution`을 **필드 하나씩**으로만 들고 있다 — 맵도 아니다.
-> 결과가 셋이다. ① 재시작하면 실행 이력이 사라진다. ② **서버가 두 대면 각자 자기 메모리를 보므로 둘 다 돈다**
-> — "메타테이블 unique가 분산 락 역할을 한다"는 말은 지금 코드에서 성립하지 않는다.
-> ③ 잡 셋이 그 한 칸을 공유해서, 나중에 뜬 잡이 앞선 잡의 인스턴스 기록을 덮는다.
-> **중복 기동을 실제로 막는 것은 지금 "서버가 한 대"라는 사실뿐이다.**
-> 고치려면 `@EnableJdbcJobRepository` + 배치 메타테이블 DDL이 필요하다(현재 `resources/`에 스키마가 없다).
+> **JobRepository 문제는 2026-11-03 Spring Batch 를 걷어 내면서 사라졌다.** 실행 이력은 로그뿐이고,
+> **중복 기동을 막는 것은 여전히 "서버가 한 대"라는 사실이다**(`deploy/prod/compose.yml`). 두 대가 되면 잠금(ShedLock 등)이 필요하다.
 
 > **여기서 결정되지 않은 것 —** `IN_PROGRESS`로 남은 주문을 누가 치우는가.
 > 지금은 아무도 안 치운다. 다음 날 1스텝이 "미확정 주문 있음"으로 **건너뛰기만** 하므로,

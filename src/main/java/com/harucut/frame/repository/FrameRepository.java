@@ -73,9 +73,6 @@ public interface FrameRepository extends JpaRepository<Frame, Long> {
     @Query("select count(f) from Frame f where f.user.id = :userId and " + PERSONAL)
     long countPersonalByUserId(@Param("userId") Long userId);
 
-    @Query("select f from Frame f left join fetch f.components where f.user.id = :userId")
-    List<Frame> findAllWithComponentsByUserId(@Param("userId") Long userId);
-
     // 탈퇴 정리 대상 — 개인 공간(또는 공간이 없던 옛 행)의 프레임만. 조직 공간 프레임은 행사·다른 멤버가 쓰므로 남긴다
     @Query("""
             select f from Frame f left join fetch f.components
@@ -91,12 +88,4 @@ public interface FrameRepository extends JpaRepository<Frame, Long> {
     @Modifying(clearAutomatically = true)
     @Query("delete from Frame f where f.id in :frameIds")
     void deleteByIdIn(@Param("frameIds") List<Long> frameIds);
-
-    @Modifying(clearAutomatically = true)
-    @Query("delete from FrameComponent c where c.frame.id in (select f.id from Frame f where f.user.id = :userId)")
-    void deleteComponentsByUserId(@Param("userId") Long userId);
-
-    @Modifying(clearAutomatically = true)
-    @Query("delete from Frame f where f.user.id = :userId")
-    void deleteByUserId(@Param("userId") Long userId);
 }

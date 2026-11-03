@@ -41,10 +41,6 @@ public record VerifiedPurchase(
         return autoRenew ? StorePurchaseStatus.ACTIVE : StorePurchaseStatus.CANCELED;
     }
 
-    public VerifiedPurchase withAutoRenew(boolean value) {
-        return new VerifiedPurchase(platform, storeKey, productId, expiresAt, value, revoked, billingRetry, environment, accountToken, signedAt);
-    }
-
     public VerifiedPurchase withSignedAt(LocalDateTime value) {
         return new VerifiedPurchase(platform, storeKey, productId, expiresAt, autoRenew, revoked, billingRetry, environment, accountToken, value);
     }

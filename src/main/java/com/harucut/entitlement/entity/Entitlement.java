@@ -185,11 +185,4 @@ public class Entitlement extends BaseEntity {
         this.revokedAt = now;
         this.revokeReason = reason;
     }
-
-    /** 계약이 끝나면 지금부터 쓸 수 없게 — 진행 중 예약은 그대로 확정·반환된다 */
-    public void endAt(LocalDateTime now) {
-        if (now.isBefore(validTo)) {
-            this.validTo = now;
-        }
-    }
 }

@@ -131,12 +131,6 @@ public class MultiExportService {
                 .stream().map(this::view).toList();
     }
 
-    @Transactional(readOnly = true)
-    public ExportDtos.Export get(String actorPublicId, ExportScope kind, String scopePublicId, String exportPublicId) {
-        Long actorId = userId(actorPublicId);
-        return view(own(scope(actorId, kind, scopePublicId), actorId, exportPublicId));
-    }
-
     /**
      * 수령 — 상태·기한·담긴 사진 삭제·담긴 행사마다 BULK_DOWNLOAD 를 다시 본다. 사진이 지워졌으면 그 자리에서 EXPIRED 로 바꾸고 410
      * (그 변경이 롤백되지 않게 BusinessException 으로 롤백하지 않는다 — 판정 전에는 아무것도 쓰지 않는다)

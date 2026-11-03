@@ -56,15 +56,6 @@ public class MultiExportController {
         return Response.ok(multiExportService.mine(principal.publicId(), ExportScope.PROJECT, projectId));
     }
 
-    @Operation(summary = "프로젝트 묶음 상태")
-    @ApiErrors("GEN-031: 없는 묶음·프로젝트이거나 볼 수 없다")
-    @GetMapping("/api/auth/projects/{projectId}/exports/{exportId}")
-    public Response<ExportDtos.Export> getProject(@AuthenticationPrincipal AuthenticatedUser principal,
-                                                  @Parameter(description = "프로젝트 public id") @PathVariable String projectId,
-                                                  @Parameter(description = "묶음 public id") @PathVariable String exportId) {
-        return Response.ok(multiExportService.get(principal.publicId(), ExportScope.PROJECT, projectId, exportId));
-    }
-
     @Operation(summary = "프로젝트 묶음 받기",
             description = "DONE 이고 기한 안이면 presigned URL. 받을 때 담긴 사진 삭제·행사마다 BULK_DOWNLOAD 를 다시 본다.")
     @ApiErrors({"EXPORT-001: 아직 준비되지 않았다", "EXPORT-002: 만료·무효", "PHOTO-001: 묶음 권한이 빠진 행사가 있다",
@@ -93,15 +84,6 @@ public class MultiExportController {
     public Response<List<ExportDtos.Export>> mineWorkspace(@AuthenticationPrincipal AuthenticatedUser principal,
                                                            @Parameter(description = "공간 public id") @PathVariable String workspaceId) {
         return Response.ok(multiExportService.mine(principal.publicId(), ExportScope.WORKSPACE, workspaceId));
-    }
-
-    @Operation(summary = "공간 묶음 상태")
-    @ApiErrors({"GEN-021: OWNER·ADMIN 이 아니다", "GEN-031: 없는 묶음·공간이거나 멤버가 아니다"})
-    @GetMapping("/api/auth/workspaces/{workspaceId}/exports/{exportId}")
-    public Response<ExportDtos.Export> getWorkspace(@AuthenticationPrincipal AuthenticatedUser principal,
-                                                    @Parameter(description = "공간 public id") @PathVariable String workspaceId,
-                                                    @Parameter(description = "묶음 public id") @PathVariable String exportId) {
-        return Response.ok(multiExportService.get(principal.publicId(), ExportScope.WORKSPACE, workspaceId, exportId));
     }
 
     @Operation(summary = "공간 묶음 받기",

@@ -97,7 +97,7 @@
 - 테이블 `frame_version`: frame_id, version_no(프레임별 1부터), spec_json(TEXT, FrameSpec v2), created_by_user_id, created_at. **수정 API 없음.**
 - `POST /api/auth/user/frame/{frameId}/versions` — 현재 프레임 상태를 검증해 새 발행본을 만든다.
   검증: 모든 자산 VERIFIED·소유 범위 일치, TEXT 는 구운 PNG 필수, 레이어·크기 상한.
-- `GET /api/auth/user/frame/{frameId}/versions`, `GET .../versions/{versionNo}`.
+- `GET /api/auth/user/frame/{frameId}/versions`. 단건 `GET .../versions/{versionNo}` 는 FE 가 쓰지 않아 2026-11-03 에 뺐다.
 - 관리자(시스템 프레임): `POST /api/admin/frames/{frameId}/versions` 외 동일.
 - FrameSpec v2(R5 6절 표): schemaVersion=2, canvas, layout(frameType+고정 4슬롯), slotBindings(slotId·sourceIndex),
   layers(role·geometry·assetId·text 메타), editPolicy(P2A 에서 사용, P1 은 `{ "mode": "FIXED" }`).

@@ -119,14 +119,6 @@ public class FrameVersionService {
                 .toList();
     }
 
-    @Transactional(readOnly = true)
-    public FrameVersionResponse get(String publicId, Long frameId, int versionNo) {
-        frameService.getReadableFrame(getUser(publicId), frameId);
-        FrameVersion version = frameVersionRepository.findByFrameIdAndVersionNo(frameId, versionNo)
-                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
-        return FrameVersionResponse.full(version, withUrls(objectMapper.readValue(version.getSpecJson(), FrameSpecV2.class)));
-    }
-
     /**
      * 긴급 회수 — 공개 목록·고르기·게시·합성 접수에서 막는다. 이미 접수한 작업과 결과는 그대로 두고, 다른 프레임으로 대체하지 않는다(R5 L302, F32).
      * 프레임을 고칠 수 있는 사람만(조직 공간이면 OWNER·ADMIN·DESIGNER). 이미 회수했으면 처음 사유가 남는다

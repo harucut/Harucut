@@ -3,7 +3,6 @@ package com.harucut.frame.controller;
 import com.harucut.common.response.Response;
 import com.harucut.config.openapi.ApiErrors;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
 import com.harucut.frame.dto.FrameCreateRequest;
 import com.harucut.frame.dto.FrameResponse;
 import com.harucut.frame.service.FrameAdminService;
@@ -46,37 +45,5 @@ public class FrameAdminController {
         return Response.ok(frameAdminService.listSystemFrames());
     }
 
-    // 동작이 전체 교체이므로 사용자 API와 같은 PUT — Kotlin의 PATCH는 메서드-동작 불일치라 통일 (wire 변경)
-    @Operation(
-            summary = "시스템 프레임 수정",
-            description = """
-                    ⚠️ **메서드가 `PATCH` 에서 `PUT` 으로 바뀌었다.** 기존 서버는 PATCH 였다.
-                    PATCH 로 보내면 405 `GEN-041` 이다. 동작이 원래부터 전체 교체였고
-                    사용자 API 는 이미 PUT 이라 맞췄다.
-
-                    **사용자 프레임 ID 를 넣으면 404 다.** 관리자 API 로 남의 프레임을 건드리지 못하게 한 방어이고,
-                    없는 ID 와 응답이 같다.
-                    """)
-    @ApiErrors({
-            "FRAME-001: 없는 프레임이거나 시스템 프레임이 아님 (사용자 프레임 ID)",
-            "GEN-006: background.type 이 COLOR·IMAGE 가 아님"
-    })
-    @PutMapping("/{frameId}")
-    public Response<FrameResponse> updateSystemFrame(@Parameter(description = "시스템 프레임 ID", example = "1") @PathVariable Long frameId,
-                                                     @RequestBody @Valid FrameCreateRequest request) {
-        return Response.ok(frameAdminService.updateSystemFrame(frameId, request));
-    }
-
-    @Operation(
-            summary = "시스템 프레임 삭제",
-            description = """
-                    프레임과 딸린 S3 이미지를 함께 지운다. **되돌릴 수 없고, 모든 사용자 화면에서 사라진다.**
-                    사용자 프레임 ID 를 넣으면 404 다.
-                    """)
-    @ApiErrors("FRAME-001: 없는 프레임이거나 시스템 프레임이 아님")
-    @DeleteMapping("/{frameId}")
-    public Response<Void> deleteSystemFrame(@Parameter(description = "시스템 프레임 ID", example = "1") @PathVariable Long frameId) {
-        frameAdminService.deleteSystemFrame(frameId);
-        return Response.ok();
-    }
+    // 수정·삭제는 없다(2026-11-03 정리) — CMS 가 부르지 않았다. 잘못 만든 시스템 프레임은 발행본 회수(frame-versions revoke)로 막고 새로 만든다
 }

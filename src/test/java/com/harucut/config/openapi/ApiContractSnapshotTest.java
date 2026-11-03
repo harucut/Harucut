@@ -66,6 +66,10 @@ class ApiContractSnapshotTest {
         // 요청 호스트에 따라 바뀌는 값 — 산출물에 남기면 환경마다 diff 가 난다
         if (spec instanceof ObjectNode object) {
             object.remove("servers");
+            // 시험 전용 컨트롤러(src/test 의 /fixture*)는 시험 컨텍스트에만 뜬다 — 계약이 아니다
+            if (object.get("paths") instanceof ObjectNode paths) {
+                paths.propertyNames().stream().filter(path -> path.startsWith("/fixture")).toList().forEach(paths::remove);
+            }
         }
         assertSnapshot(SPEC, render(sortKeys(spec)));
     }

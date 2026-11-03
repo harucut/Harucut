@@ -174,7 +174,7 @@ class MultiExportIntegrationTest {
 
         exportWorker.run(id(export));
 
-        assertThat(multiExportService.get(owner.getPublicId(), ExportScope.PROJECT, project.projectId(), export.exportId()).status())
+        assertThat(multiExportService.mine(owner.getPublicId(), ExportScope.PROJECT, project.projectId()).getFirst().status())
                 .isEqualTo(ExportStatus.DONE);
         // 행사 안은 행사 묶음과 같은 순서(최신 먼저), 폴더마다 번호를 새로 센다
         assertThat(unzip(uploaded.toByteArray()).keySet()).containsExactly(
@@ -210,12 +210,10 @@ class MultiExportIntegrationTest {
         // 다른 사람의 묶음은 같은 공간의 관리자에게도 없는 것과 같다
         User admin = userRepository.save(User.localUser("admin@harucut.com", "e", "관리자"));
         membershipRepository.save(WorkspaceMembership.member(workspaceId, admin.getId(), WorkspaceRole.ADMIN));
-        assertCode(() -> multiExportService.get(admin.getPublicId(), ExportScope.WORKSPACE, org.workspaceId(), export.exportId()),
-                GlobalErrorCode.NOT_FOUND);
         assertThat(multiExportService.mine(admin.getPublicId(), ExportScope.WORKSPACE, org.workspaceId())).isEmpty();
         // 공간 묶음은 프로젝트 경로로 보이지 않는다
-        assertCode(() -> multiExportService.get(owner.getPublicId(), ExportScope.PROJECT, project.projectId(), export.exportId()),
-                GlobalErrorCode.NOT_FOUND);
+        assertThat(multiExportService.mine(owner.getPublicId(), ExportScope.PROJECT, project.projectId()))
+                .extracting(ExportDtos.Export::exportId).doesNotContain(export.exportId());
     }
 
     @Test

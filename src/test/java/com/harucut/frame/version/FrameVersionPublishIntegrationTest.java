@@ -29,6 +29,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -60,6 +61,7 @@ class FrameVersionPublishIntegrationTest {
     @Autowired private FrameVersionAssetRepository frameVersionAssetRepository;
     @Autowired private AssetRepository assetRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private ObjectMapper objectMapper;
 
     @MockitoBean
     private FileStorageService fileStorageService;
@@ -110,8 +112,9 @@ class FrameVersionPublishIntegrationTest {
         assertThat(frameService.getFrame(user.getPublicId(), frame.frameId()).version()).isEqualTo(frame.version());
 
         // 저장된 발행본을 다시 읽어도 같은 문서다
-        FrameVersionResponse read = frameVersionService.get(user.getPublicId(), frame.frameId(), 1);
-        assertThat(read.spec().layers()).hasSize(2);
+        FrameSpecV2 stored = objectMapper.readValue(frameVersionRepository.findByFrameIdAndVersionNo(frame.frameId(), 1)
+                .orElseThrow().getSpecJson(), FrameSpecV2.class);
+        assertThat(stored.layers()).hasSize(2);
         assertThat(frameVersionService.list(user.getPublicId(), frame.frameId()))
                 .extracting(FrameVersionResponse::versionNo).containsExactly(2, 1);
     }

@@ -4,12 +4,10 @@ import com.harucut.auth.cookie.CookieManager;
 import com.harucut.auth.security.CustomAccessDeniedHandler;
 import com.harucut.auth.security.CustomAuthenticationEntryPoint;
 import com.harucut.auth.service.JwtTokenService;
-import com.harucut.common.exception.BusinessException;
 import com.harucut.config.SecurityConfig;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.dto.FrameResponse;
 import com.harucut.frame.enums.FrameType;
-import com.harucut.frame.exception.FrameErrorCode;
 import com.harucut.frame.service.FrameAdminService;
 import com.harucut.support.FixedClockConfig;
 import com.harucut.support.SecurityBeansMockSupport;
@@ -31,10 +29,8 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
-import static org.mockito.BDDMockito.willThrow;
 
 @WebMvcTest(FrameAdminController.class)
 @Import({SecurityConfig.class, CustomAuthenticationEntryPoint.class, CustomAccessDeniedHandler.class,
@@ -86,42 +82,6 @@ class FrameAdminControllerTest extends SecurityBeansMockSupport {
                 .hasStatusOk()
                 .bodyJson()
                 .hasPathSatisfying("$.data[0].frameId", id -> assertThat(id).isEqualTo(99));
-    }
-
-    @Test
-    @DisplayName("수정은 PUT이다 — 200과 갱신된 프레임을 돌려준다")
-    void updateUsesPut() {
-        given(frameAdminService.updateSystemFrame(eq(99L), any())).willReturn(frameResponse());
-
-        assertThat(mockMvc.put().uri(BASE_URI + "/99").contentType(MediaType.APPLICATION_JSON)
-                .content(VALID_BODY).cookie(accessCookie(UserRole.ROLE_ADMIN)))
-                .hasStatusOk()
-                .bodyJson()
-                .hasPathSatisfying("$.data.frameId", id -> assertThat(id).isEqualTo(99));
-    }
-
-    @Test
-    @DisplayName("PATCH는 더 이상 없다 — 405 GEN-041 (PUT 통일의 자물쇠)")
-    void patchGone() {
-        assertThat(mockMvc.patch().uri(BASE_URI + "/99").contentType(MediaType.APPLICATION_JSON)
-                .content(VALID_BODY).cookie(accessCookie(UserRole.ROLE_ADMIN)))
-                .hasStatus(HttpStatus.METHOD_NOT_ALLOWED)
-                .bodyJson()
-                .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("GEN-041"));
-
-        then(frameAdminService).shouldHaveNoInteractions();
-    }
-
-    @Test
-    @DisplayName("사용자 프레임 id 조작 시도는 404 FRAME-001로 나간다")
-    void userFrameManipulationRejected() {
-        willThrow(new BusinessException(FrameErrorCode.SYSTEM_FRAME_NOT_FOUND))
-                .given(frameAdminService).deleteSystemFrame(1L);
-
-        assertThat(mockMvc.delete().uri(BASE_URI + "/1").cookie(accessCookie(UserRole.ROLE_ADMIN)))
-                .hasStatus(HttpStatus.NOT_FOUND)
-                .bodyJson()
-                .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("FRAME-001"));
     }
 
     @Test

@@ -230,7 +230,7 @@
 |---|---|---|
 | 만들기 | `POST /api/auth/projects/{projectId}/exports` | `POST /api/auth/workspaces/{workspaceId}/exports` |
 | 목록 | `GET …/exports` | `GET …/exports` |
-| 상태 | `GET …/exports/{exportId}` | 같음 |
+| 상태 | 목록(`GET …/exports`)으로 본다 — 단건 `GET …/exports/{exportId}` 는 FE 가 쓰지 않아 2026-11-03 에 뺐다 | 같음 |
 | 받기 | `POST …/exports/{exportId}/download` | 같음 |
 
 - 요청 `{ "eventIds": [...] }`(필수, 1개 이상 — 무엇을 담는지 요청에 명시). 응답은 행사 Export 와 같은 스키마 + `events: [{ eventId, photoCount }]`.

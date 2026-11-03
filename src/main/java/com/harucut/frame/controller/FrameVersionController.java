@@ -65,16 +65,6 @@ public class FrameVersionController {
         return Response.ok(frameVersionService.list(principal.publicId(), frameId));
     }
 
-    @Operation(summary = "발행본 하나", description = "`spec` 의 자산 `url` 은 짧은 GET URL(기본 5분)이다.")
-    @ApiErrors("GEN-031: 없는 프레임·발행본이거나 내 프레임이 아님")
-    @GetMapping("/{versionNo}")
-    public Response<FrameVersionResponse> get(
-            @AuthenticationPrincipal AuthenticatedUser principal,
-            @Parameter(description = "프레임 ID", example = "7") @PathVariable Long frameId,
-            @Parameter(description = "발행 번호", example = "3") @PathVariable int versionNo) {
-        return Response.ok(frameVersionService.get(principal.publicId(), frameId, versionNo));
-    }
-
     @Operation(
             summary = "발행본 긴급 회수",
             description = """

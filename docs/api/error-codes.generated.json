@@ -43,10 +43,6 @@
   "status" : 400,
   "message" : "This account is pending deletion."
 }, {
-  "code" : "AUTH-006",
-  "status" : 400,
-  "message" : "This account has been permanently deleted."
-}, {
   "code" : "AUTH-007",
   "status" : 400,
   "message" : "This account is not a deletion target."

@@ -12,7 +12,6 @@ import org.springframework.stereotype.Component;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -95,14 +94,6 @@ public class FrameAssetResolver {
         }
         return assetRepository.findAllById(ids).stream()
                 .collect(Collectors.toMap(Asset::getId, Asset::getPublicId, (a, b) -> a));
-    }
-
-    public Map<Long, Asset> byIds(Collection<Long> ids) {
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        return assetRepository.findAllById(ids).stream()
-                .collect(Collectors.toMap(Asset::getId, Function.identity(), (a, b) -> a));
     }
 
     private void checkUsable(Asset asset, AssetPurpose purpose, Long ownerUserId) {

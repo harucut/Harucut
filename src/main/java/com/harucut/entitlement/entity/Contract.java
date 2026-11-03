@@ -129,11 +129,6 @@ public class Contract extends BaseEntity {
         return new Terms(composeQuota, retentionDays, maxBoothDevices, maxLiveEvents, features);
     }
 
-    public void attachEvidence(EvidenceKind kind, String reference) {
-        this.evidenceKind = kind;
-        this.evidenceReference = reference;
-    }
-
     /** 이용권 조건 묶음 — 계약과 수동 부여가 같은 모양을 쓴다 */
     public record Terms(int composeQuota, Integer retentionDays, Integer maxBoothDevices, Integer maxLiveEvents,
                         Set<Feature> features) {

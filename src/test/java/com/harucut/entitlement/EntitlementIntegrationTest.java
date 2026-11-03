@@ -385,7 +385,7 @@ class EntitlementIntegrationTest {
 
         // 이용권이 없으면 빈 목록
         Event other = eventRepository.findByPublicId(ready("no-alerts").eventId()).orElseThrow();
-        entitlementRepository.findAll().forEach(e -> e.endAt(java.time.LocalDateTime.now().minusMinutes(1)));
+        entitlementRepository.findAll().forEach(e -> e.revoke(java.time.LocalDateTime.now(), "시험"));
         entityManager.flush();
         assertThat(entitlementService.usage(other).alerts()).isEmpty();
     }

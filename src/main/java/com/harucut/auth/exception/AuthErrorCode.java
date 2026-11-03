@@ -14,7 +14,6 @@ public enum AuthErrorCode implements ErrorCode {
     INVALID_VERIFICATION_CODE("AUTH-003", HttpStatus.BAD_REQUEST, "Invalid or expired verification code."),
     EMAIL_NOT_VERIFIED("AUTH-004", HttpStatus.BAD_REQUEST, "Failed to register email."),
     ACCOUNT_PENDING_DELETION("AUTH-005", HttpStatus.BAD_REQUEST, "This account is pending deletion."),
-    ACCOUNT_ALREADY_DELETED("AUTH-006", HttpStatus.BAD_REQUEST, "This account has been permanently deleted."),
     NOT_DELETION_TARGET("AUTH-007", HttpStatus.BAD_REQUEST, "This account is not a deletion target."),
     SOCIAL_ACCOUNT_NO_PASSWORD("AUTH-008", HttpStatus.BAD_REQUEST, "Social accounts do not have a password."),
     AUTHENTICATION_FAILED("AUTH-010", HttpStatus.UNAUTHORIZED, "Authentication failed."),

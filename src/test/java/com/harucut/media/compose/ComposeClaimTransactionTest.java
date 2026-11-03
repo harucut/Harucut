@@ -58,7 +58,7 @@ class ComposeClaimTransactionTest {
 
     // 실제 AWS 호출만 막는다. 리스너·서비스·트랜잭션은 전부 진짜다
     @MockitoBean
-    private ComposeExecutor composeExecutor;
+    private LambdaComposeExecutor composeExecutor;
 
     private ComposeSpec spec() {
         return new ComposeSpec(

@@ -50,7 +50,7 @@ class ComposeDispatchPoolTest {
     @Autowired private ApplicationEventPublisher eventPublisher;
     @Autowired private TransactionTemplate transactionTemplate;
 
-    @MockitoBean private ComposeExecutor composeExecutor;
+    @MockitoBean private LambdaComposeExecutor composeExecutor;
 
     @Test
     @DisplayName("풀 크기만큼 동시에 커밋해도 응답이 커넥션을 기다리지 않고, 모든 작업이 실행기까지 간다")

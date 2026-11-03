@@ -23,7 +23,7 @@ import tools.jackson.databind.ObjectMapper;
 // ComposeRerunScheduler가 다시 던진다 — FAILED로 확정하지 않는다
 @Slf4j
 @Component
-public class LambdaComposeExecutor implements ComposeExecutor {
+public class LambdaComposeExecutor {
 
     private final LambdaClient lambdaClient;
     private final ObjectMapper objectMapper;
@@ -44,7 +44,6 @@ public class LambdaComposeExecutor implements ComposeExecutor {
         this.functionName = awsProperties.lambda().composeFunction();
     }
 
-    @Override
     public void execute(ComposeRequestedEvent event) {
         // 포맷을 여기서 정하지 않고 이벤트에 실려 온 값을 그대로 넘긴다 —
         // resultKey를 만든 곳(ComposeService.RESULT_FORMAT)과 같은 값이어야 하는데,

@@ -40,7 +40,7 @@ class ComposeWorkerTest {
     private static final Duration STALE_AFTER = Duration.ofMinutes(10);
 
     @Mock
-    private ComposeExecutor composeExecutor;
+    private LambdaComposeExecutor composeExecutor;
 
     @Mock
     private ComposeService composeService;

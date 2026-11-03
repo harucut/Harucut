@@ -12,7 +12,7 @@ import com.harucut.frame.enums.FrameType;
 import com.harucut.frame.service.FrameService;
 import com.harucut.frame.service.FrameVersionService;
 import com.harucut.media.batch.ComposeRerunScheduler;
-import com.harucut.media.compose.ComposeExecutor;
+import com.harucut.media.compose.LambdaComposeExecutor;
 import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeRequestedEvent;
 import com.harucut.media.entity.ComposeJob;
@@ -112,7 +112,7 @@ class ParticipantJobLifecycleMysqlTest {
 
     @MockitoBean private FileStorageService fileStorageService;
     @MockitoBean private RateLimiter rateLimiter;
-    @MockitoBean private ComposeExecutor composeExecutor;
+    @MockitoBean private LambdaComposeExecutor composeExecutor;
 
     private String eventId;
     private Long frameVersionId;

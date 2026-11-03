@@ -66,6 +66,12 @@ public class WorkspaceService {
         return membershipRepository.countUsableOwners(workspaceId) == 0;
     }
 
+    /** 업체(ENTERPRISE) 공간인가 — 멤버가 사진을 보지 않는 공간(WorkspaceKind). 없는 id 면 false */
+    @Transactional(readOnly = true)
+    public boolean isEnterprise(Long workspaceId) {
+        return workspaceRepository.findById(workspaceId).map(Workspace::isEnterprise).orElse(false);
+    }
+
     public List<WorkspaceResponse> listMine(String publicId) {
         User user = getUser(publicId);
         personalWorkspaceOf(user.getId());

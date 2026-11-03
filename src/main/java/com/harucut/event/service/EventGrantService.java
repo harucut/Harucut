@@ -18,6 +18,7 @@ import com.harucut.workspace.entity.WorkspaceInvitation;
 import com.harucut.workspace.entity.WorkspaceMembership;
 import com.harucut.workspace.enums.MembershipStatus;
 import com.harucut.workspace.enums.WorkspaceRole;
+import com.harucut.workspace.exception.MemberErrorCode;
 import com.harucut.workspace.repository.WorkspaceInvitationRepository;
 import com.harucut.workspace.repository.WorkspaceMembershipRepository;
 import com.harucut.workspace.repository.WorkspaceRepository;
@@ -87,7 +88,8 @@ public class EventGrantService {
         User actor = user(actorPublicId);
         Event event = eventRepository.findByPublicId(eventPublicId)
                 .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
-        requireWithinOwn(policy.requireOperation(event, actor.getId(), OperationPermission.INVITE_CUSTOMERS), request.permissions());
+        requireWithinOwn(policy.requireOperation(event, actor.getId(), OperationPermission.INVITE_CUSTOMERS), request.permissions(),
+                enterprise(event));
         String token = OpaqueTokens.generate();
         LocalDateTime expiresAt = LocalDateTime.now(clock).plus(invitationTtl);
         WorkspaceInvitation invitation = invitationRepository.save(WorkspaceInvitation.eventCustomer(event.getWorkspaceId(),
@@ -118,7 +120,13 @@ public class EventGrantService {
         EventAccessPolicy.Access access = policy.requireOperation(event, actor.getId(), OperationPermission.INVITE_CUSTOMERS);
         EventGrant grant = grantOf(event, grantId);
         requireCustomerGrant(access, event, grant);
-        requireWithinOwn(access, permissions);
+        boolean enterprise = enterprise(event);
+        // 업체 공간의 멤버에게는 사진 권한을 주지 않는다 — 판정에서도 빠지므로(EventAccessPolicy) 행을 만들어 두지 않는다
+        if (enterprise && membershipRepository.findByWorkspaceIdAndUserIdAndStatus(event.getWorkspaceId(), grant.getUserId(),
+                MembershipStatus.ACTIVE).isPresent()) {
+            throw new BusinessException(MemberErrorCode.ENTERPRISE_MEMBER_NO_PHOTOS);
+        }
+        requireWithinOwn(access, permissions, enterprise);
         grant.replace(permissions);
         User target = userRepository.findById(grant.getUserId()).orElseThrow();
         auditLogService.record(actor.getId(), event.getWorkspaceId(), event.getId(), "GRANT_CHANGED", "USER",
@@ -211,11 +219,16 @@ public class EventGrantService {
                 .toList();
     }
 
-    // OPERATOR 는 자기가 가진 사진 권한 안에서만 고객에게 준다(OWNER·ADMIN 은 제한 없음)
-    private static void requireWithinOwn(EventAccessPolicy.Access access, Set<PhotoPermission> permissions) {
-        if (!access.admin() && !access.permissions().containsAll(permissions)) {
+    // OPERATOR 는 자기가 가진 사진 권한 안에서만 고객에게 준다(OWNER·ADMIN 은 제한 없음).
+    // 업체 공간은 멤버 누구도 사진 권한이 없으므로 이 울타리가 뜻이 없다 — INVITE_CUSTOMERS 만 있으면 고객에게 어떤 권한이든 준다
+    private static void requireWithinOwn(EventAccessPolicy.Access access, Set<PhotoPermission> permissions, boolean enterprise) {
+        if (!enterprise && !access.admin() && !access.permissions().containsAll(permissions)) {
             throw new BusinessException(GlobalErrorCode.FORBIDDEN, "자기가 가진 사진 권한 안에서만 줄 수 있습니다.");
         }
+    }
+
+    private boolean enterprise(Event event) {
+        return workspaceRepository.findById(event.getWorkspaceId()).map(Workspace::isEnterprise).orElse(false);
     }
 
     // OPERATOR 는 고객의 행만 바꾸거나 지운다 — 대상이 이 행사를 운영할 수 있으면(행사·프로젝트에서 받은 운영 권한, 공간 OWNER·ADMIN)

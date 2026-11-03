@@ -2,6 +2,7 @@ package com.harucut.workspace.entity;
 
 import com.harucut.common.entity.BaseEntity;
 import com.harucut.common.utils.PublicIds;
+import com.harucut.workspace.enums.WorkspaceKind;
 import com.harucut.workspace.enums.WorkspaceType;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -41,6 +42,11 @@ public class Workspace extends BaseEntity {
     @Column(name = "brand_defaults", columnDefinition = "mediumtext")
     private String brandDefaults;
 
+    // 조직 공간의 종류(업체/주최자) — 사진을 누가 보는가(WorkspaceKind). 기본 HOST, 플랫폼 관리자가 바꾼다. 개인 공간은 행사가 없어 늘 HOST
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private WorkspaceKind kind = WorkspaceKind.HOST;
+
     private Workspace(WorkspaceType type, String name, Long personalOwnerUserId) {
         this.publicId = PublicIds.generate();
         this.type = type;
@@ -59,6 +65,15 @@ public class Workspace extends BaseEntity {
 
     public boolean isPersonal() {
         return type == WorkspaceType.PERSONAL;
+    }
+
+    public void changeKind(WorkspaceKind kind) {
+        this.kind = kind;
+    }
+
+    /** 업체 공간 — 멤버는 이 공간 행사의 사진을 보지 않는다(EventAccessPolicy). 고객(EventGrant)만 본다 */
+    public boolean isEnterprise() {
+        return kind == WorkspaceKind.ENTERPRISE;
     }
 
     public static Workspace personal(Long ownerUserId) {

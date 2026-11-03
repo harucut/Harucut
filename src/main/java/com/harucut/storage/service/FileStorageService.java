@@ -1,59 +1,218 @@
 package com.harucut.storage.service;
 
+import com.harucut.storage.config.AwsProperties;
 import com.harucut.storage.dto.PresignedPut;
-import com.harucut.storage.dto.StoredObject;
-
 import com.harucut.storage.dto.PresignedUploadResponse;
+import com.harucut.storage.dto.StoredObject;
 import com.harucut.storage.enums.ContentType;
 import com.harucut.storage.enums.UploadType;
+import com.harucut.storage.util.ContentDispositions;
+import com.harucut.storage.util.S3Keys;
+import org.springframework.stereotype.Service;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.ChecksumMode;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
 import java.io.InputStream;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
-public interface FileStorageService {
+@Service
+public class FileStorageService {
 
-    PresignedUploadResponse generatePresignedUploadUrl(UploadType type, String filename,
-                                                       ContentType contentType, long fileSize,
-                                                       String publicId);
+    private static final Duration EXPIRY = Duration.ofHours(24);
+    /** 합성에 쓰이지 않은 원본을 남겨 두는 시간 — 합성은 최대 90초라 하루면 넉넉하다. */
+    static final Duration SOURCE_RETENTION = Duration.ofHours(24);
+    private static final String IF_NONE_MATCH = "If-None-Match";
 
-    String generatePresignedGetUrl(String key);
+    private final S3Presigner s3Presigner;
+    private final S3Client s3Client;
+    private final String bucket;
+    private final S3Deleter s3Deleter;
 
-    String generatePresignedDownloadUrl(String key, String downloadFileName);
+    public FileStorageService(S3Presigner s3Presigner, S3Client s3Client, AwsProperties awsProperties, S3Deleter s3Deleter) {
+        this.s3Presigner = s3Presigner;
+        this.s3Deleter = s3Deleter;
+        this.s3Client = s3Client;
+        this.bucket = awsProperties.s3().bucket();
+    }
 
-    /** 큰 객체를 흘려 읽는다 — 닫는 것은 호출자 몫 */
-    InputStream openStream(String key);
+    public PresignedUploadResponse generatePresignedUploadUrl(UploadType type, String filename, ContentType contentType, long fileSize, String publicId) {
+        String extension = contentType.validateExtension(extractExtension(filename));
+        // 사용자 폴더 아래 종류별 하위 폴더(UploadType.folder) — 권한 근거가 아니라 정리 편의다(S3Keys)
+        String key = S3Keys.userRoot(publicId) + type.folder() + UUID.randomUUID() + "." + extension;
+        if (type == UploadType.FOURCUT_SOURCE) {
+            // 합성 원본은 임시다 — URL 을 내주기 전에 24시간 뒤 지울 책임을 남긴다(s3_deletion). 합성 접수가 그 책임을 가져간다
+            // (ComposeService.requestCompose 의 release). 접수되지 않은 원본(업로드 중 실패·접수 실패)은 재시도 배치가 지운다.
+            // S3 수명 주기 규칙은 못 쓴다 — key 가 uploads/users/{publicId}/fourcuts/sources/ 라 사용자 id 가 prefix 가운데 있다
+            s3Deleter.holdForUpload(key, SOURCE_RETENTION);
+        }
 
-    /** 큰 객체를 흘려 올린다(S3 multipart). close 가 완료, 실패하면 abort 를 부른다 */
-    S3MultipartOutputStream openMultipartUpload(String key, String contentType);
+        PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .contentType(contentType.getMimeType())
+                .contentLength(fileSize)
+                .build();
 
-    /** 파일 이름(RFC 5987)을 붙인 짧은 다운로드 URL — 사진함·ZIP 처럼 수명을 따로 정하는 곳 */
-    String generatePresignedDownloadUrl(String key, String downloadFileName, Duration ttl);
+        String url = s3Presigner.presignPutObject(PutObjectPresignRequest.builder()
+                        .signatureDuration(EXPIRY)
+                        .putObjectRequest(putObjectRequest)
+                        .build())
+                .url().toString();
 
-    void delete(String key);
+        return new PresignedUploadResponse(key, url, contentType.getMimeType(), EXPIRY);
+    }
 
-    // 서버가 직접 읽고 쓰는 경로 — 네컷 합성이 원본을 내려받고 결과를 올릴 때 쓴다.
-    // presigned와 달리 사용자를 거치지 않으므로 소유권 검증은 호출자 책임이다
-    byte[] downloadBytes(String key);
+    public String generatePresignedGetUrl(String key) {
+        return presignGet(GetObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .build());
+    }
 
-    void uploadBytes(String key, byte[] bytes, String contentType);
+    public String generatePresignedDownloadUrl(String key, String downloadFileName) {
+        String filename = (downloadFileName == null || downloadFileName.isBlank())
+                ? filenameFromKey(key)
+                : downloadFileName;
 
-    /**
-     * 서버가 정한 key 에 대한 PUT URL. contentType·size 는 서명에 들어가 S3 가 강제한다.
-     * conditional 이면 If-None-Match: * 도 서명에 넣는다 — 이미 객체가 있으면 S3 가 412 로 거부한다.
-     */
-    PresignedPut presignPut(String key, String mimeType, long size, Duration ttl, boolean conditional);
+        return presignGet(GetObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .responseContentDisposition(ContentDispositions.attachment(filename))
+                .responseContentType("application/octet-stream")
+                .build());
+    }
 
-    String generatePresignedGetUrl(String key, Duration ttl);
+    public InputStream openStream(String key) {
+        return s3Client.getObject(GetObjectRequest.builder().bucket(bucket).key(key).build());
+    }
 
-    /**
-     * 객체가 없으면 empty. 권한 오류·일시 장애는 예외로 그대로 올린다 — 모든 HEAD 실패를 "미업로드"로 단정하지 않는다.
-     */
-    Optional<StoredObject> head(String key);
+    public S3MultipartOutputStream openMultipartUpload(String key, String contentType) {
+        return new S3MultipartOutputStream(s3Client, bucket, key, contentType, S3MultipartOutputStream.PART_SIZE);
+    }
 
-    /**
-     * 저장된 객체의 SHA-256 체크섬(S3 checksumSHA256, base64) — 업로드 때 S3 가 검증·저장한 값이다(ChecksumMode).
-     * 객체가 없거나 그 체크섬 없이 올라간 객체면 비어 있다
-     */
-    Optional<String> sha256Checksum(String key);
+    public String generatePresignedDownloadUrl(String key, String downloadFileName, Duration ttl) {
+        return s3Presigner.presignGetObject(GetObjectPresignRequest.builder()
+                        .signatureDuration(ttl)
+                        .getObjectRequest(GetObjectRequest.builder()
+                                .bucket(bucket)
+                                .key(key)
+                                .responseContentDisposition(ContentDispositions.attachment(downloadFileName))
+                                .build())
+                        .build())
+                .url().toString();
+    }
+
+    public void delete(String key) {
+        s3Client.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(key).build());
+    }
+
+    public byte[] downloadBytes(String key) {
+        return s3Client.getObjectAsBytes(
+                GetObjectRequest.builder().bucket(bucket).key(key).build()).asByteArray();
+    }
+
+    public void uploadBytes(String key, byte[] bytes, String contentType) {
+        s3Client.putObject(
+                PutObjectRequest.builder().bucket(bucket).key(key).contentType(contentType).build(),
+                RequestBody.fromBytes(bytes));
+    }
+
+    public PresignedPut presignPut(String key, String mimeType, long size, Duration ttl, boolean conditional) {
+        PutObjectRequest.Builder put = PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .contentType(mimeType)
+                .contentLength(size);
+        if (conditional) {
+            // SDK 2.25.67 에는 ifNoneMatch() 가 없다. 헤더로 넣어도 서명 대상(signedHeaders)에 들어간다 —
+            // 가짜 자격증명 presign 으로 확인했고 S3PresignTest 가 고정한다
+            put.overrideConfiguration(o -> o.putHeader(IF_NONE_MATCH, "*"));
+        }
+
+        PresignedPutObjectRequest presigned = s3Presigner.presignPutObject(PutObjectPresignRequest.builder()
+                .signatureDuration(ttl)
+                .putObjectRequest(put.build())
+                .build());
+
+        // Host·Content-Length 는 브라우저가 정한다 — 수동으로 넣으면 브라우저가 거부하거나 덮어쓴다
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Content-Type", mimeType);
+        if (conditional) {
+            headers.put(IF_NONE_MATCH, "*");
+        }
+        return new PresignedPut(presigned.url().toString(), Map.copyOf(headers), presigned.expiration());
+    }
+
+    public String generatePresignedGetUrl(String key, Duration ttl) {
+        return s3Presigner.presignGetObject(GetObjectPresignRequest.builder()
+                        .signatureDuration(ttl)
+                        .getObjectRequest(GetObjectRequest.builder().bucket(bucket).key(key).build())
+                        .build())
+                .url().toString();
+    }
+
+    public Optional<String> sha256Checksum(String key) {
+        try {
+            HeadObjectResponse response = s3Client.headObject(HeadObjectRequest.builder()
+                    .bucket(bucket).key(key).checksumMode(ChecksumMode.ENABLED).build());
+            return Optional.ofNullable(response.checksumSHA256());
+        } catch (NoSuchKeyException e) {
+            return Optional.empty();
+        } catch (S3Exception e) {
+            if (e.statusCode() == 404) {
+                return Optional.empty();
+            }
+            throw e;
+        }
+    }
+
+    public Optional<StoredObject> head(String key) {
+        try {
+            HeadObjectResponse response = s3Client.headObject(
+                    HeadObjectRequest.builder().bucket(bucket).key(key).build());
+            return Optional.of(new StoredObject(response.contentLength(), response.contentType()));
+        } catch (NoSuchKeyException e) {
+            return Optional.empty();
+        } catch (S3Exception e) {
+            // HEAD 는 본문이 없어 404 가 NoSuchKey 가 아니라 일반 S3Exception 으로 올 수 있다
+            if (e.statusCode() == 404) {
+                return Optional.empty();
+            }
+            throw e;
+        }
+    }
+
+    private String presignGet(GetObjectRequest getObjectRequest) {
+        return s3Presigner.presignGetObject(GetObjectPresignRequest.builder()
+                        .signatureDuration(EXPIRY)
+                        .getObjectRequest(getObjectRequest)
+                        .build())
+                .url().toString();
+    }
+
+    private static String extractExtension(String filename) {
+        int idx = filename.lastIndexOf('.');
+        return (idx == -1 || idx == filename.length() - 1) ? "" : filename.substring(idx + 1);
+    }
+
+    private static String filenameFromKey(String key) {
+        int idx = key.lastIndexOf('/');
+        return (idx >= 0 && idx < key.length() - 1) ? key.substring(idx + 1) : key;
+    }
 }

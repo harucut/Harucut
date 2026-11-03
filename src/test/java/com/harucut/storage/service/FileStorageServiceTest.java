@@ -8,10 +8,6 @@ import com.harucut.storage.dto.PresignedUploadResponse;
 import com.harucut.storage.dto.StoredObject;
 import com.harucut.storage.enums.ContentType;
 import com.harucut.storage.enums.UploadType;
-import com.harucut.storage.strategy.FourcutSourceUploadPathStrategy;
-import com.harucut.storage.strategy.FrameComponentUploadPathStrategy;
-import com.harucut.storage.strategy.FrameUploadPathStrategy;
-import com.harucut.storage.strategy.ProfileUploadPathStrategy;
 import com.harucut.storage.util.ContentDispositions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,7 +32,6 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -48,8 +43,8 @@ import static org.mockito.BDDMockito.then;
 // 서명은 네트워크 호출이 아니라 로컬 계산이다 - 더미 자격증명으로 진짜 Presigner를 돌려
 // 실제 URL 구조(서명 헤더, 만료, disposition)를 검증한다. 목으로는 이 검증이 불가능하다
 @ExtendWith(MockitoExtension.class)
-@DisplayName("S3FileStorageService")
-class S3FileStorageServiceTest {
+@DisplayName("FileStorageService")
+class FileStorageServiceTest {
 
     private static final String BUCKET = "harucut-test";
     private static final String PUBLIC_ID = "AbCdEf12Gh";
@@ -62,7 +57,7 @@ class S3FileStorageServiceTest {
     private S3Deleter s3Deleter;
 
     private S3Presigner s3Presigner;
-    private S3FileStorageService service;
+    private FileStorageService service;
 
     @BeforeEach
     void setUp() {
@@ -71,11 +66,7 @@ class S3FileStorageServiceTest {
                 .credentialsProvider(StaticCredentialsProvider.create(
                         AwsBasicCredentials.create("test-access-key", "test-secret-key")))
                 .build();
-        service = new S3FileStorageService(s3Presigner, s3Client, properties(), List.of(
-                new ProfileUploadPathStrategy(),
-                new FrameUploadPathStrategy(),
-                new FrameComponentUploadPathStrategy(),
-                new FourcutSourceUploadPathStrategy()), s3Deleter);
+        service = new FileStorageService(s3Presigner, s3Client, properties(), s3Deleter);
     }
 
     @AfterEach
@@ -104,6 +95,11 @@ class S3FileStorageServiceTest {
                     .doesNotContain("webm");
             assertThat(upload(UploadType.FRAME_COMPONENT, "sticker.png", ContentType.PNG).key())
                     .contains("/components/");
+            // 종류마다 폴더가 다르다 — 같은 폴더를 쓰면 합성 성공 때 원본을 지우는 정리가 다른 파일까지 지운다
+            for (UploadType type : UploadType.values()) {
+                assertThat(upload(type, "file.png", ContentType.PNG).key())
+                        .startsWith("uploads/users/" + PUBLIC_ID + "/" + type.folder());
+            }
         }
 
         @Test
@@ -115,7 +111,7 @@ class S3FileStorageServiceTest {
             assertThat(response.key())
                     .matches("uploads/users/" + PUBLIC_ID + "/fourcuts/sources/[0-9a-f\\-]{36}\\.jpg");
             // 합성에 쓰이지 않으면 24시간 뒤 지워진다 — 합성 접수가 책임을 가져간다
-            then(s3Deleter).should().holdForUpload(response.key(), S3FileStorageService.SOURCE_RETENTION);
+            then(s3Deleter).should().holdForUpload(response.key(), FileStorageService.SOURCE_RETENTION);
         }
 
         @Test
@@ -243,29 +239,6 @@ class S3FileStorageServiceTest {
             then(s3Client).should().deleteObject(captor.capture());
             assertThat(captor.getValue().bucket()).isEqualTo(BUCKET);
             assertThat(captor.getValue().key()).isEqualTo(KEY);
-        }
-    }
-
-    @Nested
-    @DisplayName("생성자")
-    class Constructor {
-
-        @Test
-        @DisplayName("전략이 하나라도 빠지면 기동 시점에 IllegalStateException으로 죽는다")
-        void missingStrategyFailsStartup() {
-            assertThatThrownBy(() -> new S3FileStorageService(s3Presigner, s3Client, properties(),
-                    List.of(new ProfileUploadPathStrategy()), s3Deleter))
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("FRAME");
-        }
-
-        @Test
-        @DisplayName("같은 타입 전략이 둘이면 기동 시점에 죽는다")
-        void duplicateStrategyFailsStartup() {
-            assertThatThrownBy(() -> new S3FileStorageService(s3Presigner, s3Client, properties(),
-                    List.of(new ProfileUploadPathStrategy(), new ProfileUploadPathStrategy(),
-                            new FrameUploadPathStrategy(), new FrameComponentUploadPathStrategy()), s3Deleter))
-                    .isInstanceOf(IllegalStateException.class);
         }
     }
 

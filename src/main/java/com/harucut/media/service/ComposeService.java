@@ -28,6 +28,7 @@ import com.harucut.media.repository.UserMediaRepository;
 import com.harucut.media.util.DisplayNames;
 import com.harucut.push.service.PushMessage;
 import com.harucut.push.service.PushRequestedEvent;
+import com.harucut.storage.enums.UploadType;
 import com.harucut.storage.service.S3Deleter;
 import com.harucut.storage.util.S3Keys;
 import com.harucut.user.entity.User;
@@ -368,8 +369,8 @@ public class ComposeService {
     // 내 폴더인 것만으로는 부족하다: 같은 prefix 아래에 profile/·frames/·components/가 함께 살고,
     // 합성에 성공하면 여기 실린 key가 전부 삭제된다(completeJob). 사용자가 자기 스티커 key를
     // 원본 자리에 넣으면 그 스티커가 지워지고, 그걸 쓰는 프레임의 이후 합성이 전부 실패한다.
-    // 발급 경로(FourcutSourceUploadPathStrategy)가 이미 이 폴더만 내주므로 정상 요청은 안 막힌다
-    private static final String SOURCE_FOLDER = "fourcuts/sources/";
+    // 발급 경로(UploadType.FOURCUT_SOURCE 의 폴더)가 이미 이 폴더만 내주므로 정상 요청은 안 막힌다
+    private static final String SOURCE_FOLDER = UploadType.FOURCUT_SOURCE.folder();
 
     private void validateSourceOwnership(String publicId, List<String> sourceKeys) {
         String sourceRoot = S3Keys.userRoot(publicId) + SOURCE_FOLDER;

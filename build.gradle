@@ -45,7 +45,6 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-restclient'   // 카카오 unlink 아웃바운드 호출용 RestClient.Builder 자동구성
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
-    implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'org.springframework.boot:spring-boot-starter-batch'
     // 스키마 변경의 단일 출처. 기본은 꺼져 있다(spring.flyway.enabled) — 운영 baseline 편입 전에는

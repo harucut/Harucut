@@ -209,7 +209,7 @@ sequenceDiagram
         A->>D: existsByProviderAndEmail(HARUCUT, email)
         Note over A,D: 없으면 USER_NOT_FOUND — 소셜 가입자는 여기서 걸린다
         A->>R: SET email:reset:code:{email} = 6자리 (TTL 5분)
-        A->>M: 재설정 코드 메일 (Thymeleaf 템플릿)
+        A->>M: 재설정 코드 메일 (HTML 템플릿, MailTemplate)
         alt 발송 실패
             A->>R: DEL 쿨다운 — 못 받았으니 60초 안 기다리게 풀어준다
             A-->>B: 500 EMAIL_SEND_FAILED

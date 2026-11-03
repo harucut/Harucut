@@ -44,7 +44,7 @@ public class SubscriptionExpirationService {
                 .forEach(BillingKey::delete);
     }
 
-    // SubscriptionExpirationJobConfig 의 리더 조건과 같다 — 둘 중 하나만 바꾸면 고르고도 건너뛰거나 재확인 없이 강등한다
+    // UserSubscriptionRepository.findExpirableIds 의 조건과 같다 — 둘 중 하나만 바꾸면 고르고도 건너뛰거나 재확인 없이 강등한다
     boolean isExpirable(UserSubscription subscription, LocalDateTime baseTime) {
         LocalDateTime end = subscription.getCurrentPeriodEnd();
         if (end == null) {

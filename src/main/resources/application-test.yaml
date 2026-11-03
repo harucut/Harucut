@@ -7,10 +7,6 @@ spring:
   jpa:
     hibernate:
       ddl-auto: create-drop
-  sql:
-    init:
-      # 배치 메타테이블 스크립트를 H2 용으로 교체 (기본은 mysql — application.yaml)
-      schema-locations: classpath:org/springframework/batch/core/schema-h2.sql
   mail:
     host: localhost
     port: 1025

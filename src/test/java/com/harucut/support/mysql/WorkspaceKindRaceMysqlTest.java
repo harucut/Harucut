@@ -42,7 +42,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(properties = {
         "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
-        "spring.sql.init.schema-locations=classpath:org/springframework/batch/core/schema-mysql.sql"
 })
 @ActiveProfiles("test")
 @DisplayName("공간 종류 변경과 브랜드 기본값 저장의 경합 — 실제 MySQL")

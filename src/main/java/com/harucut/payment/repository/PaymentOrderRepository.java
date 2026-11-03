@@ -34,4 +34,8 @@ public interface PaymentOrderRepository extends JpaRepository<PaymentOrder, Long
     @Query("select o.id from PaymentOrder o where o.userId = :userId and o.orderType = :orderType and o.status = :status")
     List<Long> findIdsByUserIdAndOrderTypeAndStatus(@Param("userId") Long userId, @Param("orderType") OrderType orderType,
                                                     @Param("status") OrderStatus status);
+
+    // 갱신 배치의 청구 대상 — CREATED 만 읽으므로 IN_PROGRESS(결과 불명)는 저절로 빠진다(도장의 두 번째 쓸모)
+    @Query("select o.id from PaymentOrder o where o.orderType = :orderType and o.status = :status order by o.id")
+    List<Long> findIdsByOrderTypeAndStatus(@Param("orderType") OrderType orderType, @Param("status") OrderStatus status);
 }

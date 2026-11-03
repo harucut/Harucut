@@ -80,7 +80,6 @@ import static org.mockito.Mockito.timeout;
 @SpringBootTest(properties = {
         "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
-        "spring.sql.init.schema-locations=classpath:org/springframework/batch/core/schema-mysql.sql",
         // 배치는 이 시험이 직접 돌린다
         "compose.rerun.interval=1h"
 })

@@ -10,12 +10,18 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
 
     Optional<User> findByProviderAndEmail(Provider provider, String email);
+
+    // 탈퇴 유예가 지난 계정 — 하드 삭제(UserDeletionScheduler)의 대상. 처리하면 조건에서 빠지므로 id 를 먼저 모아 둔다
+    @Query("select u.id from User u where u.userStatus = com.harucut.user.enums.UserStatus.DELETED_REQUESTED "
+            + "and u.deleteRequestedAt < :threshold order by u.id")
+    List<Long> findExpiredExitTargetIds(@Param("threshold") LocalDateTime threshold);
 
     Optional<User> findByPublicId(String publicId);
 

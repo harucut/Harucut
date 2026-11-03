@@ -22,12 +22,6 @@ import com.harucut.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.batch.core.BatchStatus;
-import org.springframework.batch.core.job.Job;
-import org.springframework.batch.core.job.JobExecution;
-import org.springframework.batch.core.job.parameters.JobParameters;
-import org.springframework.batch.core.job.parameters.JobParametersBuilder;
-import org.springframework.batch.core.launch.JobOperator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -38,20 +32,16 @@ import java.time.LocalDateTime;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /*
- * 만료 잡 통합 검증. 갱신 잡 테스트와 같은 규칙: 테스트마다 runDate가 다르다.
- * 외부 의존이 없어 대역 없이 실제 빈으로 돈다 — 실패 주입은 "없는 쿠폰을 예약한 구독"으로 한다.
+ * 만료 통합 검증 — 외부 의존이 없어 대역 없이 실제 빈으로 돈다. 실패 주입은 "없는 쿠폰을 예약한 구독"으로 한다.
  * 유예 일수는 test 프로파일에 별도 설정이 없으므로 기본값 3일이 기준이다.
  */
 @SpringBootTest
 @ActiveProfiles("test")
-@DisplayName("구독 만료 배치")
-class SubscriptionExpirationJobTest {
+@DisplayName("구독 만료 — 통합")
+class SubscriptionExpirationSchedulerIntegrationTest {
 
     @Autowired
-    private JobOperator jobOperator;
-
-    @Autowired
-    private Job subscriptionExpirationJob;
+    private SubscriptionExpirationScheduler scheduler;
 
     @Autowired
     private UserRepository userRepository;
@@ -75,7 +65,7 @@ class SubscriptionExpirationJobTest {
     private UserCouponRepository userCouponRepository;
 
     // H2가 컨텍스트 간에 공유된다 — 다른 클래스가 남긴 만료 도래 구독이 대상에 끼어들면
-    // 스킵 수·행 수 검증이 흔들리므로 결제·구독 테이블을 비우고 시작한다 (갱신 잡 테스트와 동일)
+    // 행 수 검증이 흔들리므로 결제·구독 테이블을 비우고 시작한다 (갱신 테스트와 동일)
     @BeforeEach
     void cleanSlate() {
         paymentRepository.deleteAll();
@@ -88,7 +78,7 @@ class SubscriptionExpirationJobTest {
 
     @Test
     @DisplayName("CANCELED·GRANTED는 기간 종료 즉시, PAST_DUE는 3일 유예 뒤에만 강등된다 — ACTIVE는 안 본다")
-    void expiresOnlyEligibleStatuses() throws Exception {
+    void expiresOnlyEligibleStatuses() {
         LocalDate runDate = LocalDate.of(2032, 1, 10);
         LocalDateTime base = runDate.atStartOfDay();
         User canceledDue = saveUser("expire-canceled-due@harucut.com");
@@ -105,9 +95,8 @@ class SubscriptionExpirationJobTest {
         User activeDue = saveUser("expire-active-due@harucut.com");
         saveActive(activeDue, base.minusDays(1));
 
-        JobExecution execution = jobOperator.start(subscriptionExpirationJob, params(runDate));
+        assertThat(scheduler.run(runDate)).isEqualTo(3);
 
-        assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED);
         // 강등된 셋: BASIC/EXPIRED/주기 null
         for (User expired : new User[]{canceledDue, pastDueExpired, grantedDue}) {
             UserSubscription subscription = userSubscriptionRepository.findByUserId(expired.getId()).orElseThrow();
@@ -118,7 +107,7 @@ class SubscriptionExpirationJobTest {
         // 만료와 함께 카드도 해제된다
         assertThat(billingKeyRepository.findAllByUserIdAndStatus(canceledDue.getId(), BillingKeyStatus.ACTIVE))
                 .isEmpty();
-        // 안 건드린 셋: 기간 미도래 CANCELED, 유예 중 PAST_DUE, 그리고 ACTIVE(갱신 배치의 몫)
+        // 안 건드린 셋: 기간 미도래 CANCELED, 유예 중 PAST_DUE, 그리고 ACTIVE(갱신의 몫)
         assertThat(userSubscriptionRepository.findByUserId(canceledFuture.getId()).orElseThrow()
                 .getSubscriptionStatus()).isEqualTo(SubscriptionStatus.CANCELED);
         assertThat(userSubscriptionRepository.findByUserId(pastDueInGrace.getId()).orElseThrow()
@@ -129,7 +118,7 @@ class SubscriptionExpirationJobTest {
 
     @Test
     @DisplayName("스토어 구독: 자동갱신을 끈 것은 기한에 바로, 갱신 중(ACTIVE·PAST_DUE)인데 알림이 없으면 유예(3일) 뒤에 강등 — 출처도 지운다")
-    void storeSubscriptions() throws Exception {
+    void storeSubscriptions() {
         LocalDate runDate = LocalDate.of(2033, 8, 8);
         LocalDateTime base = runDate.atStartOfDay();
         User canceled = saveUser("expire-store-canceled@harucut.com");
@@ -141,9 +130,8 @@ class SubscriptionExpirationJobTest {
         User retrying = saveUser("expire-store-retry@harucut.com");
         saveStore(retrying, SubscriptionStatus.PAST_DUE, base.minusDays(3));
 
-        JobExecution execution = jobOperator.start(subscriptionExpirationJob, params(runDate));
+        scheduler.run(runDate);
 
-        assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED);
         for (User expired : new User[]{canceled, lost, retrying}) {
             UserSubscription subscription = userSubscriptionRepository.findByUserId(expired.getId()).orElseThrow();
             assertThat(subscription.getSubscriptionStatus()).isEqualTo(SubscriptionStatus.EXPIRED);
@@ -155,7 +143,7 @@ class SubscriptionExpirationJobTest {
 
     @Test
     @DisplayName("예약 쿠폰이 있으면 강등 대신 grant로 이어진다 — 카드는 그대로 남는다")
-    void reservedCouponConvertsToGrant() throws Exception {
+    void reservedCouponConvertsToGrant() {
         LocalDate runDate = LocalDate.of(2032, 2, 10);
         LocalDateTime base = runDate.atStartOfDay();
         User user = saveUser("expire-coupon@harucut.com");
@@ -168,9 +156,8 @@ class SubscriptionExpirationJobTest {
         userSubscriptionRepository.save(subscription);
         saveBillingKey(user, "bk-keep");
 
-        JobExecution execution = jobOperator.start(subscriptionExpirationJob, params(runDate));
+        scheduler.run(runDate);
 
-        assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED);
         UserSubscription granted = userSubscriptionRepository.findByUserId(user.getId()).orElseThrow();
         assertThat(granted.getSubscriptionStatus()).isEqualTo(SubscriptionStatus.GRANTED);
         assertThat(granted.getPlanTier()).isEqualTo(PlanTier.PRO);
@@ -179,7 +166,7 @@ class SubscriptionExpirationJobTest {
         assertThat(granted.getReservedUserCouponId()).isNull();
         assertThat(userCouponRepository.findById(userCoupon.getId()).orElseThrow().getStatus())
                 .isEqualTo(UserCouponStatus.REDEEMED);
-        // grant로 전환된 사용자의 카드는 해제하지 않는다 — grant가 끝나는 날 만료 배치가 그때 정리한다
+        // grant로 전환된 사용자의 카드는 해제하지 않는다 — grant가 끝나는 날 만료가 그때 정리한다
         assertThat(billingKeyRepository.findAllByUserIdAndStatus(user.getId(), BillingKeyStatus.ACTIVE))
                 .hasSize(1);
     }
@@ -190,8 +177,8 @@ class SubscriptionExpirationJobTest {
      * 원상태(CANCELED + 예약 유지)가 증명되고, 나머지는 처리된다.
      */
     @Test
-    @DisplayName("1건이 터져도 나머지는 강등되고 잡은 스킵 1로 완료된다")
-    void oneFailureDoesNotStopTheRest() throws Exception {
+    @DisplayName("1건이 터져도 나머지는 강등된다 — 터진 건은 제 트랜잭션만 롤백된다")
+    void oneFailureDoesNotStopTheRest() {
         LocalDate runDate = LocalDate.of(2032, 3, 10);
         LocalDateTime base = runDate.atStartOfDay();
         User broken = saveUser("expire-broken@harucut.com");
@@ -201,27 +188,16 @@ class SubscriptionExpirationJobTest {
         User healthy = saveUser("expire-healthy@harucut.com");
         saveCanceled(healthy, base);
 
-        JobExecution execution = jobOperator.start(subscriptionExpirationJob, params(runDate));
+        assertThat(scheduler.run(runDate)).isEqualTo(1);
 
-        assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED);
         UserSubscription untouched = userSubscriptionRepository.findByUserId(broken.getId()).orElseThrow();
         assertThat(untouched.getSubscriptionStatus()).isEqualTo(SubscriptionStatus.CANCELED);
         assertThat(untouched.getReservedUserCouponId()).isEqualTo(999_999L);
         assertThat(userSubscriptionRepository.findByUserId(healthy.getId()).orElseThrow()
                 .getSubscriptionStatus()).isEqualTo(SubscriptionStatus.EXPIRED);
-        assertThat(execution.getStepExecutions())
-                .filteredOn(step -> step.getStepName().equals("expirationStep"))
-                .singleElement()
-                .satisfies(step -> assertThat(step.getWriteSkipCount()).isEqualTo(1L));
     }
 
     // ── helpers ──────────────────────────────
-
-    private JobParameters params(LocalDate runDate) {
-        return new JobParametersBuilder()
-                .addLocalDate(SubscriptionExpirationJobConfig.RUN_DATE, runDate)
-                .toJobParameters();
-    }
 
     private User saveUser(String email) {
         return userRepository.save(UserFixtures.localUser(email, "encoded"));

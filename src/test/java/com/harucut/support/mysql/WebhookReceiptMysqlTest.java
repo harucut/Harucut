@@ -31,7 +31,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(properties = {
         "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
-        "spring.sql.init.schema-locations=classpath:org/springframework/batch/core/schema-mysql.sql"
 })
 @ActiveProfiles("test")
 @DisplayName("웹훅 수신 기록 동시 중복 — 실제 MySQL")

@@ -30,6 +30,8 @@ public class FrameAdminController {
                     **요금제 한도·보관 기간을 받지 않는다** — BASIC 사용자에게도 항상 보인다.
 
                     요청 본문은 사용자 프레임과 완전히 같다.
+
+                    기본 프레임(`frameType` 마다 하나)은 서버가 기동할 때 넣는다 — 여기서 만들지 않아도 된다.
                     """)
     @ApiErrors("GEN-006: background.type 이 COLOR·IMAGE 가 아님")
     @PostMapping

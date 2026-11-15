@@ -5,6 +5,8 @@ import com.harucut.booth.repository.BoothDeviceRepository;
 import com.harucut.common.exception.ErrorCode;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.common.response.Response;
+import com.harucut.media.exception.MediaErrorCode;
+import com.harucut.media.repository.MediaShareRepository;
 import com.harucut.participant.config.ParticipationProperties;
 import com.harucut.participant.exception.ParticipantErrorCode;
 import com.harucut.participant.repository.ParticipantRepository;
@@ -35,6 +37,7 @@ import java.time.Clock;
 
 /**
  * 행사 참가·부스·결과 전용 보안 체인 (ADR-0007 §2). 회원 체인(SecurityConfig)보다 먼저 일치한다.
+ * 개인 사진 공유 링크도 여기서 받는다 — 결과 링크처럼 Bearer 헤더 자격이고, 회원 체인의 JWT 필터는 Bearer 를 회원 JWT 로 읽는다.
  *
  * <p>회원 JWT 필터·OAuth2 로그인이 없다. 쿠키를 쓰지 않으므로 CSRF 대상이 아니다. 응답은 전부 no-store,
  * 리퍼러는 보내지 않는다(결과 토큰이 다른 사이트로 새지 않게). 매처에서 빠진 경로는 회원 체인이 막는다.
@@ -49,6 +52,7 @@ public class EventSecurityConfig {
                                                 ParticipantRepository participantRepository,
                                                 ResultAccessRepository resultAccessRepository,
                                                 BoothDeviceRepository boothDeviceRepository,
+                                                MediaShareRepository mediaShareRepository,
                                                 RateLimiter rateLimiter,
                                                 ClientIpResolver clientIpResolver,
                                                 ParticipationProperties participationProperties,
@@ -75,7 +79,7 @@ public class EventSecurityConfig {
                         .authenticationEntryPoint((request, response, e) -> write(objectMapper, response, codeFor(request)))
                         .accessDeniedHandler((request, response, e) -> write(objectMapper, response, codeFor(request))))
                 .addFilterBefore(new EventCredentialFilter(sessionRepository, participantRepository,
-                        resultAccessRepository, boothDeviceRepository,
+                        resultAccessRepository, boothDeviceRepository, mediaShareRepository,
                         rateLimiter, clientIpResolver, participationProperties.publicRequestsPerMinute(), readOnly, clock), UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/public/events/*").permitAll()
@@ -83,6 +87,7 @@ public class EventSecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/public/booth-pairings/redeem").permitAll()
                         .requestMatchers("/api/participant/**").hasRole("PARTICIPANT")
                         .requestMatchers("/api/public/results/**").hasRole("RESULT_ACCESS")
+                        .requestMatchers(HttpMethod.GET, "/api/public/media-shares").hasRole("MEDIA_SHARE")
                         .requestMatchers("/api/booth/**").hasRole("BOOTH")
                         .anyRequest().denyAll());
         return http.build();
@@ -99,6 +104,10 @@ public class EventSecurityConfig {
         }
         if (path.startsWith("/api/public/results")) {
             return ResultErrorCode.TOKEN_INVALID;
+        }
+        // 토큰이 없거나 틀려도 닫힌 링크와 같은 코드다 — 링크가 있었는지 새지 않게
+        if (path.startsWith("/api/public/media-shares")) {
+            return MediaErrorCode.SHARE_CLOSED;
         }
         if (path.startsWith("/api/booth/")) {
             return BoothErrorCode.DEVICE_UNAVAILABLE;

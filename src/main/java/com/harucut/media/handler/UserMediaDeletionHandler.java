@@ -2,6 +2,7 @@ package com.harucut.media.handler;
 
 import com.harucut.auth.service.UserDeletionHandler;
 import com.harucut.media.repository.ComposeJobRepository;
+import com.harucut.media.repository.MediaShareRepository;
 import com.harucut.media.repository.UserMediaRepository;
 import com.harucut.media.entity.ComposeJob;
 import com.harucut.media.enums.ComposeStatus;
@@ -20,6 +21,7 @@ public class UserMediaDeletionHandler implements UserDeletionHandler {
 
     private final UserMediaRepository userMediaRepository;
     private final ComposeJobRepository composeJobRepository;
+    private final MediaShareRepository mediaShareRepository;
     private final S3Deleter s3Deleter;
 
     // 키를 먼저 모은다(행이 지워지면 못 읽는다) → 행 삭제 → S3는 커밋 후 삭제.
@@ -41,6 +43,8 @@ public class UserMediaDeletionHandler implements UserDeletionHandler {
         }
 
         composeJobRepository.deleteByUserId(userId);
+        // 공유 링크가 사진을 FK 로 참조한다 — 사진보다 먼저
+        mediaShareRepository.deleteByOwnerId(userId);
         userMediaRepository.deleteByUserId(userId);
 
         // 삭제 기록을 남긴다 — S3 가 실패해도 재시도 배치가 지운다. 늦게 끝난 실행이 다시 쓴 결과는 재삭제가 치운다(R5 L498)

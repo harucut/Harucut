@@ -3356,6 +3356,17 @@
         "required" : [ "grantorNote", "terms", "validFrom", "validTo", "workspaceId" ],
         "type" : "object"
       },
+      "MediaShareLinkResponse" : {
+        "description" : "사진 공유 링크",
+        "properties" : {
+          "token" : {
+            "description" : "공유 토큰(base64url 43자). 받는 사람 주소는 `/s/<token>` 이다.\n**사진마다 하나라 다시 불러도 같은 값이다** — 먼저 올린 글의 링크가 그대로 산다.",
+            "example" : "q3V8Jt0bJ0mXr2cS9wN4YlKpA7eHfU1zDgQ6iT5oRkM",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "MediaType" : {
         "properties" : {
           "charset" : {
@@ -6226,6 +6237,31 @@
         },
         "type" : "object"
       },
+      "ResponseMediaShareLinkResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/MediaShareLinkResponse",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ResponseMember" : {
         "description" : "모든 응답이 담기는 공통 봉투",
         "properties" : {
@@ -6711,6 +6747,31 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/SessionView",
+            "description" : "응답 본문. 없으면 키 자체가 없다"
+          },
+          "message" : {
+            "description" : "**실패일 때만 실린다.** 성공 응답에는 키 자체가 없다",
+            "type" : "string"
+          },
+          "status" : {
+            "description" : "HTTP 상태 코드",
+            "example" : 200,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "ResponseSharedMediaResponse" : {
+        "description" : "모든 응답이 담기는 공통 봉투",
+        "properties" : {
+          "code" : {
+            "description" : "성공은 항상 GEN-000. 실패는 도메인별 에러 코드",
+            "example" : "GEN-000",
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/SharedMediaResponse",
             "description" : "응답 본문. 없으면 키 자체가 없다"
           },
           "message" : {
@@ -7219,6 +7280,33 @@
           },
           "status" : {
             "enum" : [ "RESTRICTED", "ACTIVE", "REVOKED" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "SharedMediaResponse" : {
+        "description" : "공유 링크로 연 사진. **URL 은 몇 분만 열린다** — 페이지에 박지 말고 쓸 때마다 다시 받는다",
+        "properties" : {
+          "createdAt" : {
+            "description" : "사진을 만든 시각",
+            "example" : "2026-08-03T10:20:30",
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "displayName" : {
+            "description" : "저장될 파일 이름 — 주인이 정한 표시 이름이다",
+            "example" : "나의 기록.jpg",
+            "type" : "string"
+          },
+          "downloadUrl" : {
+            "description" : "**저장 버튼** URL. `Content-Disposition: attachment` 라 브라우저가 바로 저장한다.\n짧게 열린다(기본 5분). `<img src>` 에 넣지 말 것.",
+            "example" : "https://harucut-bucket.s3.ap-northeast-2.amazonaws.com/.../job-12.jpg?response-content-disposition=attachment...",
+            "type" : "string"
+          },
+          "imageUrl" : {
+            "description" : "**화면에 띄울** URL(`<img src>`·og:image). 원본 해상도 plain GET, 짧게 열린다(기본 5분)",
+            "example" : "https://harucut-bucket.s3.ap-northeast-2.amazonaws.com/.../job-12.jpg?X-Amz-Expires=300&X-Amz-Signature=...",
             "type" : "string"
           }
         },
@@ -8017,6 +8105,11 @@
         "in" : "cookie",
         "name" : "accessToken",
         "type" : "apiKey"
+      },
+      "mediaShare" : {
+        "description" : "사진 공유 토큰. 공유 주소 `/s/<token>` 의 토큰을 `Authorization: Bearer <token>` 으로 싣는다. 쿠키가 아니다.",
+        "scheme" : "bearer",
+        "type" : "http"
       },
       "participantToken" : {
         "description" : "행사 참가자 세션 토큰. `POST /api/public/events/{slug}/sessions` 응답의 token 원문을 그대로 싣는다. 쿠키가 아니다.",
@@ -24504,7 +24597,7 @@
     },
     "/api/auth/user/media/{mediaId}" : {
       "delete" : {
-        "description" : "**기존 서버에 없던 API 다.** DB 행과 S3 파일(원본·썸네일)을 함께 지운다.\n**되돌릴 수 없다.**\n\n조회·이름변경과 달리 **보관 기간을 보지 않는다.** 기간이 지나 목록에서 안 보이는 사진도\n삭제는 된다 — 안 보인다고 정리조차 못 하면 곤란하기 때문이다.\n",
+        "description" : "**기존 서버에 없던 API 다.** DB 행과 S3 파일(원본·썸네일)을 함께 지운다.\n**되돌릴 수 없다.** 이 사진의 공유 링크도 함께 닫힌다.\n\n조회·이름변경과 달리 **보관 기간을 보지 않는다.** 기간이 지나 목록에서 안 보이는 사진도\n삭제는 된다 — 안 보인다고 정리조차 못 하면 곤란하기 때문이다.\n",
         "operationId" : "deleteMedia",
         "parameters" : [ {
           "description" : "미디어 ID",
@@ -24925,6 +25018,142 @@
           "bearerAuth" : [ ]
         } ],
         "summary" : "다운로드 URL",
+        "tags" : [ "사진 보관함" ]
+      }
+    },
+    "/api/auth/user/media/{mediaId}/share-link" : {
+      "post" : {
+        "description" : "로그인 없는 사람에게 이 사진만 보여 주는 링크의 토큰. 받는 사람 주소는 `/s/<token>` 이고,\n그 페이지는 `GET /api/public/media-shares` 에 `Authorization: Bearer <token>` 으로 사진을 받는다.\n\n**사진마다 링크가 하나다.** 몇 번을 불러도 같은 토큰이라, 먼저 올린 글의 링크가 그대로 살고\n다시 복사해도 같은 주소다. 처음 부를 때 만들어진다.\n\n링크는 **이 사진이 내 기록에 보이는 동안** 열린다 — 지우거나 보관 기간이 지나면 닫힌다.\n따로 만료일은 없고, 링크만 닫는 API 는 아직 없다(사진을 지우면 닫힌다).\n",
+        "operationId" : "shareLink",
+        "parameters" : [ {
+          "description" : "미디어 ID",
+          "example" : 1,
+          "in" : "path",
+          "name" : "mediaId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseMediaShareLinkResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-010" : {
+                    "summary" : "AUTH-010 — 토큰이 없거나 인증에 실패",
+                    "value" : {
+                      "code" : "AUTH-010",
+                      "message" : "Authentication failed.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-011" : {
+                    "summary" : "AUTH-011 — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함)",
+                    "value" : {
+                      "code" : "AUTH-011",
+                      "message" : "Invalid access token.",
+                      "status" : 401
+                    }
+                  },
+                  "AUTH-012" : {
+                    "summary" : "AUTH-012 — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도",
+                    "value" : {
+                      "code" : "AUTH-012",
+                      "message" : "Expired access token.",
+                      "status" : 401
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `AUTH-010` — 토큰이 없거나 인증에 실패 _(Authentication failed.)_\n- `AUTH-011` — 액세스 토큰이 아님 (refresh 토큰을 넣은 경우 포함) _(Invalid access token.)_\n- `AUTH-012` — 만료 — `POST /api/harucut/reissue` 로 재발급 후 재시도 _(Expired access token.)_"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "AUTH-042" : {
+                    "summary" : "AUTH-042 — 정지(BLOCKED) 계정 — 마이페이지와 탈퇴만 된다",
+                    "value" : {
+                      "code" : "AUTH-042",
+                      "message" : "This account is blocked.",
+                      "status" : 403
+                    }
+                  },
+                  "GEN-021" : {
+                    "summary" : "GEN-021 — 탈퇴 요청(DELETED_REQUESTED) 상태의 사용자",
+                    "value" : {
+                      "code" : "GEN-021",
+                      "message" : "Access denied.",
+                      "status" : 403
+                    }
+                  },
+                  "GEN-022" : {
+                    "summary" : "GEN-022 — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님",
+                    "value" : {
+                      "code" : "GEN-022",
+                      "message" : "Request origin is not allowed.",
+                      "status" : 403
+                    }
+                  },
+                  "SUBS-002" : {
+                    "summary" : "SUBS-002 — 요금제의 보관 기간이 지난 사진",
+                    "value" : {
+                      "code" : "SUBS-002",
+                      "message" : "Requested history is beyond the plan's retention period.",
+                      "status" : 403
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-021` — 탈퇴 요청(DELETED_REQUESTED) 상태의 사용자 _(Access denied.)_\n- `AUTH-042` — 정지(BLOCKED) 계정 — 마이페이지와 탈퇴만 된다 _(This account is blocked.)_\n- `GEN-022` — 쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님 _(Request origin is not allowed.)_\n- `SUBS-002` — 요금제의 보관 기간이 지난 사진 _(Requested history is beyond the plan's retention period.)_"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-031" : {
+                    "summary" : "GEN-031 — 없는 사진이거나 남의 사진 — 구분하지 않는다",
+                    "value" : {
+                      "code" : "GEN-031",
+                      "message" : "Resource not found.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-031` — 없는 사진이거나 남의 사진 — 구분하지 않는다 _(Resource not found.)_"
+          }
+        },
+        "security" : [ {
+          "cookieAuth" : [ ]
+        }, {
+          "bearerAuth" : [ ]
+        } ],
+        "summary" : "공유 링크",
         "tags" : [ "사진 보관함" ]
       }
     },
@@ -32145,6 +32374,69 @@
         "tags" : [ "문의" ]
       }
     },
+    "/api/public/media-shares" : {
+      "get" : {
+        "description" : "받는 사람 페이지(`/s/<token>`)가 부른다. 로그인이 없다 —\n`Authorization: Bearer <공유 토큰>` 으로만 받는다(경로·쿼리에 토큰을 싣지 않는다).\n토큰은 `POST /api/auth/user/media/{mediaId}/share-link` 가 준다. 응답은 캐시되지 않고 리퍼러를 보내지 않는다.\n\n링크는 **그 사진이 주인 기록에 보이는 동안만** 열린다. 사진을 지우거나, 요금제의 보관 기간이\n지나거나(사진 목록과 같은 기준), 주인이 탈퇴(요청 포함)·정지되면 닫힌다. 따로 만료일은 없다.\n열 때마다 다시 보므로 요금제를 올리거나 정지가 풀리면 같은 링크가 다시 열린다.\n\n⚠️ **닫힌 이유를 가르지 않는다.** 틀린 토큰·토큰 없음도 같은 404 `MEDIA-002` 다 —\n링크가 있었는지 새지 않게. 429 `GEN-061` 만 다르다(같은 IP 의 틀린 토큰이 너무 잦다).\n\n`imageUrl`·`downloadUrl` 은 몇 분만 열린다(기본 5분). 쓸 때마다 이 API 를 다시 부를 것.\n",
+        "operationId" : "open",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ResponseSharedMediaResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "MEDIA-002" : {
+                    "summary" : "MEDIA-002 — 공유 토큰이 없거나 틀림 — 닫힌 링크와 같은 코드 / 링크가 닫혔거나 없다 — 사진 삭제·보관 기간 지남·주인 탈퇴(요청)·정지·틀린 토큰·토큰 없음",
+                    "value" : {
+                      "code" : "MEDIA-002",
+                      "message" : "The share link is closed or does not exist.",
+                      "status" : 404
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `MEDIA-002` — 공유 토큰이 없거나 틀림 — 닫힌 링크와 같은 코드 / 링크가 닫혔거나 없다 — 사진 삭제·보관 기간 지남·주인 탈퇴(요청)·정지·틀린 토큰·토큰 없음 _(The share link is closed or does not exist.)_"
+          },
+          "429" : {
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "GEN-061" : {
+                    "summary" : "GEN-061 — 같은 IP 의 틀린 공유 토큰이 너무 잦다(분당 30회)",
+                    "value" : {
+                      "code" : "GEN-061",
+                      "message" : "Too many requests.",
+                      "status" : 429
+                    }
+                  }
+                },
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description" : "- `GEN-061` — 같은 IP 의 틀린 공유 토큰이 너무 잦다(분당 30회) _(Too many requests.)_"
+          }
+        },
+        "security" : [ {
+          "mediaShare" : [ ]
+        } ],
+        "summary" : "공유한 사진 열기",
+        "tags" : [ "사진 공유 링크" ]
+      }
+    },
     "/api/public/results" : {
       "get" : {
         "description" : "`Authorization: Bearer <resultToken>` 으로만 받는다 — 경로·쿼리에 토큰을 싣지 않는다.\n첫 조회로 소모하지 않는다(여러 명이 같은 QR 을 스캔한다). 응답은 캐시되지 않고 리퍼러를 보내지 않는다.\n",
@@ -32425,8 +32717,11 @@
     "description" : "원본 사진 + 프레임 → 완성 이미지. 접수(202) 후 폴링한다",
     "name" : "네컷 합성"
   }, {
-    "description" : "합성이 끝난 내 사진. 목록·다운로드·이름변경·삭제",
+    "description" : "합성이 끝난 내 사진. 목록·다운로드·이름변경·삭제·공유 링크",
     "name" : "사진 보관함"
+  }, {
+    "description" : "공유 주소(`/s/<token>`)로 여는 사진 한 장 — 로그인 없이 보고 저장한다. 자격은 Bearer 공유 토큰",
+    "name" : "사진 공유 링크"
   }, {
     "description" : "앱의 Expo 푸시 토큰 등록·해제. 합성 완료·실패, 결제 실패, 구독 만료 예고를 보낸다",
     "name" : "푸시 기기"

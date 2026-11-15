@@ -99,11 +99,11 @@ public final class SecurityPaths {
 
     /**
      * 행사 참가·부스·결과 경로 — 회원 체인이 아니라 {@code EventSecurityConfig} 의 전용 체인이 받는다.
-     * 자격은 쿠키가 아니라 헤더다(참가자 토큰·부스 토큰·결과 토큰).
+     * 자격은 쿠키가 아니라 헤더다(참가자 토큰·부스 토큰·결과 토큰). 개인 사진 공유 링크도 같은 Bearer 방식이라 여기 있다.
      */
     public static final String[] EVENT = {
             "/api/public/events/**", "/api/participant/**", "/api/booth/**",
-            "/api/public/booth-pairings/**", "/api/public/results/**"
+            "/api/public/booth-pairings/**", "/api/public/results/**", "/api/public/media-shares/**"
     };
 
     /**

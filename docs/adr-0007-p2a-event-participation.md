@@ -207,6 +207,9 @@ R5 17절 「멱등 scope·User FK의 호환 이관」 순서를 따른다:
 - 틀린 결과 토큰은 같은 IP 에서 분당 30회를 넘으면 429 `GEN-061`(토큰을 낸 요청만 센다).
 - 빈도 제한 키는 `request.getRemoteAddr()` 다. **운영 전제**: BFF 가 `X-Forwarded-For` 를 넘기고 백엔드가 신뢰 프록시 대역만 믿도록
   설정(`server.forward-headers-strategy` + internal proxies). 그렇지 않으면 모든 참가자가 BFF IP 하나를 공유한다.
+- 개인 사진 공유 링크(`GET /api/public/media-shares`, 2026-11-16)도 이 체인이 받는다 — 행사가 아니지만 결과 링크와 같은 Bearer 헤더 자격이라서다.
+  `ROLE_MEDIA_SHARE`. 자격 실패는 닫힌 링크와 같은 **404 `MEDIA-002`** 다(링크가 있었는지 새지 않게). 틀린 공유 토큰은 결과 토큰과 같은 상한으로 따로 센다.
+  토큰은 해시가 아니라 원문으로 둔다 — `docs/decisions.md` 2026-11-16.
 
 ### 12-3. 부스
 - 연결 코드 `XXXX-XXXX`(base32)는 **앞 4자 lookup + 뒤 4자 비밀**이다. lookup 으로 거래를 찾고 비밀은 SHA-256 으로만 둔다 —

@@ -10,6 +10,7 @@ import java.util.HexFormat;
 /**
  * 참가자·부스·결과 토큰. JWT 가 아니라 CSPRNG 32바이트의 base64url 이고, 서버에는 SHA-256 해시만 남긴다 —
  * DB 가 새어도 토큰을 되살릴 수 없다 (ADR-0007 §1).
+ * 개인 사진 공유 링크(MediaShare)는 같은 생성기를 쓰지만 원문을 둔다 — 같은 링크를 다시 줘야 해서다(docs/decisions.md 2026-11-16).
  */
 public final class OpaqueTokens {
 

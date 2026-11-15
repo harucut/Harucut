@@ -20,6 +20,7 @@ public class OpenApiConfig {
     public static final String PARTICIPANT_SCHEME = "participantToken";
     public static final String BOOTH_SCHEME = "boothToken";
     public static final String RESULT_SCHEME = "resultAccess";
+    public static final String MEDIA_SHARE_SCHEME = "mediaShare";
 
     private static final String ACCESS_TOKEN_COOKIE = "accessToken";
 
@@ -42,7 +43,11 @@ public class OpenApiConfig {
                         .addSecuritySchemes(RESULT_SCHEME, new SecurityScheme()
                                 .type(SecurityScheme.Type.HTTP)
                                 .scheme("bearer")
-                                .description("결과 토큰. 결과 링크 `/r#<token>` 의 fragment 를 `Authorization: Bearer <token>` 으로 싣는다.")));
+                                .description("결과 토큰. 결과 링크 `/r#<token>` 의 fragment 를 `Authorization: Bearer <token>` 으로 싣는다."))
+                        .addSecuritySchemes(MEDIA_SHARE_SCHEME, new SecurityScheme()
+                                .type(SecurityScheme.Type.HTTP)
+                                .scheme("bearer")
+                                .description("사진 공유 토큰. 공유 주소 `/s/<token>` 의 토큰을 `Authorization: Bearer <token>` 으로 싣는다. 쿠키가 아니다.")));
 
         return openAPI;
     }
@@ -84,7 +89,8 @@ public class OpenApiConfig {
                 tag("프레임", "네컷 사진의 틀. 만들고 저장하고 불러온다"),
                 tag("프레임 초안", "편집기 문서의 서버 초안. revision 이 같을 때만 저장된다"),
                 tag("네컷 합성", "원본 사진 + 프레임 → 완성 이미지. 접수(202) 후 폴링한다"),
-                tag("사진 보관함", "합성이 끝난 내 사진. 목록·다운로드·이름변경·삭제"),
+                tag("사진 보관함", "합성이 끝난 내 사진. 목록·다운로드·이름변경·삭제·공유 링크"),
+                tag("사진 공유 링크", "공유 주소(`/s/<token>`)로 여는 사진 한 장 — 로그인 없이 보고 저장한다. 자격은 Bearer 공유 토큰"),
                 tag("푸시 기기", "앱의 Expo 푸시 토큰 등록·해제. 합성 완료·실패, 결제 실패, 구독 만료 예고를 보낸다"),
                 tag("구독", "내 요금제 조회와 자동갱신 해지"),
                 tag("결제", "빌링키 기반 구독 결제와 결제 내역"),

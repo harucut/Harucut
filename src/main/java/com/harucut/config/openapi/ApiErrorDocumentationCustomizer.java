@@ -4,6 +4,7 @@ import com.harucut.auth.exception.AuthErrorCode;
 import com.harucut.booth.exception.BoothErrorCode;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.config.SecurityPaths;
+import com.harucut.media.exception.MediaErrorCode;
 import com.harucut.participant.exception.ParticipantErrorCode;
 import com.harucut.result.exception.ResultErrorCode;
 import io.swagger.v3.oas.models.OpenAPI;
@@ -121,6 +122,12 @@ public class ApiErrorDocumentationCustomizer implements GlobalOpenApiCustomizer 
                     DocumentedError.of(ResultErrorCode.TOKEN_INVALID, "결과 토큰이 없거나 틀림"));
             errors.put(GlobalErrorCode.TOO_MANY_REQUESTS.getCode(),
                     DocumentedError.of(GlobalErrorCode.TOO_MANY_REQUESTS, "같은 IP 의 틀린 결과 토큰이 너무 잦다(분당 30회)"));
+        } else if (path.startsWith("/api/public/media-shares")) {
+            requireScheme(operation, OpenApiConfig.MEDIA_SHARE_SCHEME);
+            errors.put(MediaErrorCode.SHARE_CLOSED.getCode(),
+                    DocumentedError.of(MediaErrorCode.SHARE_CLOSED, "공유 토큰이 없거나 틀림 — 닫힌 링크와 같은 코드"));
+            errors.put(GlobalErrorCode.TOO_MANY_REQUESTS.getCode(),
+                    DocumentedError.of(GlobalErrorCode.TOO_MANY_REQUESTS, "같은 IP 의 틀린 공유 토큰이 너무 잦다(분당 30회)"));
         } else if (path.startsWith("/api/booth/")) {
             requireScheme(operation, OpenApiConfig.BOOTH_SCHEME);
             errors.put(BoothErrorCode.DEVICE_UNAVAILABLE.getCode(),

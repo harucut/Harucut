@@ -7,6 +7,7 @@ import com.harucut.common.utils.PageRequests;
 import com.harucut.media.dto.UserMediaResponse;
 import com.harucut.media.entity.UserMedia;
 import com.harucut.media.policy.MediaSubscriptionPolicy;
+import com.harucut.media.repository.MediaShareRepository;
 import com.harucut.media.repository.UserMediaRepository;
 import com.harucut.media.util.DisplayNames;
 import com.harucut.storage.service.FileStorageService;
@@ -32,6 +33,7 @@ public class UserMediaService {
     private final FileStorageService fileStorageService;
     private final MediaSubscriptionPolicy mediaSubscriptionPolicy;
     private final S3Deleter s3Deleter;
+    private final MediaShareRepository mediaShareRepository;
 
     @Transactional(readOnly = true)
     public PageResponse<UserMediaResponse> getMyMedia(String publicId, int page, int size) {
@@ -74,6 +76,8 @@ public class UserMediaService {
         // 거부한다(NPE). null은 S3Deleter의 관리 key 필터가 거른다
         // 고정 key 라 이미 돌고 있던 합성이 나중에 다시 쓸 수 있다 — 지금 한 번, 그 기간 뒤 한 번 더(R5 L498)
         s3Deleter.deleteAfterCommit(Arrays.asList(media.getS3Key(), media.getThumbnailKey()), ComposeService.LATE_WRITE_WINDOW);
+        // 공유 링크도 닫힌다 — 그 행이 사진을 FK 로 참조하니 먼저 지운다
+        mediaShareRepository.deleteByMediaId(media.getId());
         userMediaRepository.delete(media);
     }
 

@@ -6,6 +6,7 @@ import com.harucut.common.response.PageResponse;
 import com.harucut.media.dto.UserMediaResponse;
 import com.harucut.media.entity.UserMedia;
 import com.harucut.media.policy.MediaSubscriptionPolicy;
+import com.harucut.media.repository.MediaShareRepository;
 import com.harucut.media.repository.UserMediaRepository;
 import com.harucut.storage.service.FileStorageService;
 import com.harucut.storage.service.S3Deleter;
@@ -68,13 +69,16 @@ class UserMediaServiceTest {
     @Mock
     private S3Deleter s3Deleter;
 
+    @Mock
+    private MediaShareRepository mediaShareRepository;
+
     private UserMediaService userMediaService;
     private User user;
 
     @BeforeEach
     void setUp() {
         userMediaService = new UserMediaService(userRepository, userMediaRepository,
-                fileStorageService, mediaSubscriptionPolicy, s3Deleter);
+                fileStorageService, mediaSubscriptionPolicy, s3Deleter, mediaShareRepository);
         user = User.localUser("owner@harucut.com", "encoded", "소유자");
         ReflectionTestUtils.setField(user, "id", 1L);
     }
@@ -258,7 +262,7 @@ class UserMediaServiceTest {
     class DeleteMedia {
 
         @Test
-        @DisplayName("S3 삭제를 예약한 다음 행을 지운다 — 기간 검사는 없다")
+        @DisplayName("S3 삭제를 예약한 다음 공유 링크(FK)·행 순서로 지운다 — 기간 검사는 없다")
         void deletesWithS3Reservation() {
             UserMedia media = media();
             given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
@@ -267,8 +271,9 @@ class UserMediaServiceTest {
             userMediaService.deleteMedia(PUBLIC_ID, MEDIA_ID);
 
             // 썸네일 없는 옛 행 — null이 리스트에 실려도 터지지 않아야 한다 (걸러내는 건 S3Deleter 몫)
-            InOrder order = inOrder(s3Deleter, userMediaRepository);
+            InOrder order = inOrder(s3Deleter, mediaShareRepository, userMediaRepository);
             order.verify(s3Deleter).deleteAfterCommit(Arrays.asList(KEY, null), ComposeService.LATE_WRITE_WINDOW);
+            order.verify(mediaShareRepository).deleteByMediaId(MEDIA_ID);
             order.verify(userMediaRepository).delete(media);
             then(mediaSubscriptionPolicy).shouldHaveNoInteractions();
         }
@@ -297,6 +302,7 @@ class UserMediaServiceTest {
                     .isEqualTo(GlobalErrorCode.NOT_FOUND);
 
             then(s3Deleter).shouldHaveNoInteractions();
+            then(mediaShareRepository).shouldHaveNoInteractions();
             then(userMediaRepository).should(never()).delete(any(UserMedia.class));
         }
     }

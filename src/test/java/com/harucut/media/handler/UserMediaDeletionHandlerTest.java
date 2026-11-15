@@ -3,6 +3,7 @@ package com.harucut.media.handler;
 import com.harucut.media.entity.ComposeJob;
 import com.harucut.media.enums.ComposeStatus;
 import com.harucut.media.repository.ComposeJobRepository;
+import com.harucut.media.repository.MediaShareRepository;
 import com.harucut.media.repository.UserMediaRepository;
 import com.harucut.media.service.ComposeService;
 import com.harucut.storage.service.S3Deleter;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -20,6 +22,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.inOrder;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.mock;
 
@@ -32,6 +35,9 @@ class UserMediaDeletionHandlerTest {
 
     @Mock
     private ComposeJobRepository composeJobRepository;
+
+    @Mock
+    private MediaShareRepository mediaShareRepository;
 
     @Mock
     private S3Deleter s3Deleter;
@@ -71,6 +77,9 @@ class UserMediaDeletionHandlerTest {
                 "uploads/users/u/fourcuts/job-8.jpg", "uploads/users/u/fourcuts/job-8-thumb.jpg",
                 "uploads/users/u/fourcuts/sources/a.jpg");
         then(composeJobRepository).should().deleteByUserId(1L);
-        then(userMediaRepository).should().deleteByUserId(1L);
+        // 공유 링크가 사진을 FK 로 참조한다 — 사진 행보다 먼저
+        InOrder order = inOrder(mediaShareRepository, userMediaRepository);
+        order.verify(mediaShareRepository).deleteByOwnerId(1L);
+        order.verify(userMediaRepository).deleteByUserId(1L);
     }
 }

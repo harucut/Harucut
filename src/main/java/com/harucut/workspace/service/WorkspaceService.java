@@ -181,16 +181,32 @@ public class WorkspaceService {
     /**
      * 탈퇴 요청 전에 — 조직 공간의 마지막 OWNER 면 먼저 넘겨야 한다. 그대로 탈퇴하면 OWNER 없는 공간이 남아 고객의 행사·사진을 아무도 관리하지 못한다(R5 L561, O18).
      * 개인 공간은 빼고 본다 — 언제나 본인이 유일한 OWNER 이고 탈퇴와 함께 지워진다(deleteForUser).
-     * 잠금 읽기로 세므로 두 OWNER 가 동시에 탈퇴해도 뒤쪽은 앞쪽 커밋을 본다
+     * 이미 탈퇴를 신청한 OWNER 는 남을 OWNER 로 세지 않는다 — 둘이 차례로 신청하면 유예 뒤 둘 다 멤버십째 지워진다.
+     * 호출자는 본인 회원 행을 잠그기 전에 불러야 한다 — 잠금 순서(OWNER 멤버십 → 회원)가 다른 요청과 같아야 교착이 없다
      */
     public void requireNotLastOwner(Long userId) {
-        for (WorkspaceMembership membership : membershipRepository.findAllByUserIdAndStatus(userId, MembershipStatus.ACTIVE)) {
-            if (membership.getRole() == WorkspaceRole.OWNER
-                    && organization(membership.getWorkspaceId()).isPresent()
-                    && membershipRepository.lockActiveOwnerIds(membership.getWorkspaceId()).size() <= 1) {
+        List<Long> organizations = membershipRepository.findAllByUserIdAndStatus(userId, MembershipStatus.ACTIVE).stream()
+                .filter(membership -> membership.getRole() == WorkspaceRole.OWNER)
+                .map(WorkspaceMembership::getWorkspaceId)
+                .filter(workspaceId -> organization(workspaceId).isPresent())
+                .sorted()   // 여러 조직의 OWNER 끼리도 같은 순서로 잠근다
+                .toList();
+        for (Long workspaceId : organizations) {
+            if (!hasRemainingOwnerOtherThan(workspaceId, userId)) {
                 throw new BusinessException(MemberErrorCode.LAST_OWNER);
             }
         }
+    }
+
+    /**
+     * 이 공간에 excludedUserId 말고 남을 OWNER 가 있는가 — 활성 OWNER 멤버십 중 탈퇴를 신청하지 않은 회원.
+     * 멤버십 → 회원 순서로 잠금 읽기를 한다. 두 OWNER 가 동시에 서로를 내리거나 함께 탈퇴를 신청해도 같은 행을 같은 순서로 잡아
+     * 뒤쪽이 앞쪽 커밋(역할 변경·탈퇴 신청)을 보고 센다. 일반 읽기면 REPEATABLE READ 스냅샷이라 둘 다 통과해 OWNER 가 0 명이 된다
+     */
+    public boolean hasRemainingOwnerOtherThan(Long workspaceId, Long excludedUserId) {
+        List<Long> owners = membershipRepository.lockActiveOwnerUserIds(workspaceId);
+        return !owners.isEmpty()
+                && userRepository.lockStayingIds(owners).stream().anyMatch(id -> !id.equals(excludedUserId));
     }
 
     private User getUser(String publicId) {

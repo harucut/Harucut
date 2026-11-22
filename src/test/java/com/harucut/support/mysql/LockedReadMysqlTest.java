@@ -1,6 +1,9 @@
 package com.harucut.support.mysql;
 
+import com.harucut.auth.service.RefreshTokenRepository;
+import com.harucut.auth.service.UserExitService;
 import com.harucut.booth.service.BoothDeviceService;
+import com.harucut.common.exception.BusinessException;
 import com.harucut.event.dto.EventResponse;
 import com.harucut.event.dto.EventSettings;
 import com.harucut.event.service.EventService;
@@ -14,10 +17,12 @@ import com.harucut.frame.service.FrameVersionService;
 import com.harucut.storage.service.FileStorageService;
 import com.harucut.storage.util.S3Keys;
 import com.harucut.user.entity.User;
+import com.harucut.user.enums.UserStatus;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.dto.WorkspaceResponse;
 import com.harucut.workspace.entity.WorkspaceMembership;
 import com.harucut.workspace.enums.WorkspaceRole;
+import com.harucut.workspace.exception.MemberErrorCode;
 import com.harucut.workspace.repository.WorkspaceMembershipRepository;
 import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.workspace.service.MembershipService;
@@ -44,6 +49,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /*
  * 「잠금 뒤 세기·번호 매기기」가 REPEATABLE READ 스냅샷에 속지 않는지 — 실제 MySQL.
@@ -77,8 +83,10 @@ class LockedReadMysqlTest {
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private BoothDeviceService boothDeviceService;
     @Autowired private EventService eventService;
+    @Autowired private UserExitService userExitService;
 
     @MockitoBean private FileStorageService fileStorageService;
+    @MockitoBean private RefreshTokenRepository refreshTokenRepository;
 
     @Test
     @DisplayName("두 OWNER 가 동시에 서로를 내려도 OWNER 가 0 명이 되지 않는다")
@@ -89,12 +97,52 @@ class LockedReadMysqlTest {
         Long workspaceId = workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId();
         membershipRepository.save(WorkspaceMembership.member(workspaceId, second.getId(), WorkspaceRole.OWNER));
 
-        List<Throwable> failures = raceBehind(() -> membershipRepository.lockActiveOwnerIds(workspaceId),
+        List<Throwable> failures = raceBehind(() -> membershipRepository.lockActiveOwnerUserIds(workspaceId),
                 () -> membershipService.changeRole(first.getPublicId(), org.workspaceId(), second.getPublicId(), WorkspaceRole.ADMIN),
                 () -> membershipService.changeRole(second.getPublicId(), org.workspaceId(), first.getPublicId(), WorkspaceRole.ADMIN));
 
-        assertThat(membershipRepository.lockActiveOwnerIds(workspaceId)).hasSize(1);
+        assertThat(membershipRepository.lockActiveOwnerUserIds(workspaceId)).hasSize(1);
         assertThat(failures).hasSize(1);   // 뒤쪽은 MEMBER-004(마지막 OWNER)
+    }
+
+    @Test
+    @DisplayName("두 OWNER 가 동시에 탈퇴를 신청해도 하나만 받는다 — 뒤쪽은 앞쪽의 탈퇴 신청을 보고 MEMBER-004, 교착 없음")
+    void concurrentOwnerExitRequestsKeepOneOwner() throws Exception {
+        User first = userRepository.save(User.localUser("exit-a@owner.test", "e", "가"));
+        User second = userRepository.save(User.localUser("exit-b@owner.test", "e", "나"));
+        WorkspaceResponse org = workspaceService.createOrganization(first.getPublicId(), "탈퇴 공간");
+        Long workspaceId = workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId();
+        membershipRepository.save(WorkspaceMembership.member(workspaceId, second.getId(), WorkspaceRole.OWNER));
+
+        // 두 요청이 OWNER 멤버십 잠금 앞에서 줄을 선 뒤 풀린다. 앞쪽 커밋(DELETED_REQUESTED)을 뒤쪽이 잠금 읽기로 본다
+        List<Throwable> failures = raceBehind(() -> membershipRepository.lockActiveOwnerUserIds(workspaceId),
+                () -> userExitService.requestExit(first.getPublicId()),
+                () -> userExitService.requestExit(second.getPublicId()));
+
+        assertThat(failures).singleElement()
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.LAST_OWNER);
+        List<UserStatus> statuses = List.of(userRepository.findById(first.getId()).orElseThrow().getUserStatus(),
+                userRepository.findById(second.getId()).orElseThrow().getUserStatus());
+        assertThat(statuses).containsExactlyInAnyOrder(UserStatus.DELETED_REQUESTED, UserStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("탈퇴를 신청한 OWNER 가 있으면 남은 OWNER 는 나갈 수 없다 — 유예 뒤 OWNER 없는 공간이 되지 않는다")
+    void ownerAwaitingDeletionIsNotARemainingOwner() {
+        User leaving = userRepository.save(User.localUser("leaving@owner.test", "e", "가"));
+        User staying = userRepository.save(User.localUser("staying@owner.test", "e", "나"));
+        WorkspaceResponse org = workspaceService.createOrganization(leaving.getPublicId(), "남는 공간");
+        Long workspaceId = workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId();
+        membershipRepository.save(WorkspaceMembership.member(workspaceId, staying.getId(), WorkspaceRole.OWNER));
+
+        userExitService.requestExit(leaving.getPublicId());
+
+        assertThatThrownBy(() -> userExitService.requestExit(staying.getPublicId()))
+                .isInstanceOf(BusinessException.class).extracting("errorCode").isEqualTo(MemberErrorCode.LAST_OWNER);
+        assertThatThrownBy(() -> membershipService.remove(staying.getPublicId(), org.workspaceId(), "me"))
+                .isInstanceOf(BusinessException.class).extracting("errorCode").isEqualTo(MemberErrorCode.LAST_OWNER);
+        assertThat(userRepository.findById(staying.getId()).orElseThrow().getUserStatus()).isEqualTo(UserStatus.ACTIVE);
     }
 
     @Test

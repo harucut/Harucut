@@ -31,10 +31,14 @@ public class UserExitService {
 
     @Transactional
     public void requestExit(String publicId) {
+        Long userId = userRepository.findIdByPublicId(publicId)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.USER_NOT_FOUND));
+        // 마지막 OWNER 검사가 본인 행 잠금보다 먼저다 — 조직 OWNER 멤버십 → 그 회원들 순서로 잠근다. 함께 탈퇴를 신청하는 다른 OWNER·역할을
+        // 바꾸는 요청과 같은 순서로 잡아야 교착 없이 줄을 선다(본인 행을 먼저 잡으면 서로의 회원 행을 기다리며 맞물린다)
+        workspaceService.requireNotLastOwner(userId);
         // 잠금 읽기 — 동시에 커밋되는 정지와 줄을 선다. 정지 계정도 탈퇴할 수 있고, 복구하면 BLOCKED 로 돌아간다(User.reActivate)
         User user = userRepository.lockByPublicId(publicId)
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.USER_NOT_FOUND));
-        workspaceService.requireNotLastOwner(user.getId());
         user.deleteRequested(LocalDateTime.now(clock));
         refreshTokenService.revokeAll(publicId);
     }

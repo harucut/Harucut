@@ -252,4 +252,23 @@ class MembersAndGrantsIntegrationTest {
         entityManager.flush();
         workspaceService.requireNotLastOwner(owner.getId());
     }
+
+    @Test
+    @DisplayName("탈퇴를 신청한 OWNER 는 남을 OWNER 로 세지 않는다 — 다른 OWNER 의 탈퇴·나가기·내리기는 MEMBER-004, 떠나는 OWNER 를 내보내는 건 된다")
+    void ownerAwaitingDeletionDoesNotCount() {
+        join(designer, WorkspaceRole.ADMIN);
+        membershipService.changeRole(owner.getPublicId(), org.workspaceId(), designer.getPublicId(), WorkspaceRole.OWNER);
+        // designer 가 탈퇴를 신청했다 — 멤버십은 ACTIVE 그대로지만 유예가 끝나면 멤버십째 지워진다(UserExitService.exit)
+        userRepository.findById(designer.getId()).orElseThrow().deleteRequested(java.time.LocalDateTime.now());
+        entityManager.flush();
+
+        assertCode(() -> workspaceService.requireNotLastOwner(owner.getId()), MemberErrorCode.LAST_OWNER);
+        assertCode(() -> membershipService.remove(owner.getPublicId(), org.workspaceId(), "me"), MemberErrorCode.LAST_OWNER);
+        assertCode(() -> membershipService.changeRole(owner.getPublicId(), org.workspaceId(), owner.getPublicId(),
+                WorkspaceRole.ADMIN), MemberErrorCode.LAST_OWNER);
+
+        membershipService.remove(owner.getPublicId(), org.workspaceId(), designer.getPublicId());
+        assertThat(membershipService.members(owner.getPublicId(), org.workspaceId()))
+                .singleElement().satisfies(m -> assertThat(m.role()).isEqualTo(WorkspaceRole.OWNER));
+    }
 }

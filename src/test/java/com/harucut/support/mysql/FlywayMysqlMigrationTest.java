@@ -1,5 +1,6 @@
 package com.harucut.support.mysql;
 
+import com.harucut.frame.service.SystemFrameSeeder;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -12,6 +13,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
+
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -44,6 +48,9 @@ class FlywayMysqlMigrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private SystemFrameSeeder systemFrameSeeder;
+
     @Test
     @DisplayName("빈 DB 에 모든 migration 이 적용되고 엔티티 validate 를 통과한다")
     void migratesAndValidates() {
@@ -61,5 +68,26 @@ class FlywayMysqlMigrationTest {
                 SELECT referenced_table_name FROM information_schema.referential_constraints
                 WHERE constraint_schema = DATABASE() AND constraint_name = 'fk_terms_agreement_user'
                 """, String.class)).isEqualTo("users");
+    }
+
+    @Test
+    @DisplayName("기동하면 기본 시스템 프레임이 종류마다 하나 있고, 다시 돌려도 늘지 않는다")
+    void seedsDefaultSystemFrames() {
+        systemFrameSeeder.run(null);
+
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT frame_id, frame_type, title, background, user_id, workspace_id FROM frame WHERE is_system = 1 ORDER BY frame_id");
+        assertThat(rows).extracting(row -> row.get("frame_type"))
+                .containsExactly("CLASSIC", "WIDE", "GRID", "POLAROID");
+        assertThat(rows).extracting(row -> row.get("title"))
+                .containsExactly("세로 4컷", "가로 4컷", "네모 4컷", "즉석사진 4컷");
+        assertThat(rows).allSatisfy(row -> {
+            assertThat((String) row.get("background")).contains("COLOR").contains("#fafaf7");
+            assertThat(row.get("user_id")).isNull();
+            assertThat(row.get("workspace_id")).isNull();
+        });
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM frame_component c JOIN frame f ON f.frame_id = c.frame_id WHERE f.is_system = 1",
+                Integer.class)).isZero();
     }
 }

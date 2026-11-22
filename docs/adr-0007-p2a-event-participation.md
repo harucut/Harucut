@@ -200,6 +200,7 @@ R5 17절 「멱등 scope·User FK의 호환 이관」 순서를 따른다:
 - 행사 frames 고르기: `GET /api/auth/workspaces/{workspaceId}/frame-versions` → 공간·시스템 프레임의 **최신 발행본**
   `{ frameVersionId, frameId, versionNo, frameType, title, previewUrl, source: SYSTEM|WORKSPACE, publishedAt }`. 발행 안 된 프레임은 없다.
   **운영 절차**: 시스템 프레임은 배포 뒤 관리자가 `POST /api/admin/frames/{id}/versions` 로 발행해야 고를 수 있다.
+  기본 프레임 4종(`SystemFrameSeeder`, 2026-11-15)은 기동 때 들어오지만 발행본이 없어 여기 나오지 않는다 — 회원 기본 레이아웃 합성 전용이다.
 
 ### 12-2. 보안 체인
 - 경로 목록은 `SecurityPaths.EVENT`(체인과 OpenAPI 문서가 같은 목록을 읽는다). 체인에 CORS 를 켠다(회원 체인과 같은 출처) — 사용자 정의 헤더의 preflight.

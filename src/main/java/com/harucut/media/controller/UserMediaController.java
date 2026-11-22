@@ -7,7 +7,9 @@ import com.harucut.config.openapi.ApiErrors;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import com.harucut.media.dto.DisplayNameUpdateRequest;
+import com.harucut.media.dto.MediaShareLinkResponse;
 import com.harucut.media.dto.UserMediaResponse;
+import com.harucut.media.service.MediaShareService;
 import com.harucut.media.service.UserMediaService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.*;
 public class UserMediaController {
 
     private final UserMediaService userMediaService;
+    private final MediaShareService mediaShareService;
 
     @Operation(
             summary = "내 사진 목록",
@@ -66,6 +69,28 @@ public class UserMediaController {
     }
 
     @Operation(
+            summary = "공유 링크",
+            description = """
+                    로그인 없는 사람에게 이 사진만 보여 주는 링크의 토큰. 받는 사람 주소는 `/s/<token>` 이고,
+                    그 페이지는 `GET /api/public/media-shares` 에 `Authorization: Bearer <token>` 으로 사진을 받는다.
+
+                    **사진마다 링크가 하나다.** 몇 번을 불러도 같은 토큰이라, 먼저 올린 글의 링크가 그대로 살고
+                    다시 복사해도 같은 주소다. 처음 부를 때 만들어진다.
+
+                    링크는 **이 사진이 내 기록에 보이는 동안** 열린다 — 지우거나 보관 기간이 지나면 닫힌다.
+                    따로 만료일은 없고, 링크만 닫는 API 는 아직 없다(사진을 지우면 닫힌다).
+                    """)
+    @ApiErrors({
+            "SUBS-002: 요금제의 보관 기간이 지난 사진",
+            "GEN-031: 없는 사진이거나 남의 사진 — 구분하지 않는다"
+    })
+    @PostMapping("/{mediaId}/share-link")
+    public Response<MediaShareLinkResponse> shareLink(@AuthenticationPrincipal AuthenticatedUser principal,
+                                                      @Parameter(description = "미디어 ID", example = "1") @PathVariable Long mediaId) {
+        return Response.ok(mediaShareService.link(principal.publicId(), mediaId));
+    }
+
+    @Operation(
             summary = "파일명 수정",
             description = """
                     다운로드할 때 저장될 이름을 바꾼다. 파일 자체는 그대로다.
@@ -94,7 +119,7 @@ public class UserMediaController {
             summary = "사진 삭제",
             description = """
                     **기존 서버에 없던 API 다.** DB 행과 S3 파일(원본·썸네일)을 함께 지운다.
-                    **되돌릴 수 없다.**
+                    **되돌릴 수 없다.** 이 사진의 공유 링크도 함께 닫힌다.
 
                     조회·이름변경과 달리 **보관 기간을 보지 않는다.** 기간이 지나 목록에서 안 보이는 사진도
                     삭제는 된다 — 안 보인다고 정리조차 못 하면 곤란하기 때문이다.

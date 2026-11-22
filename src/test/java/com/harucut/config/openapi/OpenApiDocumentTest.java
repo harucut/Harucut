@@ -162,7 +162,7 @@ class OpenApiDocumentTest {
         }
 
         @Test
-        @DisplayName("잠긴 엔드포인트에는 자격 실패 응답이 빠짐없이 있다 — 401, 부스 기기는 403 BOOTH-003(ADR-0007)")
+        @DisplayName("잠긴 엔드포인트에는 자격 실패 응답이 빠짐없이 있다 — 401, 부스 기기는 403 BOOTH-003(ADR-0007), 공유 링크는 닫힌 링크와 같은 404 MEDIA-002")
         void securedOperationsDocumentUnauthorized() {
             List<String> missing = new ArrayList<>();
 
@@ -172,6 +172,8 @@ class OpenApiDocumentTest {
                 }
                 boolean documented = path.startsWith("/api/booth/")
                         ? operation.get("responses").path("403").path("content").toString().contains("BOOTH-003")
+                        : path.startsWith("/api/public/media-shares")
+                        ? operation.get("responses").path("404").path("content").toString().contains("MEDIA-002")
                         : operation.get("responses").has("401");
                 if (!documented) {
                     missing.add(method + " " + path);
@@ -218,7 +220,8 @@ class OpenApiDocumentTest {
                 }
                 String schemes = operation.get("security").toString();
                 String expected = path.startsWith("/api/participant/") ? "participantToken"
-                        : path.startsWith("/api/public/results") ? "resultAccess" : "boothToken";
+                        : path.startsWith("/api/public/results") ? "resultAccess"
+                        : path.startsWith("/api/public/media-shares") ? "mediaShare" : "boothToken";
                 if (!schemes.contains(expected) || schemes.contains("cookieAuth") || schemes.contains("bearerAuth")) {
                     wrong.add(method + " " + path + " " + schemes);
                 }

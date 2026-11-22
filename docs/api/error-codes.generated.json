@@ -307,6 +307,10 @@
   "status" : 409,
   "message" : "The idempotency key was already used with a different request."
 }, {
+  "code" : "MEDIA-002",
+  "status" : 404,
+  "message" : "The share link is closed or does not exist."
+}, {
   "code" : "MEMBER-001",
   "status" : 410,
   "message" : "The invitation has expired."

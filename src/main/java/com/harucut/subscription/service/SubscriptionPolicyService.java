@@ -48,10 +48,15 @@ public class SubscriptionPolicyService implements FrameSubscriptionPolicy, Media
     }
 
     @Override
-    public void assertHistoryAccessible(Long userId, LocalDateTime createdAt) {
+    public boolean isHistoryAccessible(Long userId, LocalDateTime createdAt) {
         Retention retention = resolvePolicy(userId).historyRetention();
 
-        if (!retention.isAccessible(createdAt, LocalDateTime.now(clock))) {
+        return retention.isAccessible(createdAt, LocalDateTime.now(clock));
+    }
+
+    @Override
+    public void assertHistoryAccessible(Long userId, LocalDateTime createdAt) {
+        if (!isHistoryAccessible(userId, createdAt)) {
             throw new BusinessException(SubscriptionErrorCode.PLAN_HISTORY_RETENTION_EXCEEDED);
         }
     }

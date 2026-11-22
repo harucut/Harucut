@@ -10,7 +10,6 @@ import com.harucut.common.response.PageResponse;
 import com.harucut.config.SecurityConfig;
 import com.harucut.media.dto.MediaShareLinkResponse;
 import com.harucut.media.dto.UserMediaResponse;
-import com.harucut.media.service.MediaShareService;
 import com.harucut.media.service.UserMediaService;
 import com.harucut.subscription.exception.SubscriptionErrorCode;
 import com.harucut.support.FixedClockConfig;
@@ -55,9 +54,6 @@ class UserMediaControllerTest extends SecurityBeansMockSupport {
 
     @MockitoBean
     private UserMediaService userMediaService;
-
-    @MockitoBean
-    private MediaShareService mediaShareService;
 
     @Test
     @DisplayName("목록이 PageResponse 구조로 직렬화된다")
@@ -176,8 +172,8 @@ class UserMediaControllerTest extends SecurityBeansMockSupport {
     @Test
     @DisplayName("공유 링크는 data.token 하나다 — 남의 사진은 404 GEN-031")
     void shareLink() {
-        given(mediaShareService.link(PUBLIC_ID, 7L)).willReturn(new MediaShareLinkResponse("tok-7"));
-        given(mediaShareService.link(PUBLIC_ID, 8L)).willThrow(new BusinessException(GlobalErrorCode.NOT_FOUND));
+        given(userMediaService.shareLink(PUBLIC_ID, 7L)).willReturn(new MediaShareLinkResponse("tok-7"));
+        given(userMediaService.shareLink(PUBLIC_ID, 8L)).willThrow(new BusinessException(GlobalErrorCode.NOT_FOUND));
 
         assertThat(mockMvc.post().uri(BASE_URI + "/7/share-link").cookie(accessCookie()))
                 .hasStatusOk()

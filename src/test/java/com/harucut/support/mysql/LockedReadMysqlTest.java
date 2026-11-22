@@ -127,6 +127,36 @@ class LockedReadMysqlTest {
     }
 
     @Test
+    @DisplayName("여러 조직의 OWNER 가 동시에 탈퇴해도 교착이 없다 — 조직 멤버십을 모두 잠근 뒤에 회원을 잠근다(Codex #68)")
+    void multiOrganizationOwnerExitsDoNotDeadlock() throws Exception {
+        User a = userRepository.save(User.localUser("multi-a@owner.test", "e", "가"));
+        User b = userRepository.save(User.localUser("multi-b@owner.test", "e", "나"));
+        User c = userRepository.save(User.localUser("multi-c@owner.test", "e", "다"));
+        WorkspaceResponse first = workspaceService.createOrganization(a.getPublicId(), "조직 1");    // OWNER a·c
+        WorkspaceResponse second = workspaceService.createOrganization(a.getPublicId(), "조직 2");   // OWNER a·b
+        membershipRepository.save(WorkspaceMembership.member(idOf(first), c.getId(), WorkspaceRole.OWNER));
+        membershipRepository.save(WorkspaceMembership.member(idOf(second), b.getId(), WorkspaceRole.OWNER));
+
+        // c 의 회원 행을 붙잡아 a 를 회원 잠금 앞에 세운다. 그사이 b 가 조직 2 를 잠근다.
+        // 조직마다 멤버십·회원을 번갈아 잡으면 a(조직 1·회원 a 보유, 조직 2 대기)와 b(조직 2 보유, 회원 a 대기)가 맞물린다
+        List<Throwable> failures = raceInOrder(() -> userRepository.lockStayingIds(List.of(c.getId())),
+                () -> userExitService.requestExit(a.getPublicId()),
+                () -> userExitService.requestExit(b.getPublicId()));
+
+        assertThat(failures).singleElement()
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.LAST_OWNER);
+        // 누가 먼저 잠금을 잡든(CI 속도) 한쪽만 탈퇴 신청이 된다
+        assertThat(List.of(userRepository.findById(a.getId()).orElseThrow().getUserStatus(),
+                userRepository.findById(b.getId()).orElseThrow().getUserStatus()))
+                .containsExactlyInAnyOrder(UserStatus.DELETED_REQUESTED, UserStatus.ACTIVE);
+    }
+
+    private Long idOf(WorkspaceResponse workspace) {
+        return workspaceRepository.findByPublicId(workspace.workspaceId()).orElseThrow().getId();
+    }
+
+    @Test
     @DisplayName("같은 프레임을 동시에 두 번 발행해도 번호가 겹치지 않는다(1, 2)")
     void concurrentFramePublishGetsDistinctNumbers() throws Exception {
         User owner = userRepository.save(User.localUser("owner@frame.test", "e", "오너"));
@@ -208,6 +238,33 @@ class LockedReadMysqlTest {
         CompletableFuture<Throwable> first = CompletableFuture.supplyAsync(() -> attempt(a));
         CompletableFuture<Throwable> second = CompletableFuture.supplyAsync(() -> attempt(b));
         Thread.sleep(1000);   // 둘 다 스냅샷을 잡고 잠금에서 기다리는 중
+        release.countDown();
+        holder.get(20, TimeUnit.SECONDS);
+        List<Throwable> failures = new ArrayList<>();
+        for (CompletableFuture<Throwable> f : List.of(first, second)) {
+            Throwable failure = f.get(30, TimeUnit.SECONDS);
+            if (failure != null) {
+                failures.add(failure);
+            }
+        }
+        return failures;
+    }
+
+    // raceBehind 와 같되 a 가 먼저 잠금 앞에 서도록 b 를 늦게 출발시킨다
+    private List<Throwable> raceInOrder(Runnable lock, Runnable a, Runnable b) throws Exception {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CompletableFuture<Void> holder = CompletableFuture.runAsync(() -> transaction.executeWithoutResult(status -> {
+            lock.run();
+            locked.countDown();
+            await(release);
+        }));
+        assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+        CompletableFuture<Throwable> first = CompletableFuture.supplyAsync(() -> attempt(a));
+        Thread.sleep(700);
+        CompletableFuture<Throwable> second = CompletableFuture.supplyAsync(() -> attempt(b));
+        Thread.sleep(1000);
         release.countDown();
         holder.get(20, TimeUnit.SECONDS);
         List<Throwable> failures = new ArrayList<>();

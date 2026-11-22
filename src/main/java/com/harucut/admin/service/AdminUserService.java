@@ -20,6 +20,7 @@ import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 /**
@@ -79,11 +80,13 @@ public class AdminUserService {
         return new AdminUserDtos.StatusResponse(target.getPublicId(), target.getUserStatus());
     }
 
-    // 늘 같은 순서로 잠근다 — 이 트랜잭션의 첫 읽기라 잠금 아래 값이다
+    // 회원 id 순으로 잠근다 — 탈퇴 신청의 마지막 OWNER 검사(UserRepository.lockStayingIds)와 같은 순서여야 둘이 맞물리지 않는다.
+    // id 는 엔티티 없이 먼저 읽는다 — 잠금 읽기가 이 트랜잭션의 첫 엔티티 읽기라 잠금 아래 값이다
     private Locked lock(String adminPublicId, String userPublicId) {
         Map<String, User> rows = new HashMap<>();
-        Stream.of(adminPublicId, userPublicId).distinct().sorted()
-                .forEach(publicId -> userRepository.lockByPublicId(publicId).ifPresent(user -> rows.put(publicId, user)));
+        Stream.of(adminPublicId, userPublicId).distinct()
+                .map(userRepository::findIdByPublicId).flatMap(Optional::stream).sorted()
+                .forEach(id -> userRepository.lockById(id).ifPresent(user -> rows.put(user.getPublicId(), user)));
         User actor = rows.get(adminPublicId);
         if (actor == null || actor.getUserStatus() != UserStatus.ACTIVE || actor.getUserRole() != UserRole.ROLE_ADMIN) {
             throw new BusinessException(GlobalErrorCode.FORBIDDEN);

@@ -53,6 +53,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("select u from User u where u.publicId = :publicId")
     Optional<User> lockByPublicId(@Param("publicId") String publicId);
 
+    // 회원 행을 둘 이상 잠그는 곳은 늘 회원 id 순이다(AdminUserService.lock·lockStayingIds) — 순서가 섞이면 서로를 기다리며 맞물린다
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.id = :id")
+    Optional<User> lockById(@Param("id") Long id);
+
     boolean existsByProviderAndEmail(Provider provider, String email);
 
     Optional<User> findByProviderAndProviderId(Provider provider, String providerId);

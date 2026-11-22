@@ -1,5 +1,6 @@
 package com.harucut.support.mysql;
 
+import com.harucut.admin.service.AdminUserService;
 import com.harucut.auth.service.RefreshTokenRepository;
 import com.harucut.auth.service.UserExitService;
 import com.harucut.booth.service.BoothDeviceService;
@@ -83,6 +84,7 @@ class LockedReadMysqlTest {
     @Autowired private BoothDeviceService boothDeviceService;
     @Autowired private EventService eventService;
     @Autowired private UserExitService userExitService;
+    @Autowired private AdminUserService adminUserService;
 
     @MockitoBean private FileStorageService fileStorageService;
     @MockitoBean private RefreshTokenRepository refreshTokenRepository;
@@ -150,6 +152,28 @@ class LockedReadMysqlTest {
         assertThat(List.of(userRepository.findById(a.getId()).orElseThrow().getUserStatus(),
                 userRepository.findById(b.getId()).orElseThrow().getUserStatus()))
                 .containsExactlyInAnyOrder(UserStatus.DELETED_REQUESTED, UserStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("관리자 정지와 탈퇴 신청이 동시에 와도 교착이 없다 — 회원 행은 어디서나 회원 id 순으로 잠근다(Codex #68)")
+    void adminBlockAndOwnerExitDoNotDeadlock() throws Exception {
+        User admin = userRepository.save(User.localUser("lock-admin@owner.test", "e", "관리"));
+        User member = userRepository.save(User.localUser("lock-member@owner.test", "e", "회원"));
+        // 회원 id 순(admin < member)과 publicId 순(member < admin)이 거꾸로 되게 둔다 — 두 경로의 순서가 다르면 맞물린다
+        jdbcTemplate.update("update users set user_role = 'ROLE_ADMIN', public_id = 'fffffffffff1' where user_id = ?", admin.getId());
+        jdbcTemplate.update("update users set public_id = '000000000001' where user_id = ?", member.getId());
+        WorkspaceResponse org = workspaceService.createOrganization("fffffffffff1", "관리자 공간");   // OWNER admin·member
+        membershipRepository.save(WorkspaceMembership.member(idOf(org), member.getId(), WorkspaceRole.OWNER));
+
+        // admin 의 회원 행을 붙잡아 둘 다 그 앞에 세운다. 탈퇴 신청은 admin → member 순으로 잡는다.
+        // 정지가 member 를 먼저 쥐었다면(publicId 순) 탈퇴 신청은 member 를, 정지는 admin 을 기다리며 맞물린다
+        List<Throwable> failures = raceInOrder(() -> userRepository.lockStayingIds(List.of(admin.getId())),
+                () -> userExitService.requestExit("000000000001"),
+                () -> adminUserService.block("fffffffffff1", "000000000001", "경쟁"));
+
+        // 먼저 선 탈퇴 신청이 되고 정지는 탈퇴 대기라 거절된다(AUTH) — 서버 오류(교착)는 없다
+        assertThat(failures).allSatisfy(failure -> assertThat(failure).isInstanceOf(BusinessException.class));
+        assertThat(userRepository.findById(member.getId()).orElseThrow().getUserStatus()).isEqualTo(UserStatus.DELETED_REQUESTED);
     }
 
     private Long idOf(WorkspaceResponse workspace) {

@@ -64,7 +64,7 @@ services:
           memory: 100m
 
   app:
-    image: ${APP_IMAGE:-ghcr.io/popeye0618/harucut}:${IMAGE_TAG:-latest}
+    image: ${APP_IMAGE:-ghcr.io/harucut/harucut}:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file:
       - .env

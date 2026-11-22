@@ -4,6 +4,7 @@ import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.common.response.PageResponse;
 import com.harucut.media.dto.UserMediaResponse;
+import com.harucut.media.entity.MediaShare;
 import com.harucut.media.entity.UserMedia;
 import com.harucut.media.policy.MediaSubscriptionPolicy;
 import com.harucut.media.repository.MediaShareRepository;
@@ -18,15 +19,20 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.BeanUtils;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -53,6 +59,7 @@ class UserMediaServiceTest {
     private static final String VIEW_URL = "https://harucut-test.s3.amazonaws.com/view";
     private static final String THUMB_KEY = "uploads/users/AbCdEf12Gh01/fourcuts/photo-thumb.jpg";
     private static final String THUMB_URL = "https://harucut-test.s3.amazonaws.com/thumb";
+    private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-11-16T01:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     @Mock
     private UserRepository userRepository;
@@ -78,7 +85,7 @@ class UserMediaServiceTest {
     @BeforeEach
     void setUp() {
         userMediaService = new UserMediaService(userRepository, userMediaRepository,
-                fileStorageService, mediaSubscriptionPolicy, s3Deleter, mediaShareRepository);
+                fileStorageService, mediaSubscriptionPolicy, s3Deleter, mediaShareRepository, CLOCK);
         user = User.localUser("owner@harucut.com", "encoded", "소유자");
         ReflectionTestUtils.setField(user, "id", 1L);
     }
@@ -321,5 +328,85 @@ class UserMediaServiceTest {
         ReflectionTestUtils.setField(media, "id", MEDIA_ID);
         ReflectionTestUtils.setField(media, "createdAt", CREATED);
         return media;
+    }
+
+    @Nested
+    @DisplayName("shareLink — 사진 공유 링크(주인이 받는 토큰)")
+    class ShareLink {
+
+        @BeforeEach
+        void ownedMedia() {
+            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
+        }
+
+        @Test
+        @DisplayName("이미 있으면 그 토큰 그대로 — 새로 만들지 않는다")
+        void returnsExistingToken() {
+            given(userMediaRepository.findByIdAndUser(MEDIA_ID, user)).willReturn(Optional.of(media()));
+            given(mediaShareRepository.findByMediaId(MEDIA_ID)).willReturn(Optional.of(share(3L, "existing-token")));
+
+            assertThat(userMediaService.shareLink(PUBLIC_ID, MEDIA_ID).token()).isEqualTo("existing-token");
+
+            then(mediaShareRepository).should(never()).insertIfAbsent(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("없으면 넣고 잠금 읽기로 받는다 — 동시에 먼저 들어간 쪽이 있으면 그 토큰이다")
+        void createsOnceAndReadsTheWinner() {
+            given(userMediaRepository.findByIdAndUser(MEDIA_ID, user)).willReturn(Optional.of(media()));
+            given(mediaShareRepository.findByMediaId(MEDIA_ID)).willReturn(Optional.empty());
+            given(mediaShareRepository.lockByMediaId(MEDIA_ID)).willReturn(Optional.of(share(3L, "winner-token")));
+
+            assertThat(userMediaService.shareLink(PUBLIC_ID, MEDIA_ID).token()).isEqualTo("winner-token");
+
+            ArgumentCaptor<String> generated = ArgumentCaptor.forClass(String.class);
+            then(mediaShareRepository).should().insertIfAbsent(eq(MEDIA_ID), generated.capture(), eq(LocalDateTime.now(CLOCK)));
+            // CSPRNG 32바이트 base64url — 128비트 이상, URL 에 그대로 실린다
+            assertThat(generated.getValue()).matches("[A-Za-z0-9_-]{43}");
+        }
+
+        @Test
+        @DisplayName("남의 사진·없는 사진은 GEN-031 — 링크를 만들지 않는다")
+        void notMine() {
+            given(userMediaRepository.findByIdAndUser(MEDIA_ID, user)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> userMediaService.shareLink(PUBLIC_ID, MEDIA_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode").isEqualTo(GlobalErrorCode.NOT_FOUND);
+            then(mediaShareRepository).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("보관 기간이 지난 사진은 SUBS-002 — 단건 조회와 같다")
+        void retentionPassed() {
+            given(userMediaRepository.findByIdAndUser(MEDIA_ID, user)).willReturn(Optional.of(media()));
+            willThrow(new BusinessException(SubscriptionErrorCode.PLAN_HISTORY_RETENTION_EXCEEDED))
+                    .given(mediaSubscriptionPolicy).assertHistoryAccessible(1L, CREATED);
+
+            assertThatThrownBy(() -> userMediaService.shareLink(PUBLIC_ID, MEDIA_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode").isEqualTo(SubscriptionErrorCode.PLAN_HISTORY_RETENTION_EXCEEDED);
+            then(mediaShareRepository).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("넣는 사이 사진이 지워졌으면(0행·잠금 읽기도 비었다) GEN-031")
+        void mediaDeletedMeanwhile() {
+            given(userMediaRepository.findByIdAndUser(MEDIA_ID, user)).willReturn(Optional.of(media()));
+            given(mediaShareRepository.findByMediaId(MEDIA_ID)).willReturn(Optional.empty());
+            given(mediaShareRepository.lockByMediaId(MEDIA_ID)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> userMediaService.shareLink(PUBLIC_ID, MEDIA_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode").isEqualTo(GlobalErrorCode.NOT_FOUND);
+        }
+    }
+
+    private static MediaShare share(long id, String token) {
+        MediaShare share = BeanUtils.instantiateClass(MediaShare.class);
+        ReflectionTestUtils.setField(share, "id", id);
+        ReflectionTestUtils.setField(share, "mediaId", MEDIA_ID);
+        ReflectionTestUtils.setField(share, "token", token);
+        return share;
     }
 }

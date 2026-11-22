@@ -9,7 +9,6 @@ import io.swagger.v3.oas.annotations.Parameter;
 import com.harucut.media.dto.DisplayNameUpdateRequest;
 import com.harucut.media.dto.MediaShareLinkResponse;
 import com.harucut.media.dto.UserMediaResponse;
-import com.harucut.media.service.MediaShareService;
 import com.harucut.media.service.UserMediaService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -24,7 +23,6 @@ import org.springframework.web.bind.annotation.*;
 public class UserMediaController {
 
     private final UserMediaService userMediaService;
-    private final MediaShareService mediaShareService;
 
     @Operation(
             summary = "내 사진 목록",
@@ -87,7 +85,7 @@ public class UserMediaController {
     @PostMapping("/{mediaId}/share-link")
     public Response<MediaShareLinkResponse> shareLink(@AuthenticationPrincipal AuthenticatedUser principal,
                                                       @Parameter(description = "미디어 ID", example = "1") @PathVariable Long mediaId) {
-        return Response.ok(mediaShareService.link(principal.publicId(), mediaId));
+        return Response.ok(userMediaService.shareLink(principal.publicId(), mediaId));
     }
 
     @Operation(

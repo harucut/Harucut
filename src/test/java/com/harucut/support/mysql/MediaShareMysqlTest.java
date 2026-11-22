@@ -4,7 +4,6 @@ import com.harucut.media.entity.UserMedia;
 import com.harucut.media.handler.UserMediaDeletionHandler;
 import com.harucut.media.repository.MediaShareRepository;
 import com.harucut.media.repository.UserMediaRepository;
-import com.harucut.media.service.MediaShareService;
 import com.harucut.media.service.UserMediaService;
 import com.harucut.storage.service.FileStorageService;
 import com.harucut.storage.util.S3Keys;
@@ -56,7 +55,6 @@ class MediaShareMysqlTest {
     static MySQLContainer mysql = new MySQLContainer("mysql:8.0")
             .withCommand("--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci");
 
-    @Autowired private MediaShareService mediaShareService;
     @Autowired private UserMediaService userMediaService;
     @Autowired private UserMediaDeletionHandler userMediaDeletionHandler;
     @Autowired private UserRepository userRepository;
@@ -85,7 +83,7 @@ class MediaShareMysqlTest {
         CountDownLatch releaseFirst = new CountDownLatch(1);
 
         CompletableFuture<String> first = CompletableFuture.supplyAsync(() -> transaction.execute(status -> {
-            String token = mediaShareService.link(owner.getPublicId(), mediaId).token();
+            String token = userMediaService.shareLink(owner.getPublicId(), mediaId).token();
             firstInserted.countDown();
             await(releaseFirst);
             return token;
@@ -93,7 +91,7 @@ class MediaShareMysqlTest {
         assertThat(firstInserted.await(10, TimeUnit.SECONDS)).isTrue();
         // 앞쪽이 아직 커밋 전 — 늦은 쪽은 media_id 유니크 키 잠금에서 기다린다
         CompletableFuture<String> second = CompletableFuture.supplyAsync(() ->
-                transaction.execute(status -> mediaShareService.link(owner.getPublicId(), mediaId).token()));
+                transaction.execute(status -> userMediaService.shareLink(owner.getPublicId(), mediaId).token()));
         Thread.sleep(500);
         assertThat(second).isNotDone();
         releaseFirst.countDown();
@@ -141,7 +139,7 @@ class MediaShareMysqlTest {
     }
 
     private String link(Long mediaId) {
-        return mediaShareService.link(owner.getPublicId(), mediaId).token();
+        return userMediaService.shareLink(owner.getPublicId(), mediaId).token();
     }
 
     private int count(String sql, Long id) {

@@ -153,7 +153,7 @@ public class EventCredentialFilter extends OncePerRequestFilter {
             return Optional.empty();
         }
         return readOnly.execute(status -> mediaShareRepository.findByToken(header.substring(BEARER.length()).strip())
-                .map(share -> authenticated(new MediaSharePrincipal(share.getId(), share.getMediaId()), "ROLE_MEDIA_SHARE")));
+                .map(share -> authenticated(new MediaSharePrincipal(share.getId()), "ROLE_MEDIA_SHARE")));
     }
 
     // 회수된 기기는 토큰 해시를 지우므로 여기서 걸리지 않지만, 상태도 한 번 더 본다

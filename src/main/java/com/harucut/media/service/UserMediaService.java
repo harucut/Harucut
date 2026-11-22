@@ -3,8 +3,11 @@ package com.harucut.media.service;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.common.response.PageResponse;
+import com.harucut.common.utils.OpaqueTokens;
 import com.harucut.common.utils.PageRequests;
+import com.harucut.media.dto.MediaShareLinkResponse;
 import com.harucut.media.dto.UserMediaResponse;
+import com.harucut.media.entity.MediaShare;
 import com.harucut.media.entity.UserMedia;
 import com.harucut.media.policy.MediaSubscriptionPolicy;
 import com.harucut.media.repository.MediaShareRepository;
@@ -20,6 +23,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 
@@ -34,6 +38,7 @@ public class UserMediaService {
     private final MediaSubscriptionPolicy mediaSubscriptionPolicy;
     private final S3Deleter s3Deleter;
     private final MediaShareRepository mediaShareRepository;
+    private final Clock clock;
 
     @Transactional(readOnly = true)
     public PageResponse<UserMediaResponse> getMyMedia(String publicId, int page, int size) {
@@ -65,6 +70,23 @@ public class UserMediaService {
 
         media.changeDisplayName(DisplayNames.resolve(displayName, media.getS3Key(), media.getCreatedAt()));
         return toResponse(media);
+    }
+
+    /** 사진 공유 링크의 토큰(MediaShareService) — 사진마다 하나라 몇 번을 불러도 같다. 남의 사진·없는 사진·보관 기간 지난 사진은 단건 조회와 같은 오류 */
+    public MediaShareLinkResponse shareLink(String publicId, Long mediaId) {
+        User user = getUser(publicId);
+        UserMedia media = getOwnedMedia(user, mediaId);
+        mediaSubscriptionPolicy.assertHistoryAccessible(user.getId(), media.getCreatedAt());
+        MediaShare share = mediaShareRepository.findByMediaId(media.getId()).orElseGet(() -> createShare(media.getId()));
+        return new MediaShareLinkResponse(share.getToken());
+    }
+
+    // 동시에 두 번 눌렀으면 늦은 쪽의 insert 는 0행이다 — 잠금 읽기로 먼저 들어간 쪽의 토큰을 받는다
+    private MediaShare createShare(Long mediaId) {
+        mediaShareRepository.insertIfAbsent(mediaId, OpaqueTokens.generate(), LocalDateTime.now(clock));
+        return mediaShareRepository.lockByMediaId(mediaId)
+                // 그사이 사진이 지워졌다 — insert ignore 가 FK 위반을 0행으로 넘겼다
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
     }
 
     public void deleteMedia(String publicId, Long mediaId) {

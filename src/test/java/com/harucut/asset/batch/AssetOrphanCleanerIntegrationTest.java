@@ -8,6 +8,10 @@ import com.harucut.frame.dto.FrameCreateRequest;
 import com.harucut.frame.enums.ComponentType;
 import com.harucut.frame.enums.FrameType;
 import com.harucut.frame.service.FrameService;
+import com.harucut.media.compose.ComposeSpec;
+import com.harucut.media.entity.ComposeJob;
+import com.harucut.media.enums.ComposeStatus;
+import com.harucut.media.repository.ComposeJobRepository;
 import com.harucut.storage.service.FileStorageService;
 import com.harucut.storage.service.S3Deleter;
 import com.harucut.storage.util.S3Keys;
@@ -52,6 +56,7 @@ class AssetOrphanCleanerIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private EntityManager entityManager;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private ComposeJobRepository composeJobRepository;
 
     @MockitoBean private FileStorageService fileStorageService;
     @MockitoBean private S3Deleter s3Deleter;
@@ -122,7 +127,33 @@ class AssetOrphanCleanerIntegrationTest {
         assertThat(remainingKeys()).contains(fresh.getS3Key()).doesNotContain(abandoned.getS3Key());
     }
 
+    @Test
+    @DisplayName("끝나지 않은 합성의 스냅샷이 쓰는 자산은 지우지 않는다 — 프레임에서 빠졌어도. 합성이 끝나면 다음 실행이 지운다")
+    void keepsAssetsUsedByPendingCompose() {
+        Asset layer = verified(AssetPurpose.FRAME_ASSET, "pending-layer.png");
+        Asset orphan = verified(AssetPurpose.FRAME_ASSET, "orphan-too.png");
+        // 접수한 합성은 레이어 key 를 spec_json 에 스냅샷만 한다 — 자산 참조(FK)는 없다
+        ComposeJob job = composeJobRepository.save(ComposeJob.create(user, 1L, "idem-layer",
+                List.of("a", "b", "c", "d"), specWithLayer(layer.getS3Key())));
+        age(layer, orphan);
+
+        assertThat(cleaner.run()).isEqualTo(1);
+        assertThat(remainingKeys()).contains(layer.getS3Key()).doesNotContain(orphan.getS3Key());
+        // 후보 검사 뒤에 접수된 합성도 지우기 직전의 조건이 막는다
+        assertThat(assetRepository.deleteIfUnreferenced(layer.getId(), "%" + layer.getS3Key() + "%")).isZero();
+
+        jdbcTemplate.update("update compose_job set status = ? where compose_job_id = ?", ComposeStatus.DONE.name(), job.getId());
+        entityManager.clear();
+        assertThat(cleaner.run()).isEqualTo(1);
+        assertThat(remainingKeys()).doesNotContain(layer.getS3Key());
+    }
+
     // ── fixtures ──────────────────────────────
+
+    private static ComposeSpec specWithLayer(String key) {
+        return new ComposeSpec(2000, 6000, new BackgroundAttributes.Color("#FFFFFF"), FrameType.CLASSIC.getLayout().slots(),
+                List.of(false, false, false, false), List.of(new ComposeSpec.Layer(key, 0, 0, 10, 10, 1, 0, 1, 1)));
+    }
 
     private Asset verified(AssetPurpose purpose, String name) {
         Asset asset = pending(purpose, name);

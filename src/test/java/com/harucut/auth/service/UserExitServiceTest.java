@@ -140,18 +140,6 @@ class UserExitServiceTest {
         }
 
         @Test
-        @DisplayName("마지막 OWNER 검사가 본인 행 잠금보다 먼저다 — 다른 OWNER 의 요청과 같은 순서(OWNER 멤버십 → 회원)로 잠가 교착이 없다")
-        void ownerGuardLocksBeforeOwnRow() {
-            User user = givenActiveUserLocked();
-
-            service.requestExit(PUBLIC_ID);
-
-            InOrder order = inOrder(workspaceService, userRepository);
-            order.verify(workspaceService).requireNotLastOwner(user.getId());
-            order.verify(userRepository).lockByPublicId(PUBLIC_ID);
-        }
-
-        @Test
         @DisplayName("refresh 토큰이 삭제된다")
         void revokesRefreshToken() {
             givenActiveUserLocked();

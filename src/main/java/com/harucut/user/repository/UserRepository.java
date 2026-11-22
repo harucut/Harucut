@@ -33,7 +33,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     // 스냅샷이 아니라 다른 요청이 막 커밋한 탈퇴 신청까지 본다(WorkspaceService.hasRemainingOwnerOtherThan)
     @Query(value = "select user_id from users where user_id in (:ids) "
             + "and user_status not in ('DELETED_REQUESTED', 'DELETED') order by user_id for update", nativeQuery = true)
-    List<Long> lockStayingIds(@Param("ids") java.util.Collection<Long> ids);
+    List<Long> lockStayingIds(@Param("ids") List<Long> ids);
 
     // 소셜 계정은 같은 이메일이 제공자마다 따로 있다
     List<User> findAllByEmailOrderByIdAsc(String email);

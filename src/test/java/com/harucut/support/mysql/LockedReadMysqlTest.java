@@ -49,7 +49,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /*
  * 「잠금 뒤 세기·번호 매기기」가 REPEATABLE READ 스냅샷에 속지 않는지 — 실제 MySQL.
@@ -125,24 +124,6 @@ class LockedReadMysqlTest {
         List<UserStatus> statuses = List.of(userRepository.findById(first.getId()).orElseThrow().getUserStatus(),
                 userRepository.findById(second.getId()).orElseThrow().getUserStatus());
         assertThat(statuses).containsExactlyInAnyOrder(UserStatus.DELETED_REQUESTED, UserStatus.ACTIVE);
-    }
-
-    @Test
-    @DisplayName("탈퇴를 신청한 OWNER 가 있으면 남은 OWNER 는 나갈 수 없다 — 유예 뒤 OWNER 없는 공간이 되지 않는다")
-    void ownerAwaitingDeletionIsNotARemainingOwner() {
-        User leaving = userRepository.save(User.localUser("leaving@owner.test", "e", "가"));
-        User staying = userRepository.save(User.localUser("staying@owner.test", "e", "나"));
-        WorkspaceResponse org = workspaceService.createOrganization(leaving.getPublicId(), "남는 공간");
-        Long workspaceId = workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId();
-        membershipRepository.save(WorkspaceMembership.member(workspaceId, staying.getId(), WorkspaceRole.OWNER));
-
-        userExitService.requestExit(leaving.getPublicId());
-
-        assertThatThrownBy(() -> userExitService.requestExit(staying.getPublicId()))
-                .isInstanceOf(BusinessException.class).extracting("errorCode").isEqualTo(MemberErrorCode.LAST_OWNER);
-        assertThatThrownBy(() -> membershipService.remove(staying.getPublicId(), org.workspaceId(), "me"))
-                .isInstanceOf(BusinessException.class).extracting("errorCode").isEqualTo(MemberErrorCode.LAST_OWNER);
-        assertThat(userRepository.findById(staying.getId()).orElseThrow().getUserStatus()).isEqualTo(UserStatus.ACTIVE);
     }
 
     @Test

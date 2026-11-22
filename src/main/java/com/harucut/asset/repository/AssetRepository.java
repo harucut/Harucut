@@ -111,13 +111,41 @@ public interface AssetRepository extends JpaRepository<Asset, Long> {
     @Query(value = "select count(*) from frame where background like :pattern", nativeQuery = true)
     long countFramesWithBackgroundLike(@Param("pattern") String pattern);
 
-    // 지우기 직전 다시 본다 — 후보를 고른 뒤 누가 id 로 참조하기 시작했으면 0 이 나와 건너뛴다
+    // 지우기 직전 다시 본다 — 후보를 고른 뒤 누가 id 로 참조하기 시작했거나 끝나지 않은 합성이 이 key 를 스냅샷에 담았으면 0 이 나와 건너뛴다.
+    // spec_json 은 변환기 칸이라 네이티브다. key 는 호출자가 준다 — 지우는 테이블을 하위 질의로 다시 읽으면 MySQL 이 막는다(1093)
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("""
-            delete from Asset a where a.id = :id and a.boundComposeJobId is null
-              and not exists (select 1 from FrameComponent c where c.assetId = :id or c.renderedAssetId = :id)
-              and not exists (select 1 from FrameVersionAsset v where v.assetId = :id)
-              and not exists (select 1 from FrameDraftAsset d where d.assetId = :id)
-            """)
-    int deleteIfUnreferenced(@Param("id") Long id);
+    @Query(value = """
+            delete from asset where asset_id = :id and bound_compose_job_id is null
+              and not exists (select 1 from frame_component c where c.asset_id = :id or c.rendered_asset_id = :id)
+              and not exists (select 1 from frame_version_asset v where v.asset_id = :id)
+              and not exists (select 1 from frame_draft_asset d where d.asset_id = :id)
+              and not exists (select 1 from compose_job j where j.status = 'PENDING' and j.spec_json like concat('%', :key, '%'))
+            """, nativeQuery = true)
+    int deleteIfUnreferenced(@Param("id") Long id, @Param("key") String key);
+
+    // ── 탈퇴(AssetUserDeletionHandler) — 개인 공간 밖에서 쓰는 개인 자산은 지우지 않고 그 공간으로 옮긴다 ──
+
+    List<Asset> findAllByWorkspaceId(Long workspaceId);
+
+    /**
+     * 이 개인 자산을 개인 공간 밖에서 쓰는 프레임의 공간 id. 시스템 프레임이면 NULL 이다. 참조 기준은 미참조 정리와 같다 —
+     * id 참조(컴포넌트·발행본)와 key 문자열 참조(컴포넌트 source·renderedKey·프리뷰·배경 JSON). 초안은 보지 않는다 —
+     * 남의 초안은 이 자산을 담을 수 없고(FrameAssetResolver.requireForDraft) 본인 초안은 다른 핸들러가 먼저 지운다
+     */
+    @Query(value = """
+            select distinct f.workspace_id from frame f
+            where (f.workspace_id is null or f.workspace_id <> :personalWorkspaceId)
+              and (exists (select 1 from frame_component c where c.frame_id = f.frame_id
+                           and (c.asset_id = :assetId or c.rendered_asset_id = :assetId or c.source = :key or c.rendered_key = :key))
+                   or exists (select 1 from frame_version v join frame_version_asset va on va.frame_version_id = v.frame_version_id
+                              where v.frame_id = f.frame_id and va.asset_id = :assetId)
+                   or f.preview_key = :key
+                   or f.background like concat('%', :key, '%'))
+            """, nativeQuery = true)
+    List<Long> findWorkspacesUsingOutside(@Param("assetId") Long assetId, @Param("key") String key,
+                                          @Param("personalWorkspaceId") Long personalWorkspaceId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update Asset a set a.workspaceId = :workspaceId where a.id = :id")
+    int moveToWorkspace(@Param("id") Long id, @Param("workspaceId") Long workspaceId);
 }

@@ -140,7 +140,7 @@ class AssetOrphanCleanerIntegrationTest {
         assertThat(cleaner.run()).isEqualTo(1);
         assertThat(remainingKeys()).contains(layer.getS3Key()).doesNotContain(orphan.getS3Key());
         // 후보 검사 뒤에 접수된 합성도 지우기 직전의 조건이 막는다
-        assertThat(assetRepository.deleteIfUnreferenced(layer.getId(), "%" + layer.getS3Key() + "%")).isZero();
+        assertThat(assetRepository.deleteIfUnreferenced(layer.getId(), layer.getS3Key())).isZero();
 
         jdbcTemplate.update("update compose_job set status = ? where compose_job_id = ?", ComposeStatus.DONE.name(), job.getId());
         entityManager.clear();

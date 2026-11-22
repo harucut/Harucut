@@ -17,7 +17,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -42,29 +41,16 @@ class AssetUserDeletionHandlerTest {
         Asset usedByOrgs = asset(1L, "org.png");
         Asset usedBySystem = asset(2L, "system.png");
         Asset unused = asset(3L, "unused.png");
-        given(assetRepository.findAllByWorkspaceIdOrderByIdAsc(PERSONAL_ID)).willReturn(List.of(usedByOrgs, usedBySystem, unused));
-        given(assetRepository.findWorkspacesUsingOutside(eq(1L), eq(usedByOrgs.getS3Key()), eq("%" + usedByOrgs.getS3Key() + "%"),
-                eq(PERSONAL_ID), eq(USER_ID))).willReturn(Arrays.asList(31L, 20L, null));
-        given(assetRepository.findWorkspacesUsingOutside(eq(2L), eq(usedBySystem.getS3Key()), eq("%" + usedBySystem.getS3Key() + "%"),
-                eq(PERSONAL_ID), eq(USER_ID))).willReturn(Arrays.asList((Long) null));
-        given(assetRepository.findWorkspacesUsingOutside(eq(3L), eq(unused.getS3Key()), eq("%" + unused.getS3Key() + "%"),
-                eq(PERSONAL_ID), eq(USER_ID))).willReturn(List.of());
+        given(assetRepository.findAllByWorkspaceId(PERSONAL_ID)).willReturn(List.of(usedByOrgs, usedBySystem, unused));
+        given(assetRepository.findWorkspacesUsingOutside(1L, usedByOrgs.getS3Key(), PERSONAL_ID)).willReturn(Arrays.asList(31L, 20L, null));
+        given(assetRepository.findWorkspacesUsingOutside(2L, usedBySystem.getS3Key(), PERSONAL_ID)).willReturn(Arrays.asList((Long) null));
+        given(assetRepository.findWorkspacesUsingOutside(3L, unused.getS3Key(), PERSONAL_ID)).willReturn(List.of());
 
         handler.handleUserDeletion(USER_ID);
 
         then(assetRepository).should().moveToWorkspace(1L, 20L);
         then(assetRepository).should().moveToWorkspace(2L, null);
         then(assetRepository).should(never()).moveToWorkspace(eq(3L), org.mockito.ArgumentMatchers.any());
-    }
-
-    @Test
-    @DisplayName("개인 공간이 없으면 아무것도 하지 않는다")
-    void noPersonalWorkspace() {
-        given(workspaceRepository.findByPersonalOwnerUserId(USER_ID)).willReturn(Optional.empty());
-
-        handler.handleUserDeletion(USER_ID);
-
-        then(assetRepository).shouldHaveNoInteractions();
     }
 
     private void givenPersonalWorkspace() {

@@ -95,7 +95,7 @@ class AssetOrphanCleanupMysqlTest {
         assertThat(assetRepository.findById(layer.getId())).isPresent();
         // 후보 검사 뒤에 접수된 합성도 지우기 직전의 조건(NOT EXISTS … spec_json LIKE)이 막는다 — MySQL 1093 없이
         Integer deleted = new TransactionTemplate(transactionManager).execute(status ->
-                assetRepository.deleteIfUnreferenced(layer.getId(), "%" + layer.getS3Key() + "%"));
+                assetRepository.deleteIfUnreferenced(layer.getId(), layer.getS3Key()));
         assertThat(deleted).isZero();
 
         jdbcTemplate.update("update compose_job set status = 'DONE' where compose_job_id = ?", job.getId());

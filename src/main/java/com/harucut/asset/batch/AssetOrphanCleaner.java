@@ -2,6 +2,7 @@ package com.harucut.asset.batch;
 
 import com.harucut.asset.entity.Asset;
 import com.harucut.asset.repository.AssetRepository;
+import com.harucut.frame.service.FrameAssetResolver;
 import com.harucut.storage.config.StorageProperties;
 import com.harucut.storage.service.S3Deleter;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,7 @@ import java.util.Set;
 public class AssetOrphanCleaner {
 
     private final AssetRepository assetRepository;
+    private final FrameAssetResolver frameAssetResolver;
     private final S3Deleter s3Deleter;
     private final StorageProperties properties;
     private final TransactionTemplate transaction;
@@ -38,9 +40,11 @@ public class AssetOrphanCleaner {
     private static final int BATCH_SIZE = 200;
     private static final int MAX_PER_RUN = 5000;
 
-    public AssetOrphanCleaner(AssetRepository assetRepository, S3Deleter s3Deleter, StorageProperties properties,
+    public AssetOrphanCleaner(AssetRepository assetRepository, FrameAssetResolver frameAssetResolver, S3Deleter s3Deleter,
+                              StorageProperties properties,
                               PlatformTransactionManager transactionManager, Clock clock) {
         this.assetRepository = assetRepository;
+        this.frameAssetResolver = frameAssetResolver;
         this.s3Deleter = s3Deleter;
         this.properties = properties;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -85,26 +89,19 @@ public class AssetOrphanCleaner {
         referenced.addAll(assetRepository.findRenderedKeysIn(keys));
         referenced.addAll(assetRepository.findPreviewKeysIn(keys));
         for (String key : keys) {
-            if (referenced.contains(key)) {
-                continue;
-            }
-            // 배경 JSON, 그리고 끝나지 않은 합성의 스냅샷 — 둘 다 FK 없이 key 문자열로만 남는다
-            if (assetRepository.countFramesWithBackgroundLike(pattern(key)) > 0
-                    || assetRepository.countPendingComposeSpecsLike(pattern(key)) > 0) {
+            if (!referenced.contains(key) && assetRepository.countFramesWithBackgroundLike("%" + key + "%") > 0) {
                 referenced.add(key);
             }
         }
+        // 끝나지 않은 합성의 스냅샷 — 접수는 레이어·배경 key 를 spec_json 에 담을 뿐 자산 참조를 만들지 않는다
+        referenced.addAll(frameAssetResolver.keysUsedByPendingJobs(keys.stream().filter(key -> !referenced.contains(key)).toList()));
         return referenced;
-    }
-
-    private static String pattern(String key) {
-        return "%" + key + "%";
     }
 
     private boolean deleteOne(Asset asset) {
         try {
             return Boolean.TRUE.equals(transaction.execute(status -> {
-                if (assetRepository.deleteIfUnreferenced(asset.getId(), pattern(asset.getS3Key())) != 1) {
+                if (assetRepository.deleteIfUnreferenced(asset.getId(), asset.getS3Key()) != 1) {
                     return false;
                 }
                 s3Deleter.deleteAfterCommit(List.of(asset.getS3Key()));

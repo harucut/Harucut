@@ -1,6 +1,7 @@
 # ADR-0004 — 배포 파이프라인: main 머지 하나로 테스트·빌드·배포가 끝난다
 
-- **상태**: 채택됨 (2026-08-22)
+- **상태**: 채택됨 (2026-08-22) · **갱신 2026-11-22** — 이미지는 GHCR(`ghcr.io/harucut/harucut`), 배포 저장소는 harucut/Harucut,
+  서버 AWS 자격은 서버 역할(instance profile)이다. 본문의 Docker Hub·`popeye0618` 은 채택 당시 기록이고, 지금 절차는 [deployment-strategy.md](deployment-strategy.md)
 - **관련**: [ADR-0001](adr-0001-compose-result-channel.md) (끌어가는 쪽이 이긴다),
   [아키텍처 구조도 ④](harucut-architecture.drawio)
 

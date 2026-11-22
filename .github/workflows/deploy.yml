@@ -1,10 +1,12 @@
 # main 에 머지되면: 이미지 빌드 → GHCR push → EC2 에서 pull & 재기동.
 # 테스트는 여기서 돌리지 않는다 — PR 단계(ci.yml)에서 끝났다. 전제 조건은 ci.yml 머리말 참고.
+# 배포 저장소는 harucut/Harucut 이다(2026-11-22 popeye0618/Harucut 에서 옮김). 절차는 docs/deployment-strategy.md
 #
 # 필요한 Secrets (Settings → Secrets and variables → Actions):
 #   EC2_HOST     서버 IP 또는 도메인
 #   EC2_USER     ubuntu
 #   EC2_SSH_KEY  pem 파일 내용 전체
+# GHCR 은 GITHUB_TOKEN 으로 push·pull 한다. 첫 push 가 harucut 조직에 패키지를 만든다
 name: Deploy
 
 on:
@@ -18,8 +20,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # GHCR 이미지 이름은 소문자만 된다. github.repository 는 popeye0618/Harucut 이라 그대로 못 쓴다
-  IMAGE: ghcr.io/popeye0618/harucut
+  # GHCR 이미지 이름은 소문자만 된다. github.repository 는 harucut/Harucut 이라 그대로 못 쓴다
+  IMAGE: ghcr.io/harucut/harucut
 
 jobs:
   build:

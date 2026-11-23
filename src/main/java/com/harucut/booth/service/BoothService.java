@@ -93,9 +93,12 @@ public class BoothService {
 
         BoothPairing pairing = open.get();
         if (!OpaqueTokens.hash(code.substring(4)).equals(pairing.getSecretHash())) {
-            pairing.fail(properties.pairingMaxAttempts());
-            boolean locked = pairing.lockedOut(properties.pairingMaxAttempts());
-            if (locked) {
+            // 위에서 읽은 거래는 스냅샷이다 — 횟수는 행에서 세고, 잠겼는지는 센 뒤의 지금 상태로 본다
+            boolean counted = pairingRepository.fail(pairing.getId(), properties.pairingMaxAttempts()) == 1;
+            boolean locked = pairingRepository.lockById(pairing.getId())
+                    .filter(found -> found.lockedOut(properties.pairingMaxAttempts()))
+                    .isPresent();
+            if (counted && locked) {
                 auditPairing("BOOTH_PAIRING_LOCKED", pairing.getBoothDeviceId());
             }
             throw new BusinessException(locked ? BoothErrorCode.PAIRING_LOCKED : BoothErrorCode.PAIRING_CODE_INVALID);

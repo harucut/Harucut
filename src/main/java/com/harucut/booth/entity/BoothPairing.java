@@ -55,14 +55,7 @@ public class BoothPairing extends BaseEntity {
         return status == PairingStatus.OPEN && now.isBefore(expiresAt);
     }
 
-    /** 틀린 비밀. 한도에 닿으면 거래를 닫는다 — 운영자가 새 코드를 발급해야 한다 */
-    public void fail(int maxAttempts) {
-        this.failedAttempts++;
-        if (failedAttempts >= maxAttempts) {
-            this.status = PairingStatus.CLOSED;
-        }
-    }
-
+    // 틀린 비밀은 BoothPairingRepository.fail 이 행에서 센다. 한도에 닿아 닫히면 운영자가 새 코드를 발급해야 한다
     public boolean lockedOut(int maxAttempts) {
         return status == PairingStatus.CLOSED && failedAttempts >= maxAttempts;
     }

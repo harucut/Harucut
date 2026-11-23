@@ -22,17 +22,21 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 
 /*
  * S3 삭제 예약·재시도(V18 s3_deletion) — 커밋 뒤 첫 시도, 실패분 백오프 재시도, 상한, 같은 key 멱등.
  * 트랜잭션을 직접 커밋해야 AFTER_COMMIT 리스너가 돈다 — 테스트 트랜잭션을 쓰지 않는다.
+ * 커밋 뒤 첫 시도는 전용 스레드에서 돈다 — 그 결과(예약 행)를 기다린 뒤에 다음 단계로 간다(늦은 첫 시도가 다음 단계·다음 시험에 섞이지 않게).
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -69,10 +73,10 @@ class S3DeletionIntegrationTest {
         transaction.executeWithoutResult(status -> {
             s3Deleter.deleteAfterCommit(List.of(KEY));
             assertThat(repository.findAll()).hasSize(1);   // 같은 트랜잭션에 예약
-            then(fileStorageService).shouldHaveNoInteractions();
+            then(fileStorageService).should(never()).delete(KEY);
         });
-        then(fileStorageService).should().delete(KEY);
-        assertThat(repository.findAll()).isEmpty();
+        then(fileStorageService).should(timeout(5000)).delete(KEY);
+        awaitRows(rows -> assertThat(rows).isEmpty());
 
         transaction.executeWithoutResult(status -> {
             s3Deleter.deleteAfterCommit(List.of(OTHER));
@@ -89,13 +93,13 @@ class S3DeletionIntegrationTest {
 
         transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(KEY, OTHER)));
 
-        then(fileStorageService).should().delete(OTHER);
-        assertThat(repository.findAll()).singleElement().satisfies(row -> {
+        awaitRows(rows -> assertThat(rows).singleElement().satisfies(row -> {
             assertThat(row.getS3Key()).isEqualTo(KEY);
             assertThat(row.getAttempts()).isEqualTo(1);
             assertThat(row.getLastError()).contains("S3 장애");
             assertThat(row.getNextAttemptAt()).isCloseTo(LocalDateTime.now().plusMinutes(5), within(Duration.ofMinutes(1)));
-        });
+        }));
+        then(fileStorageService).should().delete(OTHER);
     }
 
     @Test
@@ -103,12 +107,12 @@ class S3DeletionIntegrationTest {
     void redeleteAfterWindow() {
         transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(KEY), Duration.ofHours(6)));
 
-        then(fileStorageService).should().delete(KEY);
-        assertThat(repository.findAll()).singleElement().satisfies(row -> {
+        awaitRows(rows -> assertThat(rows).singleElement().satisfies(row -> {
             assertThat(row.getRedeleteAt()).isNull();
             assertThat(row.getAttempts()).isZero();
             assertThat(row.getNextAttemptAt()).isCloseTo(LocalDateTime.now().plusHours(6), within(Duration.ofMinutes(1)));
-        });
+        }));
+        then(fileStorageService).should().delete(KEY);
 
         // 재삭제 시각이 됐다 — 늦게 도착한 실행이 다시 쓴 객체를 지우고 행을 정리한다
         jdbcTemplate.update("update s3_deletion set next_attempt_at = ?", LocalDateTime.now().minusMinutes(1));
@@ -149,6 +153,26 @@ class S3DeletionIntegrationTest {
     }
 
     @Test
+    @DisplayName("#72: 대기열에서 늦게 돈 첫 시도는 배치가 먼저 지우고 재무장한 재삭제 예약을 건드리지 않는다 — 첫 시도 몫인 행만 지운다")
+    void lateFirstAttemptKeepsRearmedRow() {
+        LocalDateTime due = LocalDateTime.now().minusMinutes(1).withNano(0);
+        LocalDateTime redeleteAt = LocalDateTime.now().plusHours(6).withNano(0);
+        String keyHash = OpaqueTokens.hash(KEY);
+        transaction.executeWithoutResult(status -> {
+            repository.schedule(KEY, keyHash, due, LocalDateTime.now());
+            repository.armRedelete(keyHash, redeleteAt, LocalDateTime.now());
+        });
+        // 첫 시도가 대기열에서 밀린 사이 배치가 먼저 지우고 재삭제 시각으로 재무장했다
+        assertThat(retrier.retryDue().deleted()).isEqualTo(1);
+
+        deletionAttempt.attemptFirst(KEY);
+
+        then(fileStorageService).should(times(1)).delete(KEY);   // 배치의 한 번뿐
+        assertThat(repository.findAll()).singleElement()
+                .satisfies(row -> assertThat(row.getNextAttemptAt()).isEqualTo(redeleteAt));
+    }
+
+    @Test
     @DisplayName("같은 key 를 여러 번 예약해도 행은 하나다(같은 트랜잭션·다른 트랜잭션)")
     void sameKeyScheduledOnce() {
         willThrow(new IllegalStateException("S3 장애")).given(fileStorageService).delete(KEY);
@@ -159,7 +183,10 @@ class S3DeletionIntegrationTest {
         });
         transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(KEY)));
 
-        assertThat(repository.findAll()).singleElement().satisfies(row -> assertThat(row.getKeyHash()).isEqualTo(OpaqueTokens.hash(KEY)));
+        awaitRows(rows -> assertThat(rows).singleElement().satisfies(row -> {
+            assertThat(row.getKeyHash()).isEqualTo(OpaqueTokens.hash(KEY));
+            assertThat(row.getAttempts()).isEqualTo(1);   // 첫 시도는 처음 예약한 트랜잭션 뒤 한 번
+        }));
     }
 
     @Test
@@ -168,6 +195,7 @@ class S3DeletionIntegrationTest {
         willThrow(new IllegalStateException("S3 장애")).given(fileStorageService).delete(KEY);
         willThrow(new IllegalStateException("S3 장애")).given(fileStorageService).delete(OTHER);
         transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(KEY, OTHER)));
+        awaitRows(rows -> assertThat(rows).extracting(S3Deletion::getAttempts).containsExactly(1, 1));   // 첫 시도가 둘 다 실패했다
 
         assertThat(retrier.retryDue().tried()).isZero();   // 아직 다음 시각 전
 
@@ -192,6 +220,7 @@ class S3DeletionIntegrationTest {
     void stopsAtMaxAttempts() {
         willThrow(new IllegalStateException("S3 장애")).given(fileStorageService).delete(KEY);
         transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(KEY)));
+        awaitFirstFailure();
         jdbcTemplate.update("update s3_deletion set attempts = 7, next_attempt_at = ? where key_hash = ?",
                 LocalDateTime.now().minusMinutes(1), OpaqueTokens.hash(KEY));
 
@@ -210,6 +239,7 @@ class S3DeletionIntegrationTest {
     void abandonedStaysAbandonedWhenRescheduled() {
         willThrow(new IllegalStateException("S3 장애")).given(fileStorageService).delete(KEY);
         transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(KEY)));
+        awaitFirstFailure();
         jdbcTemplate.update("update s3_deletion set attempts = 8 where key_hash = ?", OpaqueTokens.hash(KEY));
 
         transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(KEY)));   // 보관 재삭제처럼 다시 예약
@@ -224,6 +254,7 @@ class S3DeletionIntegrationTest {
     void pendingKeepsStateWhenRescheduled() {
         willThrow(new IllegalStateException("S3 장애")).given(fileStorageService).delete(KEY);
         transaction.executeWithoutResult(status -> s3Deleter.deleteAfterCommit(List.of(KEY)));
+        awaitFirstFailure();
         LocalDateTime later = LocalDateTime.now().plusHours(3).withNano(0);
         jdbcTemplate.update("update s3_deletion set attempts = 3, next_attempt_at = ? where key_hash = ?", later, OpaqueTokens.hash(KEY));
 
@@ -262,21 +293,30 @@ class S3DeletionIntegrationTest {
 
         transaction.executeWithoutResult(status -> s3Deleter.holdForUpload(OTHER, Duration.ofHours(6)));
         transaction.executeWithoutResult(status -> s3Deleter.deleteHeldAfterCommit(OTHER));
+        awaitRows(rows -> assertThat(rows).isEmpty());
         then(fileStorageService).should().delete(OTHER);
-        assertThat(repository.findAll()).isEmpty();
     }
 
     @Test
     @DisplayName("트랜잭션 밖에서 불러 리스너가 안 불려도 예약 행이 남아 배치가 지운다")
     void outsideTransactionIsPickedUpByRetrier() {
         s3Deleter.deleteAfterCommit(List.of(KEY));
-        then(fileStorageService).shouldHaveNoInteractions();
+        then(fileStorageService).should(never()).delete(KEY);
         assertThat(repository.findAll()).hasSize(1);
 
         makeDue(KEY);
         assertThat(retrier.retryDue().deleted()).isEqualTo(1);
         then(fileStorageService).should().delete(KEY);
         assertThat(repository.findAll()).isEmpty();
+    }
+
+    private void awaitRows(Consumer<List<S3Deletion>> expectation) {
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> expectation.accept(repository.findAll()));
+    }
+
+    // 실패하도록 둔 KEY 하나의 커밋 뒤 첫 시도가 끝났다
+    private void awaitFirstFailure() {
+        awaitRows(rows -> assertThat(rows).extracting(S3Deletion::getAttempts).containsExactly(1));
     }
 
     private void makeDue(String key) {

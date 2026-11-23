@@ -20,10 +20,12 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willDoNothing;
 import static org.mockito.BDDMockito.willThrow;
@@ -67,7 +69,9 @@ class S3DeletionMysqlTest {
             s3Deleter.deleteAfterCommit(List.of(KEY));
         });
 
-        assertThat(repository.findAll()).singleElement().satisfies(row -> assertThat(row.getAttempts()).isGreaterThanOrEqualTo(1));
+        // 커밋 뒤 첫 시도는 전용 스레드에서 — 실패가 기록될 때까지 기다린다
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(repository.findAll()).singleElement()
+                .satisfies(row -> assertThat(row.getAttempts()).isEqualTo(1)));
 
         willDoNothing().given(fileStorageService).delete(KEY);
         jdbcTemplate.update("update s3_deletion set next_attempt_at = ? where key_hash = ?",

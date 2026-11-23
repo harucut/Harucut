@@ -43,16 +43,24 @@ public class S3DeletionAttempt {
         this.clock = clock;
     }
 
-    /** 커밋 뒤 첫 시도 — 방금 만든 행이라 고른 일정이 없다(재시도 배치는 첫 백오프 전에 이 행을 고르지 않는다) */
-    public boolean attempt(String key, int previousFailures) {
-        return attempt(key, previousFailures, null);
+    /**
+     * 커밋 뒤 첫 시도(S3DeleteListener) — 지금 행을 읽어 아직 첫 시도 몫일 때만(다음 시각이 첫 백오프 안) 지운다.
+     * 리스너는 대기열에서 기다렸다 돌 수 있다. 그사이 재시도 배치가 먼저 지우고 재삭제로 재무장했으면 다음 시각이 재삭제 시각(몇 시간 뒤)으로
+     * 밀렸다 — 그 일정은 배치 몫이라 건드리지 않는다. 지금 지우고 행을 정리하면 재삭제 예약이 사라진다(R5 D09).
+     * 행이 없으면 끝난 일이다(배치가 지웠거나 업로드 책임이 풀렸다)
+     */
+    public void attemptFirst(String key) {
+        LocalDateTime horizon = LocalDateTime.now(clock).plus(BACKOFF.getFirst());
+        repository.findByKeyHash(OpaqueTokens.hash(key))
+                .filter(row -> !row.getNextAttemptAt().isAfter(horizon))
+                .ifPresent(row -> attempt(row.getS3Key(), row.getAttempts(), row.getNextAttemptAt()));
     }
 
     /**
      * @param previousFailures 지금까지 실패한 횟수(첫 시도면 0)
-     * @param seenNextAttemptAt 재시도 배치가 행을 고를 때 본 다음 시각 — 행 정리(재무장·삭제·실패 기록)는 그 일정 그대로인 행에만 한다.
-     *                          배치는 잠금 없이 고르고 여러 인스턴스가 돌므로, 다른 인스턴스가 같은 행을 먼저 지우고 재삭제로 재무장했으면
-     *                          (다음 시각이 바뀜) 늦은 쪽은 행을 건드리지 않는다 — 재삭제 예약을 지우거나 백오프로 앞당기지 않게(R5 D09)
+     * @param seenNextAttemptAt 행을 읽을 때 본 다음 시각(재시도 배치·커밋 뒤 첫 시도) — 행 정리(재무장·삭제·실패 기록)는 그 일정 그대로인
+     *                          행에만 한다. 둘 다 잠금 없이 읽고 여러 인스턴스가 돌므로, 다른 시도가 같은 행을 먼저 지우고 재삭제로
+     *                          재무장했으면(다음 시각이 바뀜) 늦은 쪽은 행을 건드리지 않는다 — 재삭제 예약을 지우거나 백오프로 앞당기지 않게(R5 D09)
      * @return 지웠으면 true
      */
     public boolean attempt(String key, int previousFailures, LocalDateTime seenNextAttemptAt) {

@@ -14,6 +14,8 @@ import com.harucut.frame.repository.FrameRepository;
 import com.harucut.frame.service.FrameAdminService;
 import com.harucut.frame.service.FrameService;
 import com.harucut.frame.service.FrameVersionService;
+import com.harucut.media.dto.ComposeRequest;
+import com.harucut.media.service.ComposeService;
 import com.harucut.storage.dto.StoredObject;
 import com.harucut.storage.service.FileStorageService;
 import com.harucut.storage.util.S3Keys;
@@ -59,6 +61,7 @@ class WorkspaceFrameIntegrationTest {
     @Autowired private FrameService frameService;
     @Autowired private FrameVersionService frameVersionService;
     @Autowired private FrameAdminService frameAdminService;
+    @Autowired private ComposeService composeService;
     @Autowired private FrameRepository frameRepository;
     @Autowired private WorkspaceService workspaceService;
     @Autowired private WorkspaceRepository workspaceRepository;
@@ -172,6 +175,12 @@ class WorkspaceFrameIntegrationTest {
 
         // 만든 사람·자기 이미지가 섞인 프레임을 DESIGNER 가 발행한다
         assertThat(frameVersionService.publish(designer.getPublicId(), frame.frameId()).versionNo()).isEqualTo(1);
+
+        // 합성도 받는다 — 만든 사람 폴더로만 보던 때는 DESIGNER 이미지 때문에 누가 합성해도 403 이었다(release PR #67 Codex)
+        for (User composer : List.of(owner, designer, viewer)) {
+            assertThat(composeService.requestCompose(composer.getPublicId(), new ComposeRequest(frame.frameId(),
+                    sources(composer), "mixed-" + composer.getPublicId(), null)).jobId()).isNotNull();
+        }
     }
 
     @Test
@@ -261,6 +270,11 @@ class WorkspaceFrameIntegrationTest {
         return new FrameCreateRequest("프레임", null, S3Keys.userRoot(previewOwner.getPublicId()) + "frames/p.png",
                 FrameType.CLASSIC, null, null,
                 new BackgroundAttributes.Color("#FFFFFF"), null, List.of(components), version, workspaceId);
+    }
+
+    private static List<String> sources(User user) {
+        String root = S3Keys.userRoot(user.getPublicId()) + "fourcuts/sources/";
+        return List.of(root + "1.jpg", root + "2.jpg", root + "3.jpg", root + "4.jpg");
     }
 
     private static FrameCreateRequest.ComponentRequest photo(User user, String name) {

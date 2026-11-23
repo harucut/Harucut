@@ -10,15 +10,20 @@ import com.harucut.frame.enums.ComponentType;
 import com.harucut.frame.enums.FrameType;
 import com.harucut.storage.util.S3Keys;
 import com.harucut.user.entity.User;
+import com.harucut.workspace.entity.Workspace;
+import com.harucut.workspace.service.WorkspaceService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 
 @DisplayName("ComposeSpecAssembler")
 class ComposeSpecAssemblerTest {
@@ -27,7 +32,8 @@ class ComposeSpecAssemblerTest {
     private static final String STICKER_KEY = "uploads/users/abc/components/sticker.png";
     private static final String RENDERED_KEY = "uploads/users/abc/components/text.png";
 
-    private final ComposeSpecAssembler assembler = new ComposeSpecAssembler();
+    private final WorkspaceService workspaceService = mock(WorkspaceService.class);
+    private final ComposeSpecAssembler assembler = new ComposeSpecAssembler(workspaceService);
 
     @Nested
     @DisplayName("프레임 → 스펙 변환")
@@ -246,6 +252,28 @@ class ComposeSpecAssemblerTest {
         }
 
         @Test
+        @DisplayName("조직 공간 프레임은 다른 멤버의 이미지로도 합성한다 — 저장 때 공간 규칙으로 봤다(발행과 같은 규칙)")
+        void organizationFrameTakesMembersImages() {
+            Frame frame = ownedColorFrame();
+            frame.assignWorkspace(7L);
+            frame.addComponent(component(ComponentType.STICKER, foreign + "s.png", null));
+            given(workspaceService.organization(7L)).willReturn(Optional.of(Workspace.organization("웨딩팀")));
+
+            assertThat(assembler.assemble(frame, null).layers()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("자산 참조는 남의 폴더 key 여도 합성한다 — 저장 때 공간 멤버십까지 봤다")
+        void assetReferencesPass() {
+            Frame frame = Frame.owned(owner, "내 프레임", "", mine + "p.png", FrameType.CLASSIC,
+                    new BackgroundAttributes.Image(foreign + "bg.png", 0.8, null).withKey(foreign + "bg.png", "AsBg12345678"));
+            frame.addComponent(component(ComponentType.STICKER, foreign + "s.png", null, 11L, null));
+            frame.addComponent(component(ComponentType.TEXT, "봄", foreign + "t.png", null, 12L));
+
+            assertThat(assembler.assemble(frame, null).layers()).hasSize(2);
+        }
+
+        @Test
         @DisplayName("내 자산만 쓰면 통과한다")
         void ownAssetsPass() {
             Frame frame = Frame.owned(owner, "내 프레임", "", mine + "p.png", FrameType.CLASSIC,
@@ -271,8 +299,13 @@ class ComposeSpecAssemblerTest {
     }
 
     private static FrameComponent component(ComponentType type, String source, String renderedKey) {
+        return component(type, source, renderedKey, null, null);
+    }
+
+    private static FrameComponent component(ComponentType type, String source, String renderedKey,
+                                            Long assetId, Long renderedAssetId) {
         return FrameComponent.builder()
-                .source(source).type(type).renderedKey(renderedKey)
+                .source(source).type(type).renderedKey(renderedKey).assetId(assetId).renderedAssetId(renderedAssetId)
                 .x(120.5).y(220.0).width(360.0).height(480.0)
                 .scale(1.0).rotation(45.0).zIndex(3)
                 .build();

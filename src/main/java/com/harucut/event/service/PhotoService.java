@@ -1,0 +1,194 @@
+package com.harucut.event.service;
+
+import com.harucut.audit.service.AuditLogService;
+import com.harucut.common.exception.BusinessException;
+import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.event.dto.PhotoDtos;
+import com.harucut.event.entity.Event;
+import com.harucut.event.enums.PhotoPermission;
+import com.harucut.export.service.ExportService;
+import com.harucut.media.entity.ComposeJob;
+import com.harucut.media.enums.ComposeStatus;
+import com.harucut.media.repository.ComposeJobRepository;
+import com.harucut.media.compose.ComposeFailureCode;
+import com.harucut.media.service.ComposeService;
+import com.harucut.participant.enums.ParticipantChannel;
+import com.harucut.result.dto.DownloadUrlResponse;
+import com.harucut.result.dto.ResultAccessRevokeResponse;
+import com.harucut.result.exception.ResultErrorCode;
+import com.harucut.result.service.ResultService;
+import com.harucut.storage.config.StorageProperties;
+import com.harucut.storage.service.FileStorageService;
+import com.harucut.storage.util.S3Keys;
+import com.harucut.storage.service.S3Deleter;
+import com.harucut.user.entity.User;
+import com.harucut.user.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import java.util.Objects;
+import java.util.Locale;
+import java.util.Map;
+
+/**
+ * 행사 사진함 (ADR-0008 §3) — 목록·개별 다운로드·삭제. 매번 {@link EventAccessPolicy#requirePhoto} 로 권한을 다시 본다.
+ */
+@Service
+@Transactional
+@RequiredArgsConstructor
+public class PhotoService {
+
+    private static final int DEFAULT_LIMIT = 30;
+    private static final int MAX_LIMIT = 100;
+
+    private final EventAccessPolicy policy;
+    private final ComposeJobRepository composeJobRepository;
+    private final FileStorageService fileStorageService;
+    private final S3Deleter s3Deleter;
+    private final ComposeService composeService;
+    private final StorageProperties storageProperties;
+    private final UserRepository userRepository;
+    private final AuditLogService auditLogService;
+    private final ExportService exportService;
+    private final ResultService resultService;
+    private final Clock clock;
+
+    @Transactional(readOnly = true)
+    public PhotoDtos.PhotoPage page(String actorPublicId, String eventPublicId, String cursor, Integer limit,
+                                    OffsetDateTime from, OffsetDateTime to, ParticipantChannel channel,
+                                    Long frameVersionId, ComposeStatus status) {
+        Event event = policy.requirePhoto(userId(actorPublicId), eventPublicId, PhotoPermission.VIEW_PHOTOS);
+        int size = limit == null ? DEFAULT_LIMIT : Math.clamp(limit, 1, MAX_LIMIT);
+        Cursor after = Cursor.decode(cursor);
+        List<Object[]> rows = composeJobRepository.findEventPhotos(event.getId(), LocalDateTime.now(clock), status, channel, frameVersionId,
+                local(from), local(to), after == null ? null : after.createdAt(), after == null ? null : after.id(),
+                PageRequest.of(0, size + 1));
+        boolean more = rows.size() > size;
+        List<PhotoDtos.Photo> items = new ArrayList<>();
+        for (Object[] row : rows.subList(0, Math.min(size, rows.size()))) {
+            items.add(photo((ComposeJob) row[0], (ParticipantChannel) row[1]));
+        }
+        String next = more ? new Cursor(((ComposeJob) rows.get(size - 1)[0]).getCreatedAt(),
+                ((ComposeJob) rows.get(size - 1)[0]).getId()).encode() : null;
+        return new PhotoDtos.PhotoPage(items, next);
+    }
+
+    @Transactional(readOnly = true)
+    public DownloadUrlResponse download(String actorPublicId, String eventPublicId, Long photoId) {
+        Event event = policy.requirePhoto(userId(actorPublicId), eventPublicId, PhotoPermission.DOWNLOAD_PHOTOS);
+        ComposeJob job = photoOf(event, photoId);
+        if (job.getStatus() != ComposeStatus.DONE || job.getResultKey() == null) {
+            throw new BusinessException(ResultErrorCode.NOT_READY);
+        }
+        String filename = event.getName() + "-" + job.getId() + S3Keys.extensionOf(job.getResultKey());
+        String url = fileStorageService.generatePresignedDownloadUrl(job.getResultKey(), filename,
+                storageProperties.download().getTtl());
+        return new DownloadUrlResponse(url, offset(LocalDateTime.now(clock).plus(storageProperties.download().getTtl())));
+    }
+
+    /** 삭제 요청 — 목록·ZIP·결과 링크에서 즉시 빠지고 결과·썸네일은 커밋 후 지운다 */
+    public void delete(String actorPublicId, String eventPublicId, Long photoId) {
+        Long actorId = userId(actorPublicId);
+        Event event = policy.requirePhoto(actorId, eventPublicId, PhotoPermission.DELETE_PHOTOS);
+        ComposeJob job = photoOf(event, photoId);
+        // deleted_at 만 원자적으로 — 엔티티를 고쳐 저장하면 그사이 커밋된 완료(DONE·resultKey)를 낡은 값으로 덮는다
+        if (composeJobRepository.markDeleted(job.getId(), LocalDateTime.now(clock)) != 1) {
+            throw new BusinessException(GlobalErrorCode.NOT_FOUND);   // 동시에 다른 삭제가 먼저 했다
+        }
+        exportService.invalidateContaining(job.getId());   // 이 사진을 담은 묶음은 더는 받을 수 없다
+        // 읽은 뒤 완료됐을 수 있다 — 잠금 읽기로 지금 결과 key 를 다시 본다
+        String resultKey = composeJobRepository.lockResultKey(job.getId()).stream().filter(Objects::nonNull).findFirst().orElse(null);
+        if (resultKey != null) {
+            // 이미 돌고 있던 실행이 나중에 다시 쓸 수 있다 — 지금 한 번, 그 기간 뒤 한 번 더(R5 L498)
+            s3Deleter.deleteAfterCommit(List.of(resultKey, ComposeService.thumbnailKeyFor(job)), ComposeService.LATE_WRITE_WINDOW);
+        } else {
+            // 아직 합성 중이다 — 여기서 끝낸다. 새로 던지지 않고 예약을 돌려주며 입력을 지우고, 늦게 쓰인 결과는 재삭제가 치운다.
+            // 완료 통지가 먼저 커밋됐으면 위에서 결과 key 가 보이고, 늦게 오면 PENDING 이 아니라 반영되지 않는다
+            composeService.failJob(job.getId(), "사진함에서 삭제", ComposeFailureCode.UNKNOWN);
+        }
+        auditLogService.record(actorId, event.getWorkspaceId(), event.getId(), "PHOTO_DELETED", "PHOTO",
+                job.getId().toString(), null);
+    }
+
+    /** 결과 링크 회수 — 그 사진의 링크를 전부 끊는다. 사진은 지우지 않는다. 사유는 감사에 남는다 */
+    public ResultAccessRevokeResponse revokeResultAccess(String actorPublicId, String eventPublicId, Long photoId, String reason) {
+        Long actorId = userId(actorPublicId);
+        Event event = policy.requirePhoto(actorId, eventPublicId, PhotoPermission.DELETE_PHOTOS);
+        ComposeJob job = photoOf(event, photoId);
+        int revoked = resultService.revokeAccess(job);
+        auditLogService.record(actorId, event.getWorkspaceId(), event.getId(), "RESULT_ACCESS_REVOKED", "PHOTO",
+                job.getId().toString(), Map.of("reason", reason, "revokedCount", revoked));
+        return new ResultAccessRevokeResponse(revoked);
+    }
+
+    private ComposeJob photoOf(Event event, Long photoId) {
+        return composeJobRepository.findById(photoId)
+                .filter(job -> event.getId().equals(job.getEventId()) && !job.isDeleted()
+                        && !job.retentionEndedAt(LocalDateTime.now(clock)))   // 정리 배치 전이어도 보관 기한이 지난 사진은 없는 것처럼
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+    }
+
+    private PhotoDtos.Photo photo(ComposeJob job, ParticipantChannel channel) {
+        String thumbnailUrl = job.getStatus() == ComposeStatus.DONE && job.getResultKey() != null
+                ? fileStorageService.generatePresignedGetUrl(ComposeService.thumbnailKeyFor(job), storageProperties.download().getTtl())
+                : null;
+        PhotoDtos.Failure failure = job.getStatus() == ComposeStatus.FAILED ? failure(job.getFailureReason()) : null;
+        return new PhotoDtos.Photo(job.getId(), job.getStatus(), offset(job.getCreatedAt()), channel,
+                job.getFrameVersionId(), thumbnailUrl, failure);
+    }
+
+    // 실패 사유 문자열(내부 예외)을 화면용 코드로 접는다 — 원문은 내보내지 않는다
+    static PhotoDtos.Failure failure(String reason) {
+        String text = reason == null ? "" : reason.toLowerCase(Locale.ROOT);
+        if (text.contains("nosuchkey") || text.contains("not found") || text.contains("missing")) {
+            return new PhotoDtos.Failure("INPUT_MISSING", false);
+        }
+        if (text.contains("timeout") || text.contains("timed out") || text.contains("eventageexceeded")) {
+            return new PhotoDtos.Failure("TIMEOUT", true);
+        }
+        return new PhotoDtos.Failure("COMPOSE_FAILED", true);
+    }
+
+    private Long userId(String publicId) {
+        return userRepository.findByPublicId(publicId).map(User::getId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+    }
+
+    private LocalDateTime local(OffsetDateTime value) {
+        return value == null ? null : value.atZoneSameInstant(clock.getZone()).toLocalDateTime();
+    }
+
+    private OffsetDateTime offset(LocalDateTime value) {
+        return value == null ? null : value.atZone(clock.getZone()).toOffsetDateTime();
+    }
+
+    // 불투명 커서 — (created_at, id) 를 base64url 로. 서버만 해석한다
+    record Cursor(LocalDateTime createdAt, Long id) {
+
+        String encode() {
+            return Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString((createdAt + "|" + id).getBytes(StandardCharsets.UTF_8));
+        }
+
+        static Cursor decode(String value) {
+            if (value == null || value.isBlank()) {
+                return null;
+            }
+            try {
+                String[] parts = new String(Base64.getUrlDecoder().decode(value), StandardCharsets.UTF_8).split("\\|");
+                return new Cursor(LocalDateTime.parse(parts[0]), Long.parseLong(parts[1]));
+            } catch (RuntimeException e) {
+                throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "잘못된 커서");
+            }
+        }
+    }
+}

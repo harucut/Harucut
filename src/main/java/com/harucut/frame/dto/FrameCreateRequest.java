@@ -1,9 +1,10 @@
 package com.harucut.frame.dto;
 
-import com.fasterxml.jackson.annotation.JsonAlias;
 import com.harucut.frame.attributes.BackgroundAttributes;
+import com.harucut.frame.cell.PhotoCell;
 import com.harucut.frame.enums.ComponentType;
 import com.harucut.frame.enums.FrameType;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -68,8 +69,52 @@ public record FrameCreateRequest(
 
         @Valid
         @Schema(description = "프레임 위에 얹히는 요소들. 생략하거나 빈 배열이어도 된다")
-        List<ComponentRequest> components
+        List<ComponentRequest> components,
+
+        @Schema(description = """
+                낙관적 잠금(PUT 에서만 의미가 있다). 마지막으로 받은 응답의 `version` 을 그대로 보낸다.
+                서버 값과 다르면 **409 `FRAME-002`** 이고 `data.currentVersion` 에 서버 값이 실린다.
+                **생략하면 지금처럼 덮어쓴다**(기존 클라이언트 호환).""",
+                example = "3")
+        Long version,
+
+        @Schema(description = """
+                프레임을 만들 공간의 public id(POST 에서만 의미가 있다). 생략하면 개인 공간.
+                행사에 쓸 프레임은 그 행사의 조직 공간에 만든다 — 행사는 같은 공간의 프레임과 시스템 프레임만 연결할 수 있다.
+                OWNER·ADMIN·DESIGNER 가 아니면 404.""",
+                example = "Ws1aB2cD3eF4")
+        String workspaceId,
+
+        @ArraySchema(schema = @Schema(implementation = PhotoCell.class), arraySchema = @Schema(description = """
+                자유 사진 칸(ADR-0012). **생략하거나 null 이면 `frameType` 의 고정 레이아웃**(지금과 같다).
+                보내면 정확히 4칸 — 회전 전 사각형이 캔버스 안, 너비·높이 100px 이상, rotation -180~180, `shotIndex` 0~3 이 칸마다 한 번씩,
+                모양 `RECT`(cornerRadius 0~min/2)·`ELLIPSE`. `MASK` 는 아직 400. 위반은 400 `GEN-002` + `data.violations[{field, reason}]`.
+                ⚠️ 자유 칸 프레임은 합성 렌더가 준비될 때까지(`compose.free-cells.enabled`) 행사 게시·합성이 409 `FRAME-008` 이다 — 저장·초안·발행본은 된다."""))
+        List<PhotoCell> cells
 ) {
+    // 자유 칸이 없던 시절의 생성자 — 기존 호출부·테스트 호환
+    public FrameCreateRequest(String title, String description, String previewKey, FrameType frameType,
+                              Integer canvasWidth, Integer canvasHeight, BackgroundAttributes background,
+                              List<Boolean> cellCutouts, List<ComponentRequest> components, Long version, String workspaceId) {
+        this(title, description, previewKey, frameType, canvasWidth, canvasHeight, background,
+                cellCutouts, components, version, workspaceId, null);
+    }
+
+    // version·workspaceId 가 없던 시절의 생성자 — 기존 호출부·테스트 호환
+    public FrameCreateRequest(String title, String description, String previewKey, FrameType frameType,
+                              Integer canvasWidth, Integer canvasHeight, BackgroundAttributes background,
+                              List<Boolean> cellCutouts, List<ComponentRequest> components) {
+        this(title, description, previewKey, frameType, canvasWidth, canvasHeight, background,
+                cellCutouts, components, null, null);
+    }
+
+    public FrameCreateRequest(String title, String description, String previewKey, FrameType frameType,
+                              Integer canvasWidth, Integer canvasHeight, BackgroundAttributes background,
+                              List<Boolean> cellCutouts, List<ComponentRequest> components, Long version) {
+        this(title, description, previewKey, frameType, canvasWidth, canvasHeight, background,
+                cellCutouts, components, version, null);
+    }
+
     // "description 없으면 빈 문자열로 저장" 규칙의 소유자
     public String descriptionOrEmpty() {
         return description == null ? "" : description;
@@ -123,15 +168,37 @@ public record FrameCreateRequest(
             @Schema(description = "회전 각도. 생략하면 0", example = "0.0")
             Double rotation,
 
-            @JsonAlias("zindex")
-            @Schema(description = "겹침 순서. 생략하면 0. **소문자 `zindex` 로 보내도 받는다**(하위 호환)",
-                    example = "1")
+            @Schema(description = "겹침 순서. 생략하면 0", example = "1")
             Integer zIndex,
 
             @Schema(description = "자유 형식 스타일 맵. 응답에서는 `style` 이라는 이름으로 나온다",
                     example = "{\"borderRadius\": 8}")
-            Map<String, Object> styleJson
+            Map<String, Object> styleJson,
+
+            @Schema(description = """
+                    PHOTO·STICKER 의 이미지를 자산(`FRAME_ASSET`, VERIFIED)으로 지정한다.
+                    있으면 `source` 대신 이 자산의 key 를 저장한다(`source` 는 여전히 보낸다).
+                    남의 공간·미검증·용도 불일치면 400 `FRAME-005`.""",
+                    example = "As8kLm2Pq9Xz")
+            String assetId,
+
+            @Schema(description = """
+                    TEXT 의 구운 PNG 를 자산(`TEXT_RENDER`, VERIFIED)으로 지정한다. 있으면 `renderedKey` 대신.
+                    `renderedKey` 로 보내도 그 key 가 자산이면 같은 검사를 한다.""",
+                    example = "As3nQ7wE1tYu")
+            String renderedAssetId,
+
+            @Schema(description = "편집기 잠금. 저장·재열기용이며 인가 근거가 아니다. 생략하면 false", example = "false")
+            Boolean locked
     ) {
+        // 자산 참조·잠금이 없던 시절의 생성자 — 기존 호출부·테스트 호환
+        public ComponentRequest(String id, ComponentType type, String source, String renderedKey,
+                                Double x, Double y, Double width, Double height, Double scale,
+                                Double rotation, Integer zIndex, Map<String, Object> styleJson) {
+            this(id, type, source, renderedKey, x, y, width, height, scale, rotation, zIndex, styleJson,
+                    null, null, null);
+        }
+
         // Jackson 3는 원시형에 누락/null을 채워주지 않는다 (FAIL_ON_NULL_FOR_PRIMITIVES 기본 on).
         // "안 보내면 0"이라는 계약을 언어 기본값에 기대지 않고 여기서 명시적으로 소유한다.
         // width/height/scale은 의도적으로 제외 — null("안 보냈다")을 보존하고 보정은 응답 조립에서 한다
@@ -140,6 +207,7 @@ public record FrameCreateRequest(
             y = y == null ? 0.0 : y;
             rotation = rotation == null ? 0.0 : rotation;
             zIndex = zIndex == null ? 0 : zIndex;
+            locked = locked != null && locked;
         }
     }
 }

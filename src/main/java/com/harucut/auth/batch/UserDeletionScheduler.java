@@ -1,41 +1,49 @@
 package com.harucut.auth.batch;
 
+import com.harucut.auth.service.UserExitService;
+import com.harucut.user.entity.User;
+import com.harucut.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.batch.core.job.Job;
-import org.springframework.batch.core.job.parameters.JobParametersBuilder;
-import org.springframework.batch.core.launch.JobExecutionAlreadyRunningException;
-import org.springframework.batch.core.launch.JobInstanceAlreadyCompleteException;
-import org.springframework.batch.core.launch.JobOperator;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
+/**
+ * 탈퇴 하드 삭제 — 유예(User.DELETION_GRACE_DAYS)가 지난 계정을 하나씩 지운다. 건마다 UserExitService.exit 가 제 트랜잭션이라
+ * 한 건이 터져도 그 건만 롤백되고 나머지는 계속된다. 실패한 건은 다음 날 다시 본다.
+ * 중복 기동은 막지 않는다 — 앱이 한 대라 하루 한 번 돈다(docs/decisions.md 2026-11-03). 두 대가 되면 잠금이 필요하다
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class UserDeletionScheduler {
 
-    private final JobOperator jobOperator;
-    private final Job userDeletionJob;
+    private final UserRepository userRepository;
+    private final UserExitService userExitService;
     private final Clock clock;
 
-    // 날짜를 식별 파라미터로 주므로 "하루에 JobInstance 하나"가 강제된다.
-    // 같은 날 다른 인스턴스(서버 2대)가 또 띄우면 아래 예외로 거절 — 메타테이블 unique가 곧 분산 락이다.
-    // 실패한 날은 같은 파라미터로 재기동하면 재시작으로 이어진다.
     @Scheduled(cron = "0 0 1 * * *")
     public void run() {
-        LocalDate today = LocalDate.now(clock);
-        try {
-            jobOperator.start(userDeletionJob, new JobParametersBuilder()
-                    .addLocalDate(UserDeletionJobConfig.RUN_DATE, today)
-                    .toJobParameters());
-        } catch (JobInstanceAlreadyCompleteException | JobExecutionAlreadyRunningException e) {
-            log.info("[탈퇴 배치] {} 실행이 이미 있거나 진행 중 — 중복 기동 무시", today);
-        } catch (Exception e) {
-            log.error("[탈퇴 배치] 기동 실패", e);
+        run(LocalDate.now(clock));
+    }
+
+    /** runDate 자정 기준으로 유예가 지난 계정을 지운다. @return 지운 수 */
+    public int run(LocalDate runDate) {
+        LocalDateTime threshold = runDate.atStartOfDay().minusDays(User.DELETION_GRACE_DAYS);
+        int deleted = 0;
+        for (Long userId : userRepository.findExpiredExitTargetIds(threshold)) {
+            try {
+                userExitService.exit(userId);
+                deleted++;
+            } catch (RuntimeException e) {
+                log.warn("[탈퇴 배치] userId={} 처리 실패 — 건너뛰고 계속", userId, e);
+            }
         }
+        log.info("[탈퇴 배치] {} 기준 {}건 삭제", runDate, deleted);
+        return deleted;
     }
 }

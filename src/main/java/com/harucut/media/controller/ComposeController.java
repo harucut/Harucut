@@ -11,6 +11,7 @@ import com.harucut.media.service.ComposeService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -50,6 +51,9 @@ public class ComposeController {
                     ⚠️ **성공하면 원본 4장을 서버가 지운다.** 같은 사진으로 다른 프레임에 합성하려면
                     원본을 다시 올려야 한다.
 
+                    **같은 `idempotencyKey` 로 다시 보내면** 새로 합성하지 않고 기존 작업을 돌려준다.
+                    단 프레임·원본·배경색이 다르면 `409 MEDIA-001` 이다 — 내용이 바뀌었으면 새 키를 쓸 것.
+
                     `GEN-002` 셋은 프레임 쪽 문제라 원본을 다시 올려도 해결되지 않는다 —
                     프레임을 고쳐 저장해야 한다.
                     """)
@@ -58,14 +62,25 @@ public class ComposeController {
             "GEN-021: 남의 경로의 원본 key",
             "SUBS-002: 보관 기간이 지난 프레임",
             "SUBS-003: 보관 한도 밖으로 밀려난 프레임",
-            "GEN-031: 없는 프레임이거나 남의 프레임"
+            "GEN-031: 없는 프레임이거나 남의 프레임",
+            "MEDIA-001: 같은 idempotencyKey 를 다른 프레임·원본·배경색으로 다시 보냄 — 새 키를 만들 것"
     })
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Response<ComposeJobResponse> requestCompose(
             @AuthenticationPrincipal AuthenticatedUser principal,
             @RequestBody @Valid ComposeRequest request) {
-        return Response.ok(composeService.requestCompose(principal.publicId(), request));
+        try {
+            return Response.ok(composeService.requestCompose(principal.publicId(), request));
+        } catch (DataIntegrityViolationException e) {
+            // 같은 키의 요청이 정확히 동시에 와서 (user, idempotency_key) 유니크에 졌다.
+            // 서비스 트랜잭션은 이미 롤백됐으므로 재생 판정은 트랜잭션 밖인 여기서 새로 연다
+            ComposeJobResponse winner = composeService.replayAfterConflict(principal.publicId(), request);
+            if (winner == null) {
+                throw e;
+            }
+            return Response.ok(winner);
+        }
     }
 
     @Operation(

@@ -3,19 +3,27 @@ package com.harucut.media.compose;
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.frame.attributes.BackgroundAttributes;
+import com.harucut.frame.cell.PhotoCell;
 import com.harucut.frame.entity.Frame;
 import com.harucut.frame.entity.FrameComponent;
 import com.harucut.frame.enums.ComponentType;
 import com.harucut.frame.enums.FrameType;
+import com.harucut.storage.util.S3Keys;
+import com.harucut.user.entity.User;
+import com.harucut.workspace.entity.Workspace;
+import com.harucut.workspace.service.WorkspaceService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 
 @DisplayName("ComposeSpecAssembler")
 class ComposeSpecAssemblerTest {
@@ -24,11 +32,33 @@ class ComposeSpecAssemblerTest {
     private static final String STICKER_KEY = "uploads/users/abc/components/sticker.png";
     private static final String RENDERED_KEY = "uploads/users/abc/components/text.png";
 
-    private final ComposeSpecAssembler assembler = new ComposeSpecAssembler();
+    private final WorkspaceService workspaceService = mock(WorkspaceService.class);
+    private final ComposeSpecAssembler assembler = new ComposeSpecAssembler(workspaceService);
 
     @Nested
     @DisplayName("프레임 → 스펙 변환")
     class Assemble {
+
+        @Test
+        @DisplayName("자유 사진 칸(ADR-0012) — 슬롯은 칸 사각형, 칸마다 회전·모양·반지름·순번을 싣는다. 고정 레이아웃이면 cells 없음")
+        void freeCellsMapped() {
+            Frame frame = colorFrame();
+            frame.assignPhotoCells(List.of(
+                    new PhotoCell(150, 200, 1700, 1200, -4.5, new PhotoCell.Shape(PhotoCell.ShapeType.RECT, 40, null), 3),
+                    new PhotoCell(150, 1480, 1700, 1200, 3, new PhotoCell.Shape(PhotoCell.ShapeType.ELLIPSE, null, null), 2),
+                    new PhotoCell(150, 2760, 1700, 1200, 0, new PhotoCell.Shape(PhotoCell.ShapeType.RECT, null, null), 1),
+                    new PhotoCell(100, 4000, 1800, 1300, 180, new PhotoCell.Shape(PhotoCell.ShapeType.ELLIPSE, null, null), 0)));
+
+            ComposeSpec spec = assembler.assemble(frame, null);
+
+            assertThat(spec.slots().get(3)).isEqualTo(new com.harucut.frame.layout.FrameLayout.Slot(100, 4000, 1800, 1300));
+            assertThat(spec.cells()).containsExactly(
+                    new ComposeSpec.Cell(-4.5, ComposeSpec.CellShape.RECT, 40, 3),
+                    new ComposeSpec.Cell(3, ComposeSpec.CellShape.ELLIPSE, 0, 2),
+                    new ComposeSpec.Cell(0, ComposeSpec.CellShape.RECT, 0, 1),
+                    new ComposeSpec.Cell(180, ComposeSpec.CellShape.ELLIPSE, 0, 0));
+            assertThat(assembler.assemble(colorFrame(), null).cells()).isNull();
+        }
 
         @Test
         @DisplayName("캔버스·슬롯은 frameType에서, cellCutouts는 프레임에서 온다")
@@ -172,6 +202,95 @@ class ComposeSpecAssemblerTest {
         }
     }
 
+    /*
+     * 저장 시점 소유권 검사가 생기기 전에 저장된 프레임이 있을 수 있다 — 합성이 마지막 관문이다.
+     */
+    @Nested
+    @DisplayName("사용자 프레임의 자산 소유권")
+    class Ownership {
+
+        private final User owner = User.localUser("owner@harucut.com", "encoded", "하루컷");
+        private final String mine = S3Keys.userRoot(owner.getPublicId()) + "components/";
+        private final String foreign = "uploads/users/ZzZzZzZzZz99/components/";
+
+        @Test
+        @DisplayName("남의 STICKER key 가 들어 있으면 403 이다")
+        void foreignStickerForbidden() {
+            Frame frame = ownedColorFrame();
+            frame.addComponent(component(ComponentType.STICKER, foreign + "s.png", null));
+
+            assertThatThrownBy(() -> assembler.assemble(frame, null))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(GlobalErrorCode.FORBIDDEN);
+        }
+
+        @Test
+        @DisplayName("남의 PHOTO·TEXT 자산도 403 이다")
+        void foreignPhotoAndTextForbidden() {
+            Frame photoFrame = ownedColorFrame();
+            photoFrame.addComponent(component(ComponentType.PHOTO, foreign + "p.png", null));
+            Frame textFrame = ownedColorFrame();
+            textFrame.addComponent(component(ComponentType.TEXT, "봄", foreign + "t.png"));
+
+            assertThatThrownBy(() -> assembler.assemble(photoFrame, null))
+                    .isInstanceOf(BusinessException.class);
+            assertThatThrownBy(() -> assembler.assemble(textFrame, null))
+                    .isInstanceOf(BusinessException.class);
+        }
+
+        @Test
+        @DisplayName("남의 배경 이미지도 403 이다")
+        void foreignBackgroundForbidden() {
+            Frame frame = Frame.owned(owner, "내 프레임", "", mine + "p.png", FrameType.CLASSIC,
+                    new BackgroundAttributes.Image(foreign + "bg.png", 0.8, null));
+
+            assertThatThrownBy(() -> assembler.assemble(frame, null))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(GlobalErrorCode.FORBIDDEN);
+        }
+
+        @Test
+        @DisplayName("조직 공간 프레임은 다른 멤버의 이미지로도 합성한다 — 저장 때 공간 규칙으로 봤다(발행과 같은 규칙)")
+        void organizationFrameTakesMembersImages() {
+            Frame frame = ownedColorFrame();
+            frame.assignWorkspace(7L);
+            frame.addComponent(component(ComponentType.STICKER, foreign + "s.png", null));
+            given(workspaceService.organization(7L)).willReturn(Optional.of(Workspace.organization("웨딩팀")));
+
+            assertThat(assembler.assemble(frame, null).layers()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("자산 참조는 남의 폴더 key 여도 합성한다 — 저장 때 공간 멤버십까지 봤다")
+        void assetReferencesPass() {
+            Frame frame = Frame.owned(owner, "내 프레임", "", mine + "p.png", FrameType.CLASSIC,
+                    new BackgroundAttributes.Image(foreign + "bg.png", 0.8, null).withKey(foreign + "bg.png", "AsBg12345678"));
+            frame.addComponent(component(ComponentType.STICKER, foreign + "s.png", null, 11L, null));
+            frame.addComponent(component(ComponentType.TEXT, "봄", foreign + "t.png", null, 12L));
+
+            assertThat(assembler.assemble(frame, null).layers()).hasSize(2);
+        }
+
+        @Test
+        @DisplayName("내 자산만 쓰면 통과한다")
+        void ownAssetsPass() {
+            Frame frame = Frame.owned(owner, "내 프레임", "", mine + "p.png", FrameType.CLASSIC,
+                    new BackgroundAttributes.Image(mine + "bg.png", 0.8, null));
+            frame.addComponent(component(ComponentType.PHOTO, mine + "p.png", null));
+            frame.addComponent(component(ComponentType.STICKER, mine + "s.png", null));
+            frame.addComponent(component(ComponentType.TEXT, "봄", mine + "t.png"));
+
+            assertThat(assembler.assemble(frame, null).layers()).hasSize(3);
+        }
+
+        private Frame ownedColorFrame() {
+            return Frame.owned(owner, "내 프레임", "", mine + "p.png", FrameType.CLASSIC,
+                    new BackgroundAttributes.Color("#FFE4E1"));
+        }
+    }
+
     // ── fixtures ──────────────────────────────
 
     private static Frame colorFrame() {
@@ -180,8 +299,13 @@ class ComposeSpecAssemblerTest {
     }
 
     private static FrameComponent component(ComponentType type, String source, String renderedKey) {
+        return component(type, source, renderedKey, null, null);
+    }
+
+    private static FrameComponent component(ComponentType type, String source, String renderedKey,
+                                            Long assetId, Long renderedAssetId) {
         return FrameComponent.builder()
-                .source(source).type(type).renderedKey(renderedKey)
+                .source(source).type(type).renderedKey(renderedKey).assetId(assetId).renderedAssetId(renderedAssetId)
                 .x(120.5).y(220.0).width(360.0).height(480.0)
                 .scale(1.0).rotation(45.0).zIndex(3)
                 .build();

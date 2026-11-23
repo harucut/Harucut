@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
 
 @WebMvcTest({AuthStatusController.class, NoticeAdminController.class,
-        NoticeController.class, PlainApiFixtureController.class})
+        NoticeController.class, PlainApiFixtureController.class, AdminApiFixtureController.class})
 @Import({SecurityConfig.class, CustomAuthenticationEntryPoint.class, CustomAccessDeniedHandler.class,
         JwtTokenService.class, FixedClockConfig.class})
 @ActiveProfiles("test")
@@ -45,6 +45,7 @@ class SecurityFilterChainTest extends SecurityBeansMockSupport {
 
     private static final String PROTECTED_URI = "/api/auth/status";
     private static final String ADMIN_URI = "/api/admin/notices";
+    private static final String ADMIN_FIXTURE_URI = "/api/admin/fixture";
     private static final String PLAIN_URI = "/fixture/plain";
     private static final String PUBLIC_URI = "/api/notices";
 
@@ -172,6 +173,53 @@ class SecurityFilterChainTest extends SecurityBeansMockSupport {
         }
     }
 
+    /*
+     * 픽스처 컨트롤러에는 @PreAuthorize 가 없다 — 막는 것은 URL 규칙뿐이다.
+     * 필터에서 거절되므로 응답은 AccessDeniedHandler 의 봉투다.
+     */
+    @Nested
+    @DisplayName("관리자 URL 규칙 (/api/admin/**)")
+    class AdminUrlAuthorization {
+
+        @Test
+        @DisplayName("@PreAuthorize 가 없어도 ROLE_USER 는 403 GEN-021을 받는다")
+        void userIsRejectedWithoutPreAuthorize() {
+            assertThat(mockMvc.get().uri(ADMIN_FIXTURE_URI).cookie(accessCookie(accessToken(activeUser()))))
+                    .hasStatus(HttpStatus.FORBIDDEN)
+                    .bodyJson()
+                    .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("GEN-021"));
+        }
+
+        @Test
+        @DisplayName("ROLE_ADMIN 은 통과한다")
+        void adminPasses() {
+            User admin = user(UserStatus.ACTIVE, UserRole.ROLE_ADMIN);
+
+            assertThat(mockMvc.get().uri(ADMIN_FIXTURE_URI).cookie(accessCookie(accessToken(admin))))
+                    .hasStatusOk();
+        }
+
+        @Test
+        @DisplayName("정지된 관리자는 403 이다 — 상태가 권한을 지운다")
+        void blockedAdminIsRejected() {
+            User admin = user(UserStatus.BLOCKED, UserRole.ROLE_ADMIN);
+
+            assertThat(mockMvc.get().uri(ADMIN_FIXTURE_URI).cookie(accessCookie(accessToken(admin))))
+                    .hasStatus(HttpStatus.FORBIDDEN)
+                    .bodyJson()
+                    .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("AUTH-042"));
+        }
+
+        @Test
+        @DisplayName("토큰이 없으면 401 이다")
+        void anonymousGets401() {
+            assertThat(mockMvc.get().uri(ADMIN_FIXTURE_URI))
+                    .hasStatus(HttpStatus.UNAUTHORIZED)
+                    .bodyJson()
+                    .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("AUTH-010"));
+        }
+    }
+
     @Nested
     @DisplayName("필터 레벨 인가 (anyRequest)")
     class RequestLevelAuthorization {
@@ -189,14 +237,14 @@ class SecurityFilterChainTest extends SecurityBeansMockSupport {
          * 봉투가 나왔다면 핸들러가 동작한 것이다.
          */
         @Test
-        @DisplayName("BLOCKED 사용자는 403 GEN-021을 공통 봉투로 받는다")
+        @DisplayName("BLOCKED 사용자는 403 AUTH-042를 공통 봉투로 받는다")
         void blockedIsRejectedByFilter() {
             User user = user(UserStatus.BLOCKED, UserRole.ROLE_USER);
 
             assertThat(mockMvc.get().uri(PLAIN_URI).cookie(accessCookie(accessToken(user))))
                     .hasStatus(HttpStatus.FORBIDDEN)
                     .bodyJson()
-                    .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("GEN-021"));
+                    .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("AUTH-042"));
         }
 
         @Test
@@ -345,6 +393,63 @@ class SecurityFilterChainTest extends SecurityBeansMockSupport {
 
             assertThat(result).hasStatus(HttpStatus.FOUND);
             return result.getResponse().getRedirectedUrl();
+        }
+    }
+
+    /*
+     * 출처 검사 필터가 체인에, 인증보다 앞에 꽂혔는지를 본다. 판정 규칙 자체는 OriginCheckFilterTest 가 본다.
+     */
+    @Nested
+    @DisplayName("쿠키 인증 변경 요청의 출처 검사")
+    class OriginCheck {
+
+        @Test
+        @DisplayName("허용 목록 밖 Origin 의 쿠키 POST 는 403 GEN-022")
+        void foreignOriginRejected() {
+            assertThat(mockMvc.post().uri(PLAIN_URI).cookie(accessCookie(accessToken(activeUser())))
+                    .header(HttpHeaders.ORIGIN, "https://evil.example"))
+                    .hasStatus(HttpStatus.FORBIDDEN)
+                    .bodyJson()
+                    .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("GEN-022"));
+        }
+
+        @Test
+        @DisplayName("허용 목록의 Origin 이면 통과한다")
+        void allowedOriginPasses() {
+            assertThat(mockMvc.post().uri(PLAIN_URI).cookie(accessCookie(accessToken(activeUser())))
+                    .header(HttpHeaders.ORIGIN, "https://harucut.com"))
+                    .hasStatusOk();
+        }
+
+        @Test
+        @DisplayName("만료 토큰이어도 401 보다 출처 거절이 먼저다")
+        void rejectedBeforeAuthentication() {
+            assertThat(mockMvc.post().uri(PLAIN_URI).cookie(accessCookie(expiredAccessToken()))
+                    .header(HttpHeaders.ORIGIN, "https://evil.example"))
+                    .hasStatus(HttpStatus.FORBIDDEN)
+                    .bodyJson()
+                    .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("GEN-022"));
+        }
+
+        @Test
+        @DisplayName("refreshToken 만 실린 재발급도 대상이다")
+        void reissueWithRefreshCookieOnly() {
+            assertThat(mockMvc.post().uri("/api/harucut/reissue").cookie(new Cookie("refreshToken", "r"))
+                    .header(HttpHeaders.ORIGIN, "https://evil.example"))
+                    .hasStatus(HttpStatus.FORBIDDEN)
+                    .bodyJson()
+                    .hasPathSatisfying("$.code", c -> assertThat(c).isEqualTo("GEN-022"));
+        }
+
+        @Test
+        @DisplayName("소셜 로그인 콜백(form_post)은 다른 출처에서 와도 출처 검사에서 빠진다")
+        void oauthCallbackExempt() throws Exception {
+            MvcTestResult result = mockMvc.post().uri("/login/oauth2/code/google")
+                    .cookie(accessCookie(accessToken(activeUser())))
+                    .header(HttpHeaders.ORIGIN, "https://accounts.google.com")
+                    .exchange();
+
+            assertThat(result.getResponse().getContentAsString()).doesNotContain("GEN-022");
         }
     }
 

@@ -4,8 +4,8 @@ import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.subscription.dto.SubscriptionUsageResponse;
 import com.harucut.subscription.entity.UserSubscription;
+import com.harucut.frame.repository.FrameRepository;
 import com.harucut.subscription.enums.PlanTier;
-import com.harucut.subscription.port.FrameCountPort;
 import com.harucut.subscription.repository.UserSubscriptionRepository;
 import com.harucut.user.entity.User;
 import com.harucut.user.repository.UserRepository;
@@ -45,7 +45,7 @@ class SubscriptionUsageServiceTest {
     private UserSubscriptionRepository userSubscriptionRepository;
 
     @Mock
-    private FrameCountPort frameCountPort;
+    private FrameRepository frameRepository;
 
     private SubscriptionUsageService usageService;
 
@@ -53,7 +53,7 @@ class SubscriptionUsageServiceTest {
     void setUp() {
         Clock fixedClock = Clock.fixed(NOW.atZone(SEOUL).toInstant(), SEOUL);
         usageService = new SubscriptionUsageService(
-                userRepository, userSubscriptionRepository, frameCountPort, fixedClock);
+                userRepository, userSubscriptionRepository, frameRepository, fixedClock);
     }
 
     @Test
@@ -61,7 +61,7 @@ class SubscriptionUsageServiceTest {
     void allTiersUnlimited() {
         for (PlanTier tier : PlanTier.values()) {
             givenTier(tier);
-            given(frameCountPort.countByUserId(USER_ID)).willReturn(10);
+            given(frameRepository.countPersonalByUserId(USER_ID)).willReturn(10L);
 
             SubscriptionUsageResponse response = usageService.getUsage(PUBLIC_ID);
 
@@ -81,7 +81,7 @@ class SubscriptionUsageServiceTest {
                 LocalDateTime.of(2026, 7, 1, 0, 0), LocalDateTime.of(2026, 8, 1, 0, 0));
         givenUser();
         given(userSubscriptionRepository.findByUserId(USER_ID)).willReturn(Optional.of(subscription));
-        given(frameCountPort.countByUserId(USER_ID)).willReturn(2);
+        given(frameRepository.countPersonalByUserId(USER_ID)).willReturn(2L);
 
         SubscriptionUsageResponse response = usageService.getUsage(PUBLIC_ID);
 
@@ -94,7 +94,7 @@ class SubscriptionUsageServiceTest {
     void noSubscriptionFallsBackToBasic() {
         givenUser();
         given(userSubscriptionRepository.findByUserId(USER_ID)).willReturn(Optional.empty());
-        given(frameCountPort.countByUserId(USER_ID)).willReturn(0);
+        given(frameRepository.countPersonalByUserId(USER_ID)).willReturn(0L);
 
         SubscriptionUsageResponse response = usageService.getUsage(PUBLIC_ID);
 

@@ -138,7 +138,9 @@ class MockPaymentGatewayTest {
         PaymentProperties properties = new PaymentProperties(
                 new PaymentProperties.Gateway("mock"),
                 new PaymentProperties.Mock(failCharge, false),
-                3
+                3,
+                new PaymentProperties.Webhook("mock", 300),
+                new PaymentProperties.PortOne(null, null, null, "https://api.portone.io")
         );
         Clock clock = Clock.fixed(FIXED_NOW.atZone(ZONE).toInstant(), ZONE);
         return new MockPaymentGateway(properties, clock);

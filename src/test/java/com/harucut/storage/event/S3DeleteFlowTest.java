@@ -15,6 +15,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.util.List;
 
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 
 // 이 장치의 존재 이유 그 자체를 고정한다: 삭제는 커밋 후에만 일어나고, 롤백이면 아무 일도 없다.
 // 유닛 테스트는 "발행한다"와 "받으면 지운다"를 따로 증명한다 — 이 테스트가 그 사이의 트랜잭션 경계를 잇는다
@@ -47,10 +49,10 @@ class S3DeleteFlowTest {
         transactionTemplate.executeWithoutResult(status -> {
             frameAssetManager.deleteAfterCommit(List.of(KEY));
             // 아직 트랜잭션 안 — 삭제가 실행됐다면 롤백 시 파일만 사라지는 Kotlin의 문제가 재현된 것
-            then(fileStorageService).shouldHaveNoInteractions();
+            then(fileStorageService).should(never()).delete(KEY);
         });
 
-        then(fileStorageService).should().delete(KEY);
+        then(fileStorageService).should(timeout(5000)).delete(KEY);   // 커밋 뒤 전용 스레드에서
     }
 
     @Test
@@ -61,6 +63,6 @@ class S3DeleteFlowTest {
             status.setRollbackOnly();
         });
 
-        then(fileStorageService).shouldHaveNoInteractions();
+        then(fileStorageService).should(never()).delete(KEY);
     }
 }

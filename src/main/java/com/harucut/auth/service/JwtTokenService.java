@@ -18,6 +18,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+import java.util.UUID;
 import java.util.function.Function;
 
 @Service
@@ -27,6 +28,7 @@ public class JwtTokenService {
     private static final String TYPE_CLAIM = "type";
     private static final String ROLE_CLAIM = "role";
     private static final String STATUS_CLAIM = "status";
+    private static final String SESSION_CLAIM = "sid";
 
     private final SecretKey key;
     private final Duration accessExpiration;
@@ -50,8 +52,15 @@ public class JwtTokenService {
         return new IssuedToken(value, accessExpiration);
     }
 
+    /** 새 기기 세션의 refresh 토큰 — 로그인마다 세션이 하나 생긴다 */
     public IssuedToken createRefreshToken(String publicId) {
+        return createRefreshToken(publicId, UUID.randomUUID().toString());
+    }
+
+    /** 같은 기기 세션의 다음 토큰(회전) */
+    public IssuedToken createRefreshToken(String publicId, String sessionId) {
         String value = base(publicId, TokenType.REFRESH, refreshExpiration)
+                .claim(SESSION_CLAIM, sessionId)
                 .signWith(key)
                 .compact();
 
@@ -74,7 +83,8 @@ public class JwtTokenService {
                     payload.getSubject(),
                     type,
                     access ? required(payload, ROLE_CLAIM, UserRole::valueOf) : null,
-                    access ? required(payload, STATUS_CLAIM, UserStatus::valueOf) : null
+                    access ? required(payload, STATUS_CLAIM, UserStatus::valueOf) : null,
+                    access ? null : payload.get(SESSION_CLAIM, String.class)
             );
         } catch (ExpiredJwtException e) {
             throw new BusinessException(AuthErrorCode.EXPIRED_TOKEN);

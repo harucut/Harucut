@@ -46,6 +46,18 @@ public class FrameComponent extends BaseEntity {
     @Column(name = "rendered_key", length = 512)
     private String renderedKey;
 
+    // 편집기 잠금 — 저장·재열기용. 인가 근거가 아니다(행사 편집 정책은 발행본이 강제한다)
+    @Column(nullable = false)
+    private boolean locked;
+
+    // source 를 자산으로 받았을 때 그 자산(FK). 기존 key 문자열 컴포넌트는 NULL
+    @Column(name = "asset_id")
+    private Long assetId;
+
+    // TEXT 의 구운 PNG 를 자산으로 받았을 때(FK)
+    @Column(name = "rendered_asset_id")
+    private Long renderedAssetId;
+
     @Convert(converter = StyleMapConverter.class)
     @Column(name = "style_json", length = 4000)
     private Map<String, Object> style;
@@ -57,7 +69,11 @@ public class FrameComponent extends BaseEntity {
     @Builder
     private FrameComponent(String source, ComponentType type, double x, double y,
                            Double width, Double height, Double scale, double rotation,
-                           int zIndex, String renderedKey, Map<String, Object> style) {
+                           int zIndex, String renderedKey, Map<String, Object> style,
+                           boolean locked, Long assetId, Long renderedAssetId) {
+        this.locked = locked;
+        this.assetId = assetId;
+        this.renderedAssetId = renderedAssetId;
         this.source = source;
         this.type = type;
         this.x = x;

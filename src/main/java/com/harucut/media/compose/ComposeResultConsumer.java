@@ -58,6 +58,7 @@ public class ComposeResultConsumer implements SmartLifecycle {
     private final ObjectMapper objectMapper;
     private final ComposeService composeService;
     private final ComposeMetrics metrics;
+    private final ComposeOutputVerifier outputVerifier;
     private final String queueUrl;
 
     private volatile boolean running;
@@ -65,8 +66,9 @@ public class ComposeResultConsumer implements SmartLifecycle {
 
     public ComposeResultConsumer(SqsClient sqsClient, ObjectMapper objectMapper,
                                  ComposeService composeService, ComposeMetrics metrics,
-                                 AwsProperties awsProperties) {
+                                 ComposeOutputVerifier outputVerifier, AwsProperties awsProperties) {
         this.sqsClient = sqsClient;
+        this.outputVerifier = outputVerifier;
         this.objectMapper = objectMapper;
         this.composeService = composeService;
         this.metrics = metrics;
@@ -173,9 +175,32 @@ public class ComposeResultConsumer implements SmartLifecycle {
             return;
         }
 
+        ComposeLambdaPayload payload = notification.requestPayload();
+        if (composeService.discardIfJobGone(jobId, payload.resultKey(), payload.thumbnailKey())) {
+            log.info("[합성 통지] 작업이 사라졌다(탈퇴) — 결과를 지우고 통지를 끝낸다: jobId={} condition={}", jobId, notification.condition());
+            return;
+        }
+
         String condition = notification.condition();
         if ("Success".equals(condition)) {
-            ComposeLambdaPayload payload = notification.requestPayload();
+            if (payload.verifiedPair()) {
+                // 출력 계약 2(R5 D09) — 저장된 한 쌍을 대조한 뒤에만 확정한다. 다르거나 검증할 수 없으면 공개하지 않고 최종 실패
+                ComposeLambdaResult result = notification.result();
+                // 실행이 돌려준 입력 지문이 이 작업의 것이어야 한다 — 구형 writer·다른 입력의 실행을 신형 성공으로 보지 않는다(R5 L492, O41)
+                if (!composeService.sameInput(jobId, result == null ? null : result.inputFingerprint())
+                        || !outputVerifier.verified(payload, result)) {
+                    composeService.failJob(jobId, "출력 쌍 검증 실패 — 저장된 결과·썸네일이 통지한 체크섬과 다르거나 없다",
+                            ComposeFailureCode.OUTPUT_CONFLICT);
+                    metrics.notifiedFailed();
+                    log.error("[합성 통지] 출력 쌍 검증 실패 — 최종 실패로 확정: jobId={} attempt={}", jobId, payload.attemptNo());
+                    return;
+                }
+                composeService.completeJob(jobId, payload.resultKey(), payload.thumbnailKey(),
+                        result.resultSha256(), result.thumbnailSha256());
+                metrics.notifiedDone();
+                log.info("[합성 통지] 완료(검증한 쌍): jobId={} attempt={}", jobId, payload.attemptNo());
+                return;
+            }
             composeService.completeJob(jobId, payload.resultKey(), payload.thumbnailKey());
             metrics.notifiedDone();
             log.info("[합성 통지] 완료: jobId={}", jobId);
@@ -184,9 +209,15 @@ public class ComposeResultConsumer implements SmartLifecycle {
 
         if ("RetriesExhausted".equals(condition)) {
             // 함수가 최초 1회 + 재시도 2회를 모두 예외로 끝냈다 — 영구 실패로 본다
-            composeService.failJob(jobId, notification.failureReason());
-            metrics.notifiedFailed();
-            log.warn("[합성 통지] 영구 실패: jobId={} reason={}", jobId, notification.failureReason());
+            // 지금 시도의 실패만 반영한다 — 이전 시도의 늦은 실패가 다음 시도의 성공을 버리게 하지 않는다(R5 D09).
+            // 시도 번호가 없는 예전 payload 는 대조하지 않는다
+            Integer attemptNo = payload.attemptNo();
+            if (composeService.failJob(jobId, notification.failureReason(), notification.failureCode(), attemptNo)) {
+                metrics.notifiedFailed();
+                log.warn("[합성 통지] 영구 실패: jobId={} attempt={} reason={}", jobId, attemptNo, notification.failureReason());
+            } else {
+                log.info("[합성 통지] 반영하지 않은 실패(이미 끝났거나 지난 시도): jobId={} attempt={}", jobId, attemptNo);
+            }
             return;
         }
 

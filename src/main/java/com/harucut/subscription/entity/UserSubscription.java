@@ -2,6 +2,7 @@ package com.harucut.subscription.entity;
 
 import com.harucut.common.entity.BaseEntity;
 import com.harucut.subscription.enums.PlanTier;
+import com.harucut.subscription.enums.SubscriptionSource;
 import com.harucut.subscription.enums.SubscriptionStatus;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -50,6 +51,11 @@ public class UserSubscription extends BaseEntity {
     @Column(name = "reserved_user_coupon_id")
     private Long reservedUserCouponId;
 
+    // 유료 등급의 출처 — BASIC·만료면 null. 웹만 우리 갱신 배치가 청구한다(ADR-0011 §2)
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private SubscriptionSource source;
+
     private UserSubscription(Long userId, PlanTier planTier, SubscriptionStatus subscriptionStatus,
                              LocalDateTime currentPeriodStart, LocalDateTime currentPeriodEnd, boolean autoRenew) {
         this.userId = userId;
@@ -74,6 +80,7 @@ public class UserSubscription extends BaseEntity {
 
     // ── 상태 전이. 가드(해지 가능 여부 등)는 서비스 몫이고 여기는 무조건 전이만 한다 ──
     public void activatePaid(PlanTier planTier, LocalDateTime start, LocalDateTime end) {
+        this.source = SubscriptionSource.WEB;
         this.planTier = planTier;
         this.subscriptionStatus = SubscriptionStatus.ACTIVE;
         this.currentPeriodStart = start;
@@ -99,6 +106,7 @@ public class UserSubscription extends BaseEntity {
 
     // BASIC의 불변식(주기 null)을 복원한다 — effectiveTier의 첫 분기가 이 불변식에 기댄다
     public void expireToFree() {
+        this.source = null;
         this.planTier = PlanTier.BASIC;
         this.subscriptionStatus = SubscriptionStatus.EXPIRED;
         this.currentPeriodStart = null;
@@ -108,11 +116,30 @@ public class UserSubscription extends BaseEntity {
 
     // 쿠폰 무료 부여 — 카드가 없으므로 autoRenew=false
     public void activateGrant(PlanTier planTier, LocalDateTime start, LocalDateTime end) {
+        this.source = SubscriptionSource.COUPON;
         this.planTier = planTier;
         this.subscriptionStatus = SubscriptionStatus.GRANTED;
         this.currentPeriodStart = start;
         this.currentPeriodEnd = end;
         this.autoRenew = false;
+    }
+
+    // 스토어 구독 — 결제·갱신은 스토어가 한다. 상태는 스토어 구매의 상태를 그대로 옮긴다(자동갱신 끔 = CANCELED, 결제 재시도 = PAST_DUE)
+    public void activateStore(SubscriptionSource source, PlanTier planTier, SubscriptionStatus status, LocalDateTime start,
+                              LocalDateTime end, boolean autoRenew) {
+        if (this.source != source || this.currentPeriodStart == null) {
+            this.currentPeriodStart = start;
+        }
+        this.source = source;
+        this.planTier = planTier;
+        this.subscriptionStatus = status;
+        this.currentPeriodEnd = end;
+        this.autoRenew = autoRenew;
+    }
+
+    /** 지금 유료 등급을 주고 있는 출처 — 기한이 지났으면(읽기 시점 강등) 없다 */
+    public SubscriptionSource activeSourceAt(LocalDateTime now) {
+        return effectiveTier(now) == PlanTier.BASIC ? null : source;
     }
 
     // 모든 정책 판정의 기준. DB의 planTier를 그대로 믿지 않는다 —

@@ -13,8 +13,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.MailSendException;
-import org.thymeleaf.ITemplateEngine;
-import org.thymeleaf.context.IContext;
 
 import java.time.Duration;
 import java.util.Optional;
@@ -22,6 +20,7 @@ import java.util.Optional;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatCode;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.*;
 import static org.mockito.Mockito.never;
@@ -31,8 +30,6 @@ class EmailVerificationServiceTest {
 
     private static final String EMAIL = "user@harucut.com";
     private static final String CODE = "ABC234";
-    private static final String HTML = "<html>ABC234</html>";
-    private static final String TEMPLATE = "mail/verification-code";
 
     @Mock
     private VerificationCodeGenerator generator;
@@ -47,9 +44,6 @@ class EmailVerificationServiceTest {
     private MailService mailService;
 
     @Mock
-    private ITemplateEngine templateEngine;
-
-    @Mock
     private EmailRateLimit emailRateLimit;
 
     private EmailVerificationService service;
@@ -61,8 +55,7 @@ class EmailVerificationServiceTest {
                 repository,
                 emailRateLimit,
                 userRepository,
-                mailService,
-                templateEngine
+                mailService
         );
     }
 
@@ -84,15 +77,15 @@ class EmailVerificationServiceTest {
         }
 
         @Test
-        @DisplayName("렌더링한 템플릿 본문으로 메일을 발송한다")
+        @DisplayName("템플릿의 코드 자리에 생성한 코드를 넣은 본문으로 메일을 발송한다")
         void sendsRenderedTemplate() {
             givenCooldownAcquired(EMAIL);
             given(userRepository.existsByProviderAndEmail(Provider.HARUCUT, EMAIL)).willReturn(false);
-            given(templateEngine.process(eq(TEMPLATE), any(IContext.class))).willReturn(HTML);
+            given(generator.generate()).willReturn(CODE);
 
             service.sendVerificationCode(EMAIL);
 
-            then(mailService).should().sendHtml(eq(EMAIL), any(), eq(HTML));
+            then(mailService).should().sendHtml(eq(EMAIL), any(), contains(CODE));
         }
 
         @Test
@@ -130,6 +123,7 @@ class EmailVerificationServiceTest {
         void wrapsMailFailure() {
             givenCooldownAcquired(EMAIL);
             given(userRepository.existsByProviderAndEmail(Provider.HARUCUT, EMAIL)).willReturn(false);
+            given(generator.generate()).willReturn(CODE);
             willThrow(new MailSendException("smtp down"))
                     .given(mailService).sendHtml(any(), any(), any());
 
@@ -144,6 +138,7 @@ class EmailVerificationServiceTest {
         void releasesCooldownOnMailFailure() {
             givenCooldownAcquired(EMAIL);
             given(userRepository.existsByProviderAndEmail(Provider.HARUCUT, EMAIL)).willReturn(false);
+            given(generator.generate()).willReturn(CODE);
             willThrow(new MailSendException("smtp down"))
                     .given(mailService).sendHtml(any(), any(), any());
 
@@ -246,5 +241,30 @@ class EmailVerificationServiceTest {
 
     private void givenCooldownAcquired(String email) {
         given(emailRateLimit.tryAcquireCooldown(email)).willReturn(true);
+    }
+
+    @Test
+    @DisplayName("코드를 틀린 횟수가 상한을 넘으면 코드를 지우고 AUTH-040 — 대입으로 뚫지 못한다")
+    void removesCodeWhenMissesExceeded() {
+        org.mockito.BDDMockito.given(repository.findCode("a@b.c")).willReturn(java.util.Optional.of("ABCDEF"));
+        org.mockito.BDDMockito.given(emailRateLimit.codeAttemptsExceeded("a@b.c")).willReturn(true);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.verifyCode("a@b.c", "ZZZZZZ"))
+                .isInstanceOf(com.harucut.common.exception.BusinessException.class)
+                .hasMessageContaining("Too many");
+        org.mockito.BDDMockito.then(repository).should().removeCode("a@b.c");
+    }
+
+    @Test
+    @DisplayName("일일 발송 상한을 넘으면 보내지 않고 GEN-061 — 이미 보낸 코드를 덮어쓰지 않고, 그 주소의 쿨다운은 풀어 준다")
+    void stopsAtDailyLimit() {
+        org.mockito.BDDMockito.given(emailRateLimit.tryAcquireCooldown("a@b.c")).willReturn(true);
+        org.mockito.BDDMockito.given(emailRateLimit.dailySendLimitExceeded()).willReturn(true);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.sendVerificationCode("a@b.c"))
+                .isInstanceOf(com.harucut.common.exception.BusinessException.class);
+        org.mockito.BDDMockito.then(repository).should(org.mockito.Mockito.never()).saveCode(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+        org.mockito.BDDMockito.then(mailService).shouldHaveNoInteractions();
+        org.mockito.BDDMockito.then(emailRateLimit).should().releaseCooldown("a@b.c");
     }
 }

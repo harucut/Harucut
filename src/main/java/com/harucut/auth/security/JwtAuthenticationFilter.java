@@ -7,6 +7,7 @@ import com.harucut.auth.jwt.JwtClaims;
 import com.harucut.auth.jwt.TokenType;
 import com.harucut.auth.service.JwtTokenService;
 import com.harucut.common.exception.BusinessException;
+import com.harucut.user.enums.UserStatus;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
@@ -33,6 +34,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final RequestMatcher publicPaths;
     private final JwtTokenService jwtTokenService;
     private final CustomAuthenticationEntryPoint authenticationEntryPoint;
+    private final AccountStateGuard accountStateGuard;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
@@ -62,6 +64,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         AuthenticatedUser principal = AuthenticatedUser.from(claims);
+        // 정지 토큰은 지금 상태로 본다 — 해제하면 access 만료를 기다리지 않고 풀리고, 탈퇴 요청하면 복구로 갈 수 있다. 정지 계정만 조회한다
+        if (principal.status() == UserStatus.BLOCKED) {
+            principal = accountStateGuard.current(principal.publicId()).orElse(principal);
+        }
         UsernamePasswordAuthenticationToken authentication =
                 UsernamePasswordAuthenticationToken.authenticated(principal, null, principal.authorities());
 

@@ -1,0 +1,116 @@
+package com.harucut.frame.service;
+
+import com.harucut.asset.entity.Asset;
+import com.harucut.asset.enums.AssetPurpose;
+import com.harucut.asset.repository.AssetRepository;
+import com.harucut.common.exception.BusinessException;
+import com.harucut.frame.exception.FrameErrorCode;
+import com.harucut.workspace.service.WorkspaceService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
+import java.util.Collection;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+/**
+ * 프레임이 참조하는 자산(assetId·renderedAssetId·배경 assetId)을 실제 key 로 바꾸면서 쓸 수 있는지 본다.
+ * 쓸 수 없으면 400 FRAME-005 — 남의 공간, 미검증, 용도 불일치. (ADR-0006 §3)
+ *
+ * <p>owner 가 null 이면 시스템 프레임이다. 공간 검사를 건너뛰고(ROLE_ADMIN 이 신뢰 경계) 검증 상태·용도만 본다.
+ */
+@Component
+@RequiredArgsConstructor
+public class FrameAssetResolver {
+
+    private final AssetRepository assetRepository;
+    private final com.harucut.media.repository.ComposeJobRepository composeJobRepository;
+    private final WorkspaceService workspaceService;
+
+    public Asset require(String assetPublicId, AssetPurpose purpose, Long ownerUserId) {
+        Asset asset = assetRepository.findByPublicId(assetPublicId)
+                .orElseThrow(() -> notUsable("없는 자산: " + assetPublicId));
+        checkUsable(asset, purpose, ownerUserId);
+        return asset;
+    }
+
+    /** 초안의 assetIds — 용도는 묻지 않는다(편집기 문서가 배경·스티커·글자 무엇이든 쓴다). 검증·소유만 본다 */
+    public Asset requireForDraft(String assetPublicId, Long ownerUserId) {
+        Asset asset = assetRepository.findByPublicId(assetPublicId)
+                .orElseThrow(() -> notUsable("없는 자산: " + assetPublicId));
+        if (!asset.isVerified()) {
+            throw notUsable("미검증 자산: " + assetPublicId);
+        }
+        if (!ownerUserId.equals(asset.getUploadedByUserId())
+                && !workspaceService.isMember(asset.getWorkspaceId(), ownerUserId)) {
+            throw notUsable("남의 자산: " + assetPublicId);
+        }
+        return asset;
+    }
+
+    /**
+     * renderedKey 를 key 문자열로 받았을 때: 그 key 가 자산이면 자산으로 받은 것과 같은 검사를 한다.
+     * 자산 행이 없으면 예전 경로(FRAME_COMPONENT 업로드)라 기존 소유권 검사에 맡긴다.
+     */
+    public Optional<Asset> findByKey(String key, AssetPurpose purpose, Long ownerUserId) {
+        Optional<Asset> asset = assetRepository.findByS3Key(key);
+        asset.ifPresent(found -> checkUsable(found, purpose, ownerUserId));
+        return asset;
+    }
+
+    public java.util.Set<String> assetBackedKeys(Collection<String> keys) {
+        return keys.isEmpty() ? java.util.Set.of() : java.util.Set.copyOf(assetRepository.findExistingKeys(keys));
+    }
+
+    /** 자산 행이 있는 이미지의 픽셀 합 — 예전 key 만 있는 이미지는 크기를 몰라 세지 않는다 */
+    public long totalPixels(Collection<String> keys) {
+        return keys.isEmpty() ? 0 : assetRepository.sumPixelsByKeys(keys);
+    }
+
+    /** 끝나지 않은 합성의 스냅샷이 가리키는 key */
+    public java.util.Set<String> keysUsedByPendingJobs(Collection<String> keys) {
+        return keys.stream()
+                .filter(key -> composeJobRepository.countPendingWithSpecLike("%" + key + "%") > 0)
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
+    /** 이 key 가 그 공간의 검증된 자산인가 — 조직 공간 프레임은 다른 멤버가 올린 자산 key 를 문자열로도 받는다 */
+    public boolean isWorkspaceAsset(String key, Long workspaceId) {
+        return workspaceId != null && assetRepository.findByS3Key(key)
+                .filter(asset -> asset.isVerified() && workspaceId.equals(asset.getWorkspaceId()))
+                .isPresent();
+    }
+
+    // 응답 조립용: 공간 내부 id → public id
+    public String workspacePublicId(Long workspaceId) {
+        return workspaceService.publicIdOf(workspaceId);
+    }
+
+    // 응답 조립용: 내부 id → public id
+    public Map<Long, String> publicIds(Collection<Long> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return assetRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(Asset::getId, Asset::getPublicId, (a, b) -> a));
+    }
+
+    private void checkUsable(Asset asset, AssetPurpose purpose, Long ownerUserId) {
+        if (!asset.isVerified()) {
+            throw notUsable("미검증 자산: " + asset.getPublicId());
+        }
+        if (asset.getPurpose() != purpose) {
+            throw notUsable("용도 불일치: " + asset.getPurpose() + " ≠ " + purpose);
+        }
+        if (ownerUserId != null
+                && !ownerUserId.equals(asset.getUploadedByUserId())
+                && !workspaceService.isMember(asset.getWorkspaceId(), ownerUserId)) {
+            throw notUsable("남의 자산: " + asset.getPublicId());
+        }
+    }
+
+    private static BusinessException notUsable(String detail) {
+        return new BusinessException(FrameErrorCode.ASSET_NOT_USABLE, detail);
+    }
+}

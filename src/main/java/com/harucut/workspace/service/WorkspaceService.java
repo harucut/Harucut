@@ -1,0 +1,225 @@
+package com.harucut.workspace.service;
+
+import com.harucut.workspace.exception.MemberErrorCode;
+import com.harucut.asset.repository.AssetRepository;
+import com.harucut.common.exception.BusinessException;
+import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.event.repository.EventGrantRepository;
+import com.harucut.storage.service.S3Deleter;
+import com.harucut.user.entity.User;
+import com.harucut.user.repository.UserRepository;
+import com.harucut.workspace.dto.WorkspaceResponse;
+import com.harucut.workspace.entity.Workspace;
+import com.harucut.workspace.entity.WorkspaceMembership;
+import com.harucut.workspace.enums.MembershipStatus;
+import com.harucut.workspace.enums.WorkspaceRole;
+import com.harucut.workspace.repository.WorkspaceMembershipRepository;
+import com.harucut.workspace.repository.WorkspaceRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+@Service
+@Transactional
+@RequiredArgsConstructor
+public class WorkspaceService {
+
+    private final WorkspaceRepository workspaceRepository;
+    private final WorkspaceMembershipRepository membershipRepository;
+    private final UserRepository userRepository;
+    private final PersonalWorkspaceCreator personalWorkspaceCreator;
+    private final AssetRepository assetRepository;
+    private final S3Deleter s3Deleter;
+    private final EventGrantRepository grantRepository;
+
+    /**
+     * 사용자의 개인 공간. 없으면 만든다 — V2 migration 이 기존 사용자를 백필하지만, flyway 가 꺼진 운영에서는
+     * Hibernate update 가 테이블만 만들고 백필은 돌지 않으므로 지연 생성이 기본 경로다.
+     */
+    public Workspace personalWorkspaceOf(Long userId) {
+        return workspaceRepository.findByPersonalOwnerUserId(userId)
+                .orElseGet(() -> createPersonal(userId));
+    }
+
+    private Workspace createPersonal(Long userId) {
+        try {
+            return personalWorkspaceCreator.create(userId);
+        } catch (DataIntegrityViolationException e) {
+            return personalWorkspaceCreator.find(userId);   // 동시 요청이 먼저 만들었다
+        }
+    }
+
+    /**
+     * 이 공간의 행사에 새 참여를 받지 않는가 — 활성 OWNER 가 전부 정지(또는 탈퇴 중)면 그렇다. 요청마다 조회하므로 해제하면 바로 풀린다.
+     * 새 세션·회차·업로드·합성만 막는다(ParticipantService.requireCaptureOpen). 이미 찍은 사람의 결과 수령은 보지 않는다
+     */
+    @Transactional(readOnly = true)
+    public boolean participationSuspended(Long workspaceId) {
+        return membershipRepository.countUsableOwners(workspaceId) == 0;
+    }
+
+    /** 업체(ENTERPRISE) 공간인가 — 멤버가 사진을 보지 않는 공간(WorkspaceKind). 없는 id 면 false */
+    @Transactional(readOnly = true)
+    public boolean isEnterprise(Long workspaceId) {
+        return workspaceRepository.findById(workspaceId).map(Workspace::isEnterprise).orElse(false);
+    }
+
+    public List<WorkspaceResponse> listMine(String publicId) {
+        User user = getUser(publicId);
+        personalWorkspaceOf(user.getId());
+
+        List<WorkspaceMembership> memberships =
+                membershipRepository.findAllByUserIdAndStatus(user.getId(), MembershipStatus.ACTIVE);
+        Map<Long, Workspace> workspaces = workspaceRepository
+                .findAllByIdIn(memberships.stream().map(WorkspaceMembership::getWorkspaceId).toList())
+                .stream()
+                .collect(Collectors.toMap(Workspace::getId, Function.identity()));
+
+        return memberships.stream()
+                .filter(m -> workspaces.containsKey(m.getWorkspaceId()))
+                .map(m -> WorkspaceResponse.of(workspaces.get(m.getWorkspaceId()), m.getRole()))
+                .toList();
+    }
+
+    /**
+     * 공간 public id 를 내부 공간으로 바꾸면서 권한을 확인한다. 멤버가 아니면 공간이 있다는 사실도 알리지 않는다(404).
+     * 멤버인데 역할이 모자라면 403 GEN-021(ADR-0009 §3).
+     */
+    @Transactional(readOnly = true)
+    public Workspace requireRole(String workspacePublicId, Long userId, Collection<WorkspaceRole> allowed) {
+        Workspace workspace = workspaceRepository.findByPublicId(workspacePublicId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        requireMember(workspace.getId(), userId, allowed);
+        return workspace;
+    }
+
+    /**
+     * 조직 공간을 만든다. 만든 사람이 OWNER. 행사는 조직 공간에만 만들 수 있다 — 개인 공간은 회원 탈퇴 때 통째로
+     * 지워지는데, 행사 사진을 개인 탈퇴로 연쇄 삭제하지 않기 위해서다(R5 14절). 계약 CMS(P2B) 전의 최소 경로다.
+     */
+    public WorkspaceResponse createOrganization(String publicId, String name) {
+        User user = getUser(publicId);
+        Workspace workspace = workspaceRepository.save(Workspace.organization(name));
+        membershipRepository.save(WorkspaceMembership.owner(workspace.getId(), user.getId()));
+        return WorkspaceResponse.of(workspace, WorkspaceRole.OWNER);
+    }
+
+    /** 내부 id 로 권한을 본다. 없거나 멤버가 아니면 404, 역할이 모자라면 403 GEN-021 */
+    @Transactional(readOnly = true)
+    public Workspace requireRole(Long workspaceId, Long userId, Collection<WorkspaceRole> allowed) {
+        Workspace workspace = workspaceRepository.findById(workspaceId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        requireMember(workspaceId, userId, allowed);
+        return workspace;
+    }
+
+    // 멤버가 아니면 404(공간이 있다는 것도 숨긴다), 멤버인데 역할이 모자라면 403 GEN-021(ADR-0009 §3 「범위 안 권한 부족」)
+    private void requireMember(Long workspaceId, Long userId, Collection<WorkspaceRole> allowed) {
+        WorkspaceRole role = membershipRepository.findByWorkspaceIdAndUserIdAndStatus(workspaceId, userId, MembershipStatus.ACTIVE)
+                .map(WorkspaceMembership::getRole)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        if (!allowed.contains(role)) {
+            throw new BusinessException(GlobalErrorCode.FORBIDDEN, "이 공간에서 할 수 없는 일입니다(" + role + ").");
+        }
+    }
+
+    /** 조직 공간이면 그 공간. 개인 공간·없는 id·null 이면 빈 값 — 프레임이 "공간의 것"인지 가르는 판정 */
+    @Transactional(readOnly = true)
+    public Optional<Workspace> organization(Long workspaceId) {
+        return workspaceId == null
+                ? Optional.empty()
+                : workspaceRepository.findById(workspaceId).filter(workspace -> !workspace.isPersonal());
+    }
+
+    /** 응답 조립용 — 내부 id → public id. null 이면 null */
+    @Transactional(readOnly = true)
+    public String publicIdOf(Long workspaceId) {
+        return workspaceId == null ? null
+                : workspaceRepository.findById(workspaceId).map(Workspace::getPublicId).orElse(null);
+    }
+
+    /** 이 공간에서의 활성 역할. 멤버가 아니면 빈 값 */
+    @Transactional(readOnly = true)
+    public Optional<WorkspaceRole> roleOf(Long workspaceId, Long userId) {
+        return membershipRepository.findByWorkspaceIdAndUserIdAndStatus(workspaceId, userId, MembershipStatus.ACTIVE)
+                .map(WorkspaceMembership::getRole);
+    }
+
+    /** 이 공간의 활성 멤버인가. 자산·초안처럼 공간 id 를 이미 가진 행의 접근 판정에 쓴다 */
+    @Transactional(readOnly = true)
+    public boolean isMember(Long workspaceId, Long userId) {
+        return workspaceId != null && membershipRepository
+                .findByWorkspaceIdAndUserIdAndStatus(workspaceId, userId, MembershipStatus.ACTIVE)
+                .isPresent();
+    }
+
+    /**
+     * 회원 탈퇴 마지막 단계(UserExitService). 다른 탈퇴 핸들러가 이 공간을 참조하는 데이터(프레임 등)를
+     * 먼저 지운 뒤에 불려야 한다 — FK 때문에 순서가 의미를 가진다.
+     */
+    public void deleteForUser(Long userId) {
+        // 개인 공간의 자산이 공간을 FK 로 참조한다 — 자산 행을 먼저 지우고 S3 객체는 커밋 후 지운다.
+        // 자산을 참조하던 프레임·발행본은 앞선 탈퇴 핸들러가 이미 지웠다
+        workspaceRepository.findByPersonalOwnerUserId(userId).ifPresent(personal -> {
+            List<String> keys = assetRepository.findKeysByWorkspaceId(personal.getId());
+            assetRepository.deleteByWorkspaceId(personal.getId());
+            s3Deleter.deleteAfterCommit(keys);
+        });
+        grantRepository.deleteByUserId(userId);   // 행사 사진 권한 — 행사 자체는 조직 공간 것이라 남는다
+        membershipRepository.deleteByUserId(userId);
+        workspaceRepository.deletePersonalByOwner(userId);
+    }
+
+    /**
+     * 탈퇴 요청 전에 — 조직 공간의 마지막 OWNER 면 먼저 넘겨야 한다. 그대로 탈퇴하면 OWNER 없는 공간이 남아 고객의 행사·사진을 아무도 관리하지 못한다(R5 L561, O18).
+     * 개인 공간은 빼고 본다 — 언제나 본인이 유일한 OWNER 이고 탈퇴와 함께 지워진다(deleteForUser).
+     * 이미 탈퇴를 신청한 OWNER 는 남을 OWNER 로 세지 않는다 — 둘이 차례로 신청하면 유예 뒤 둘 다 멤버십째 지워진다.
+     * 호출자는 본인 회원 행을 잠그기 전에 불러야 한다 — 잠금 순서(OWNER 멤버십 → 회원)가 다른 요청과 같아야 교착이 없다.
+     * 여러 조직의 OWNER 면 그 조직들의 멤버십을 공간 id 순으로 모두 잠근 뒤에 회원을 한 번에 잠근다 — 조직마다 번갈아 잡으면
+     * 다른 조직의 OWNER 와 서로의 잠금을 기다리며 맞물린다(조직 1 과 회원 A 를 쥐고 조직 2 를 기다리는데, 조직 2 를 쥔 쪽은 회원 A 를 기다린다)
+     */
+    public void requireNotLastOwner(Long userId) {
+        Map<Long, List<Long>> ownersByOrganization = new TreeMap<>();
+        membershipRepository.findAllByUserIdAndStatus(userId, MembershipStatus.ACTIVE).stream()
+                .filter(membership -> membership.getRole() == WorkspaceRole.OWNER)
+                .map(WorkspaceMembership::getWorkspaceId)
+                .filter(workspaceId -> organization(workspaceId).isPresent())
+                .sorted()   // 잠그는 순서 — 공간 id 순
+                .forEach(workspaceId -> ownersByOrganization.put(workspaceId, membershipRepository.lockActiveOwnerUserIds(workspaceId)));
+        Set<Long> staying = lockStaying(ownersByOrganization.values().stream().flatMap(List::stream).distinct().toList());
+        if (ownersByOrganization.values().stream()
+                .anyMatch(owners -> owners.stream().noneMatch(id -> !id.equals(userId) && staying.contains(id)))) {
+            throw new BusinessException(MemberErrorCode.LAST_OWNER);
+        }
+    }
+
+    /**
+     * 이 공간에 excludedUserId 말고 남을 OWNER 가 있는가 — 활성 OWNER 멤버십 중 탈퇴를 신청하지 않은 회원.
+     * 멤버십 → 회원 순서로 잠금 읽기를 한다. 두 OWNER 가 동시에 서로를 내리거나 함께 탈퇴를 신청해도 같은 행을 같은 순서로 잡아
+     * 뒤쪽이 앞쪽 커밋(역할 변경·탈퇴 신청)을 보고 센다. 일반 읽기면 REPEATABLE READ 스냅샷이라 둘 다 통과해 OWNER 가 0 명이 된다
+     */
+    public boolean hasRemainingOwnerOtherThan(Long workspaceId, Long excludedUserId) {
+        return lockStaying(membershipRepository.lockActiveOwnerUserIds(workspaceId)).stream()
+                .anyMatch(id -> !id.equals(excludedUserId));
+    }
+
+    // 이 회원들 중 탈퇴를 신청하지 않은 사람 — 회원 id 순 잠금 읽기. 빈 목록이면 쿼리를 건너뛴다(IN () 는 SQL 오류)
+    private Set<Long> lockStaying(List<Long> userIds) {
+        return userIds.isEmpty() ? Set.of() : Set.copyOf(userRepository.lockStayingIds(userIds));
+    }
+
+    private User getUser(String publicId) {
+        return userRepository.findByPublicId(publicId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+    }
+}

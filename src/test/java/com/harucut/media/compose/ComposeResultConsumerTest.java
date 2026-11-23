@@ -7,6 +7,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.json.JsonTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -29,6 +30,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
@@ -57,6 +59,8 @@ class ComposeResultConsumerTest {
     @MockitoBean
     private ComposeService composeService;
 
+    private final ComposeOutputVerifier outputVerifier = mock(ComposeOutputVerifier.class);
+
     private ComposeResultConsumer consumer;
     private SqsClient sqsClient;
 
@@ -73,7 +77,7 @@ class ComposeResultConsumerTest {
     @DisplayName("큐 URL 이 비어 있으면 기동에서 죽는다 — 통지를 조용히 흘리는 것보다 낫다")
     void failsFastWithoutQueueUrl() {
         assertThatThrownBy(() -> new ComposeResultConsumer(
-                mock(SqsClient.class), objectMapper, composeService, metrics(), properties("")))
+                mock(SqsClient.class), objectMapper, composeService, metrics(), mock(ComposeOutputVerifier.class), properties("")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("compose-result-queue-url");
     }
@@ -83,6 +87,18 @@ class ComposeResultConsumerTest {
     @Nested
     @DisplayName("condition 분기")
     class Conditions {
+
+        @Test
+        @DisplayName("작업 행이 없으면(탈퇴) 결과를 지우고 통지를 끝낸다 — 재전달을 돌다 DLQ 로 가지 않는다")
+        void discardsWhenJobGone() throws Exception {
+            given(composeService.discardIfJobGone(anyLong(), any(), any())).willReturn(true);
+
+            CountDownLatch deleted = runWith(notification("Success", """
+                    "responsePayload":{"ok":true}"""));
+
+            assertThat(deleted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            then(composeService).should(never()).completeJob(anyLong(), any(), any());
+        }
 
         @Test
         @DisplayName("Success 는 Job 을 완료로 확정하고 메시지를 지운다")
@@ -104,8 +120,73 @@ class ComposeResultConsumerTest {
                     }"""));
 
             assertThat(deleted.await(5, TimeUnit.SECONDS)).isTrue();
-            then(composeService).should().failJob(eq(JOB_ID), anyString());
+            then(composeService).should().failJob(eq(JOB_ID), anyString(), any(), isNull());
             then(composeService).should(never()).completeJob(anyLong(), anyString(), anyString());
+        }
+
+        @Test
+        @DisplayName("실패 종류: 실행기가 문구 머리말로 실은 코드를 그대로 남긴다 — 코드 없는 옛 실행기의 실패는 UNKNOWN(다른 종류로 꾸미지 않는다)")
+        void failureCodeFromNotification() throws Exception {
+            CountDownLatch deleted = runWith(notification("RetriesExhausted", """
+                    "responsePayload": {
+                      "errorMessage": "[SOURCE_UNREADABLE] 이미지 형식을 인식할 수 없다",
+                      "errorType": "com.harucut.media.compose.ComposeFailureException"
+                    }"""));
+
+            assertThat(deleted.await(5, TimeUnit.SECONDS)).isTrue();
+            then(composeService).should().failJob(eq(JOB_ID), anyString(), eq(ComposeFailureCode.SOURCE_UNREADABLE), isNull());
+        }
+
+        @Test
+        @DisplayName("출력 계약 2 성공: 저장된 한 쌍을 대조해 같을 때만 체크섬과 함께 완료로 확정한다")
+        void verifiedPairCompletes() throws Exception {
+            given(composeService.sameInput(eq(JOB_ID), any())).willReturn(true);
+            given(outputVerifier.verified(any(), any())).willReturn(true);
+            CountDownLatch deleted = runWith(verifiedNotification("Success", 2, """
+                    "responsePayload": { "ok": true, "resultSha256": "UkVT", "thumbnailSha256": "VEhVTUI=", "attemptNo": 2, "contract": 2 }"""));
+
+            assertThat(deleted.await(5, TimeUnit.SECONDS)).isTrue();
+            then(composeService).should().completeJob(JOB_ID, RESULT_KEY, THUMB_KEY, "UkVT", "VEhVTUI=");
+            ArgumentCaptor<ComposeLambdaResult> result = ArgumentCaptor.captor();
+            then(outputVerifier).should().verified(any(), result.capture());
+            assertThat(result.getValue().resultSha256()).isEqualTo("UkVT");
+        }
+
+        @Test
+        @DisplayName("출력 계약 2 성공인데 입력 지문이 이 작업의 것이 아니면 공개하지 않고 OUTPUT_CONFLICT 최종 실패(R5 L492, O41)")
+        void otherInputFails() throws Exception {
+            given(composeService.sameInput(eq(JOB_ID), any())).willReturn(false);
+            given(outputVerifier.verified(any(), any())).willReturn(true);   // 저장된 쌍은 맞아도 다른 입력의 실행이면 받지 않는다
+            CountDownLatch deleted = runWith(verifiedNotification("Success", 2, """
+                    "responsePayload": { "ok": true, "resultSha256": "UkVT", "thumbnailSha256": "VEhVTUI=", "attemptNo": 2, "inputFingerprint": "other" }"""));
+
+            assertThat(deleted.await(5, TimeUnit.SECONDS)).isTrue();
+            then(composeService).should().failJob(eq(JOB_ID), anyString(), eq(ComposeFailureCode.OUTPUT_CONFLICT));
+            then(composeService).should(never()).completeJob(anyLong(), any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("출력 계약 2 성공인데 저장된 쌍이 다르거나 검증할 수 없으면 공개하지 않고 OUTPUT_CONFLICT 최종 실패")
+        void unverifiedPairFails() throws Exception {
+            given(composeService.sameInput(eq(JOB_ID), any())).willReturn(true);
+            given(outputVerifier.verified(any(), any())).willReturn(false);
+            CountDownLatch deleted = runWith(verifiedNotification("Success", 1, """
+                    "responsePayload": { "ok": true }"""));
+
+            assertThat(deleted.await(5, TimeUnit.SECONDS)).isTrue();
+            then(composeService).should().failJob(eq(JOB_ID), anyString(), eq(ComposeFailureCode.OUTPUT_CONFLICT));
+            then(composeService).should(never()).completeJob(anyLong(), anyString(), anyString(), any(), any());
+            then(composeService).should(never()).completeJob(anyLong(), anyString(), anyString());
+        }
+
+        @Test
+        @DisplayName("실패 통지는 payload 의 시도 번호와 함께 넘긴다 — 지난 시도의 늦은 실패는 서비스가 반영하지 않는다")
+        void failurePassesAttempt() throws Exception {
+            CountDownLatch deleted = runWith(verifiedNotification("RetriesExhausted", 1, """
+                    "responsePayload": { "errorMessage": "[RENDER_FAILED] x", "errorType": "E" }"""));
+
+            assertThat(deleted.await(5, TimeUnit.SECONDS)).isTrue();
+            then(composeService).should().failJob(eq(JOB_ID), anyString(), eq(ComposeFailureCode.RENDER_FAILED), eq(1));
         }
 
         // 이 분기가 개선 전 30% 유실의 재발 방지선이다.
@@ -117,7 +198,8 @@ class ComposeResultConsumerTest {
                     "responseContext": null"""));
 
             assertThat(deleted.await(5, TimeUnit.SECONDS)).isTrue();
-            then(composeService).shouldHaveNoInteractions();
+            then(composeService).should().discardIfJobGone(JOB_ID, RESULT_KEY, THUMB_KEY);
+            then(composeService).shouldHaveNoMoreInteractions();
         }
 
         @Test
@@ -127,7 +209,8 @@ class ComposeResultConsumerTest {
                     "responseContext": null"""));
 
             assertThat(deleted.await(5, TimeUnit.SECONDS)).isTrue();
-            then(composeService).shouldHaveNoInteractions();
+            then(composeService).should().discardIfJobGone(JOB_ID, RESULT_KEY, THUMB_KEY);
+            then(composeService).shouldHaveNoMoreInteractions();
         }
     }
 
@@ -252,7 +335,7 @@ class ComposeResultConsumerTest {
 
     private void start() {
         consumer = new ComposeResultConsumer(sqsClient, objectMapper, composeService,
-                metrics(), properties(QUEUE_URL));
+                metrics(), outputVerifier, properties(QUEUE_URL));
         consumer.start();
     }
 
@@ -312,5 +395,11 @@ class ComposeResultConsumerTest {
                   %s
                 }
                 """.formatted(condition, RESULT_KEY, THUMB_KEY, tail);
+    }
+
+    // 출력 계약 2 payload — 시도 번호·계약이 실린다
+    private static String verifiedNotification(String condition, int attemptNo, String tail) {
+        return notification(condition, tail).replace("\"thumbnailKey\": \"" + THUMB_KEY + "\"",
+                "\"thumbnailKey\": \"" + THUMB_KEY + "\", \"attemptNo\": " + attemptNo + ", \"contract\": 2");
     }
 }

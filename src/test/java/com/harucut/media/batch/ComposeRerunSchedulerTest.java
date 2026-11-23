@@ -137,4 +137,21 @@ class ComposeRerunSchedulerTest {
                 List.of(false, false, false, false),
                 List.of());
     }
+
+    @Test
+    @DisplayName("재접수 예산을 다 쓴 작업은 DISPATCH_EXHAUSTED 로 끝낸다 — 시도 번호를 대조하고, 한 건이 터져도 나머지와 재접수는 계속 간다")
+    void failsExpiredJobs() {
+        given(composeService.findDispatchExpired(STALE_AFTER, BATCH_SIZE)).willReturn(List.of(
+                new ComposeService.ExpiredDispatch(1L, 4), new ComposeService.ExpiredDispatch(2L, 0)));
+        given(composeService.failJob(1L, "앱 재접수 상한 초과(횟수·총 기한)", com.harucut.media.compose.ComposeFailureCode.DISPATCH_EXHAUSTED, 4))
+                .willThrow(new RuntimeException("DB"));
+        given(composeService.failJob(2L, "앱 재접수 상한 초과(횟수·총 기한)", com.harucut.media.compose.ComposeFailureCode.DISPATCH_EXHAUSTED, 0))
+                .willReturn(true);
+        given(composeService.findStalled(STALE_AFTER, BATCH_SIZE)).willReturn(List.of(event(3L)));
+
+        scheduler.run();
+
+        then(composeService).should().failJob(2L, "앱 재접수 상한 초과(횟수·총 기한)", com.harucut.media.compose.ComposeFailureCode.DISPATCH_EXHAUSTED, 0);
+        then(composeWorker).should().rerun(event(3L));
+    }
 }

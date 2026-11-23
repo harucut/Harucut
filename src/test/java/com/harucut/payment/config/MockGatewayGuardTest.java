@@ -47,12 +47,40 @@ class MockGatewayGuardTest {
     }
 
     @Test
-    @DisplayName("mock이 아니면 통과한다")
+    @DisplayName("게이트웨이·웹훅 검증기 모두 mock 이 아니면 통과한다")
     void allowsRealGateway() {
         given(paymentGateway.provider()).willReturn(PgProvider.TOSS);
 
-        assertThatCode(() -> new MockGatewayGuard(paymentGateway, properties(false)))
+        assertThatCode(() -> new MockGatewayGuard(paymentGateway, properties(false, "portone")))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("게이트웨이가 실제여도 웹훅 검증기가 mock 이면(서명 무검증) 허용 없이는 기동을 실패시킨다")
+    void rejectsMockWebhookVerifier() {
+        given(paymentGateway.provider()).willReturn(PgProvider.TOSS);
+
+        assertThatThrownBy(() -> new MockGatewayGuard(paymentGateway, properties(false, "mock")))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatCode(() -> new MockGatewayGuard(paymentGateway, properties(true, "mock")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("결제를 닫아 둔 조합(disabled)은 허용 없이 기동한다 — 실제 PG 구현 전 운영의 기본")
+    void allowsDisabledPayment() {
+        assertThatCode(() -> new MockGatewayGuard(new com.harucut.payment.gateway.DisabledPaymentGateway(), properties(false, "disabled")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("닫아 둔 게이트웨이는 발급·청구를 전부 실패로 돌리고, 닫아 둔 웹훅 검증기는 어떤 본문도 통과시키지 않는다")
+    void disabledRejectsEverything() {
+        com.harucut.payment.gateway.DisabledPaymentGateway gateway = new com.harucut.payment.gateway.DisabledPaymentGateway();
+        org.assertj.core.api.Assertions.assertThat(gateway.issueBillingKey(null).success()).isFalse();
+        org.assertj.core.api.Assertions.assertThat(gateway.charge(null).success()).isFalse();
+        org.assertj.core.api.Assertions.assertThat(new com.harucut.payment.webhook.DisabledPaymentWebhookVerifier()
+                .verify("{}", java.util.Map.of())).isFalse();
     }
 
     @Test
@@ -66,10 +94,16 @@ class MockGatewayGuardTest {
     }
 
     private PaymentProperties properties(boolean allowedOutsideLocal) {
+        return properties(allowedOutsideLocal, "mock");
+    }
+
+    private PaymentProperties properties(boolean allowedOutsideLocal, String webhookProvider) {
         return new PaymentProperties(
                 new PaymentProperties.Gateway("mock"),
                 new PaymentProperties.Mock(false, allowedOutsideLocal),
-                3
+                3,
+                new PaymentProperties.Webhook(webhookProvider, 300),
+                new PaymentProperties.PortOne(null, null, null, "https://api.portone.io")
         );
     }
 }

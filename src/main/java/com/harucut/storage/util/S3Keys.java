@@ -15,6 +15,12 @@ public final class S3Keys {
         return "uploads/users/" + publicId + "/";
     }
 
+    // 내려받을 파일 이름에 붙이는 확장자(점 포함). 없으면 결과물 기본인 .jpg
+    public static String extensionOf(String key) {
+        int dot = key.lastIndexOf('.');
+        return dot < 0 ? ".jpg" : key.substring(dot);
+    }
+
     // 우리 버킷이 관리하는 key인가 — uploads/ 아래만 우리 소유다
     public static boolean isManagedKey(String key) {
         return key != null && key.startsWith(UPLOAD_ROOT);

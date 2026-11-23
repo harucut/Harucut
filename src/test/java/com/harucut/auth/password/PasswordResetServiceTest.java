@@ -20,14 +20,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.MailSendException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.thymeleaf.ITemplateEngine;
-import org.thymeleaf.context.IContext;
 
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.*;
 import static org.mockito.Mockito.never;
@@ -37,8 +36,6 @@ class PasswordResetServiceTest {
 
     private static final String EMAIL = "user@harucut.com";
     private static final String CODE = "ABC234";
-    private static final String HTML = "<html>ABC234</html>";
-    private static final String TEMPLATE = "mail/password-reset-code";
     private static final String RAW_PASSWORD = "newpassword123";
 
     @Mock
@@ -59,9 +56,6 @@ class PasswordResetServiceTest {
     @Mock
     private MailService mailService;
 
-    @Mock
-    private ITemplateEngine templateEngine;
-
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
 
     private PasswordResetService service;
@@ -75,8 +69,7 @@ class PasswordResetServiceTest {
                 userRepository,
                 passwordEncoder,
                 refreshTokenService,
-                mailService,
-                templateEngine
+                mailService
         );
     }
 
@@ -98,15 +91,15 @@ class PasswordResetServiceTest {
         }
 
         @Test
-        @DisplayName("재설정 템플릿을 렌더해서 발송한다")
+        @DisplayName("재설정 템플릿의 코드 자리에 생성한 코드를 넣어 발송한다")
         void sendsResetTemplate() {
             givenCooldownAcquired();
             givenRegistered(true);
-            given(templateEngine.process(eq(TEMPLATE), any(IContext.class))).willReturn(HTML);
+            given(generator.generate()).willReturn(CODE);
 
             service.sendResetCode(EMAIL);
 
-            then(mailService).should().sendHtml(eq(EMAIL), any(), eq(HTML));
+            then(mailService).should().sendHtml(eq(EMAIL), any(), contains(CODE));
         }
 
         @Test
@@ -144,6 +137,7 @@ class PasswordResetServiceTest {
         void releasesCooldownOnMailFailure() {
             givenCooldownAcquired();
             givenRegistered(true);
+            given(generator.generate()).willReturn(CODE);
             willThrow(new MailSendException("smtp down"))
                     .given(mailService).sendHtml(any(), any(), any());
 
@@ -220,7 +214,7 @@ class PasswordResetServiceTest {
 
             service.resetPassword(TOKEN, RAW_PASSWORD);
 
-            then(refreshTokenService).should().revoke(user.getPublicId());
+            then(refreshTokenService).should().revokeAll(user.getPublicId());
         }
 
         @Test
@@ -265,5 +259,31 @@ class PasswordResetServiceTest {
 
     private void givenRegistered(boolean registered) {
         given(userRepository.existsByProviderAndEmail(Provider.HARUCUT, EMAIL)).willReturn(registered);
+    }
+
+    @Test
+    @DisplayName("재설정 코드를 틀린 횟수가 상한을 넘으면 코드를 지우고 AUTH-040 — 대입으로 계정을 뺏지 못한다")
+    void removesResetCodeWhenMissesExceeded() {
+        org.mockito.BDDMockito.given(repository.findCode("a@b.c")).willReturn(java.util.Optional.of("ABCDEF"));
+        org.mockito.BDDMockito.given(emailRateLimit.codeAttemptsExceeded("a@b.c")).willReturn(true);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.verifyResetCode("a@b.c", "ZZZZZZ"))
+                .isInstanceOf(com.harucut.common.exception.BusinessException.class)
+                .hasMessageContaining("Too many");
+        org.mockito.BDDMockito.then(repository).should().removeCode("a@b.c");
+        org.mockito.BDDMockito.then(repository).should(org.mockito.Mockito.never()).saveToken(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    @DisplayName("일일 발송 상한을 넘으면 이미 보낸 재설정 코드를 덮어쓰지 않고 GEN-061")
+    void dailyLimitKeepsExistingResetCode() {
+        org.mockito.BDDMockito.given(emailRateLimit.tryAcquireCooldown("a@b.c")).willReturn(true);
+        org.mockito.BDDMockito.given(userRepository.existsByProviderAndEmail(com.harucut.user.enums.Provider.HARUCUT, "a@b.c")).willReturn(true);
+        org.mockito.BDDMockito.given(emailRateLimit.dailySendLimitExceeded()).willReturn(true);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.sendResetCode("a@b.c"))
+                .isInstanceOf(com.harucut.common.exception.BusinessException.class);
+        org.mockito.BDDMockito.then(repository).should(org.mockito.Mockito.never()).saveCode(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+        org.mockito.BDDMockito.then(emailRateLimit).should().releaseCooldown("a@b.c");
     }
 }

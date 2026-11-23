@@ -115,8 +115,23 @@ class TokenControllerTest extends SecurityBeansMockSupport {
     class Logout {
 
         @Test
-        @DisplayName("유효한 access 쿠키가 있으면 principal에서 publicId를 풀어 로그아웃한다")
-        void resolvesFromPrincipal() {
+        @DisplayName("refresh 쿠키의 기기 세션만 끊는다 — 다른 기기는 그대로다")
+        void revokesOnlyThisSession() {
+            String refresh = jwtTokenService.createRefreshToken("public-id-42").value();
+
+            MvcTestResult result = mockMvc.delete().uri(LOGOUT_URI)
+                    .cookie(cookie(CookieManager.REFRESH_TOKEN, refresh))
+                    .exchange();
+
+            assertThat(result).hasStatusOk();
+            then(refreshTokenService).should().revokeSession(jwtTokenService.parse(refresh));
+            then(refreshTokenService).should(org.mockito.Mockito.never()).revokeAll(org.mockito.ArgumentMatchers.anyString());
+            assertExpiredCookies(result);
+        }
+
+        @Test
+        @DisplayName("access 쿠키만 있으면 어느 세션인지 모른다 — 쿠키만 지우고 세션은 건드리지 않는다")
+        void accessCookieAloneRevokesNothing() {
             User user = UserFixtures.localUser("user@harucut.com", "encoded", UserStatus.ACTIVE, UserRole.ROLE_USER);
 
             MvcTestResult result = mockMvc.delete().uri(LOGOUT_URI)
@@ -124,20 +139,8 @@ class TokenControllerTest extends SecurityBeansMockSupport {
                     .exchange();
 
             assertThat(result).hasStatusOk();
-            then(refreshTokenService).should().revoke(user.getPublicId());
+            then(refreshTokenService).shouldHaveNoInteractions();
             assertExpiredCookies(result);
-        }
-
-        @Test
-        @DisplayName("principal이 없으면 refresh 쿠키에서 publicId를 푼다")
-        void fallsBackToRefreshCookie() {
-            String refresh = jwtTokenService.createRefreshToken("public-id-42").value();
-
-            assertThat(mockMvc.delete().uri(LOGOUT_URI)
-                    .cookie(cookie(CookieManager.REFRESH_TOKEN, refresh)))
-                    .hasStatusOk();
-
-            then(refreshTokenService).should().revoke("public-id-42");
         }
 
         @Test
@@ -170,11 +173,62 @@ class TokenControllerTest extends SecurityBeansMockSupport {
         void survivesRedisFailure() {
             String refresh = jwtTokenService.createRefreshToken("public-id-42").value();
             willThrow(new RedisConnectionFailureException("down"))
-                    .given(refreshTokenService).revoke("public-id-42");
+                    .given(refreshTokenService).revokeSession(jwtTokenService.parse(refresh));
 
             MvcTestResult result = mockMvc.delete().uri(LOGOUT_URI)
                     .cookie(cookie(CookieManager.REFRESH_TOKEN, refresh))
                     .exchange();
+
+            assertThat(result).hasStatusOk();
+            assertExpiredCookies(result);
+        }
+    }
+
+    @Nested
+    @DisplayName("DELETE /logout/all")
+    class LogoutAll {
+
+        private static final String URI = LOGOUT_URI + "/all";
+
+        @Test
+        @DisplayName("access 쿠키의 사용자 — 모든 기기 세션을 끊는다")
+        void fromPrincipal() {
+            User user = UserFixtures.localUser("user@harucut.com", "encoded", UserStatus.ACTIVE, UserRole.ROLE_USER);
+
+            MvcTestResult result = mockMvc.delete().uri(URI).cookie(cookie(CookieManager.ACCESS_TOKEN, accessToken(user))).exchange();
+
+            assertThat(result).hasStatusOk();
+            then(refreshTokenService).should().revokeAll(user.getPublicId());
+            assertExpiredCookies(result);
+        }
+
+        @Test
+        @DisplayName("access 가 만료됐으면 refresh 쿠키의 사용자")
+        void fromRefreshCookie() {
+            String refresh = jwtTokenService.createRefreshToken("public-id-42").value();
+
+            assertThat(mockMvc.delete().uri(URI).cookie(cookie(CookieManager.REFRESH_TOKEN, refresh))).hasStatusOk();
+
+            then(refreshTokenService).should().revokeAll("public-id-42");
+        }
+
+        @Test
+        @DisplayName("토큰이 없어도 200 이고 아무것도 지우지 않는다")
+        void noToken() {
+            MvcTestResult result = mockMvc.delete().uri(URI).exchange();
+
+            assertThat(result).hasStatusOk();
+            then(refreshTokenService).shouldHaveNoInteractions();
+            assertExpiredCookies(result);
+        }
+
+        @Test
+        @DisplayName("Redis 삭제가 실패해도 200 과 만료 쿠키를 준다")
+        void survivesRedisFailure() {
+            String refresh = jwtTokenService.createRefreshToken("public-id-42").value();
+            willThrow(new RedisConnectionFailureException("down")).given(refreshTokenService).revokeAll("public-id-42");
+
+            MvcTestResult result = mockMvc.delete().uri(URI).cookie(cookie(CookieManager.REFRESH_TOKEN, refresh)).exchange();
 
             assertThat(result).hasStatusOk();
             assertExpiredCookies(result);

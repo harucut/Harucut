@@ -1,10 +1,15 @@
 package com.harucut.config.openapi;
 
 import com.harucut.auth.exception.AuthErrorCode;
+import com.harucut.booth.exception.BoothErrorCode;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.config.SecurityPaths;
+import com.harucut.media.exception.MediaErrorCode;
+import com.harucut.participant.exception.ParticipantErrorCode;
+import com.harucut.result.exception.ResultErrorCode;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
+import io.swagger.v3.oas.models.PathItem;
 import io.swagger.v3.oas.models.media.Content;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.Schema;
@@ -18,6 +23,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
@@ -43,6 +49,8 @@ public class ApiErrorDocumentationCustomizer implements GlobalOpenApiCustomizer 
 
     private static final String JSON = "application/json";
     private static final String ADMIN_PREFIX = "/api/admin/";
+    private static final Set<PathItem.HttpMethod> ORIGIN_CHECKED_METHODS = Set.of(
+            PathItem.HttpMethod.POST, PathItem.HttpMethod.PUT, PathItem.HttpMethod.PATCH, PathItem.HttpMethod.DELETE);
 
     /** 인증이 필요한 모든 경로에 공통으로 붙는 401. 인증 필터가 실제로 내는 코드들이다. */
     private static final List<DocumentedError> UNAUTHORIZED = List.of(
@@ -59,24 +67,35 @@ public class ApiErrorDocumentationCustomizer implements GlobalOpenApiCustomizer 
         }
 
         openApi.getPaths().forEach((path, pathItem) ->
-                pathItem.readOperations().forEach(operation -> customise(path, operation)));
+                pathItem.readOperationsMap().forEach((method, operation) -> customise(path, method, operation)));
     }
 
-    private void customise(String path, Operation operation) {
+    private void customise(String path, PathItem.HttpMethod method, Operation operation) {
         if (operation.getResponses() == null) {
             operation.setResponses(new ApiResponses());
         }
 
         Map<String, DocumentedError> errors = new LinkedHashMap<>();
 
-        boolean secured = !SecurityPaths.isPublic(path);
-        if (secured) {
+        if (SecurityPaths.isEvent(path)) {
+            // 행사 체인: 회원 쿠키·회원 401/403 이 아니라 경로마다 다른 헤더 자격과 코드
+            eventCredential(path, operation, errors);
+        } else if (!SecurityPaths.isPublic(path)) {
             requireAuthentication(operation);
             UNAUTHORIZED.forEach(error -> errors.put(error.code(), error));
 
             if (canBeForbidden(path, operation)) {
                 errors.put(GlobalErrorCode.FORBIDDEN.getCode(), forbidden(path));
+                if (!SecurityPaths.isBlockedAllowed(path)) {
+                    errors.put(AuthErrorCode.ACCOUNT_BLOCKED.getCode(),
+                            DocumentedError.of(AuthErrorCode.ACCOUNT_BLOCKED, "정지(BLOCKED) 계정 — 마이페이지와 탈퇴만 된다"));
+                }
             }
+        }
+
+        if (originChecked(path, method)) {
+            errors.put(GlobalErrorCode.CROSS_ORIGIN_REJECTED.getCode(), DocumentedError.of(
+                    GlobalErrorCode.CROSS_ORIGIN_REJECTED, "쿠키 인증 요청의 Origin(없으면 Referer)이 허용 출처가 아님"));
         }
 
         ApiErrorCollector.declaredOn(operation).stream()
@@ -87,6 +106,37 @@ public class ApiErrorDocumentationCustomizer implements GlobalOpenApiCustomizer 
         fillRemainingErrorSchemas(operation);
 
         discardCollectorExtension(operation);
+    }
+
+    private void eventCredential(String path, Operation operation, Map<String, DocumentedError> errors) {
+        if (SecurityPaths.isEventOpen(path)) {
+            return;
+        }
+        if (path.startsWith("/api/participant/")) {
+            requireScheme(operation, OpenApiConfig.PARTICIPANT_SCHEME);
+            errors.put(ParticipantErrorCode.SESSION_INVALID.getCode(),
+                    DocumentedError.of(ParticipantErrorCode.SESSION_INVALID, "참가자 토큰이 없거나 만료·회수"));
+        } else if (path.startsWith("/api/public/results")) {
+            requireScheme(operation, OpenApiConfig.RESULT_SCHEME);
+            errors.put(ResultErrorCode.TOKEN_INVALID.getCode(),
+                    DocumentedError.of(ResultErrorCode.TOKEN_INVALID, "결과 토큰이 없거나 틀림"));
+            errors.put(GlobalErrorCode.TOO_MANY_REQUESTS.getCode(),
+                    DocumentedError.of(GlobalErrorCode.TOO_MANY_REQUESTS, "같은 IP 의 틀린 결과 토큰이 너무 잦다(분당 30회)"));
+        } else if (path.startsWith("/api/public/media-shares")) {
+            requireScheme(operation, OpenApiConfig.MEDIA_SHARE_SCHEME);
+            errors.put(MediaErrorCode.SHARE_CLOSED.getCode(),
+                    DocumentedError.of(MediaErrorCode.SHARE_CLOSED, "공유 토큰이 없거나 틀림 — 닫힌 링크와 같은 코드"));
+            errors.put(GlobalErrorCode.TOO_MANY_REQUESTS.getCode(),
+                    DocumentedError.of(GlobalErrorCode.TOO_MANY_REQUESTS, "같은 IP 의 틀린 공유 토큰이 너무 잦다(분당 30회)"));
+        } else if (path.startsWith("/api/booth/")) {
+            requireScheme(operation, OpenApiConfig.BOOTH_SCHEME);
+            errors.put(BoothErrorCode.DEVICE_UNAVAILABLE.getCode(),
+                    DocumentedError.of(BoothErrorCode.DEVICE_UNAVAILABLE, "기기 토큰이 없거나 무효(회수·재연결로 바뀜)"));
+        }
+    }
+
+    private void requireScheme(Operation operation, String scheme) {
+        operation.setSecurity(new ArrayList<>(List.of(new SecurityRequirement().addList(scheme))));
     }
 
     /** {@link ApiErrorCollector} 가 넘긴 임시 확장 필드는 문서에 남기지 않는다. */
@@ -122,10 +172,17 @@ public class ApiErrorDocumentationCustomizer implements GlobalOpenApiCustomizer 
         return !SecurityPaths.isAuthenticatedOnly(path) || ApiErrorCollector.roleRequired(operation);
     }
 
+    /** 회원 체인의 변경 요청은 쿠키가 실리면 출처 검사(OriginCheckFilter)를 받는다. 행사 체인·웹훅·콜백은 아니다. */
+    private boolean originChecked(String path, PathItem.HttpMethod method) {
+        return ORIGIN_CHECKED_METHODS.contains(method)
+                && !SecurityPaths.isEvent(path)
+                && !SecurityPaths.isOriginCheckExempt(path);
+    }
+
     private DocumentedError forbidden(String path) {
         String note = path.startsWith(ADMIN_PREFIX)
-                ? "ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태"
-                : "탈퇴 요청(DELETED_REQUESTED)·정지(BLOCKED) 상태의 사용자";
+                ? "ADMIN 권한 없음, 또는 탈퇴 요청(DELETED_REQUESTED) 상태"
+                : "탈퇴 요청(DELETED_REQUESTED) 상태의 사용자";
 
         return DocumentedError.of(GlobalErrorCode.FORBIDDEN, note);
     }

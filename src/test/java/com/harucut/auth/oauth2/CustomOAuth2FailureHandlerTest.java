@@ -25,7 +25,7 @@ class CustomOAuth2FailureHandlerTest {
 
     @BeforeEach
     void setUp() {
-        handler = new CustomOAuth2FailureHandler(FRONTEND_URL);
+        handler = new CustomOAuth2FailureHandler(FRONTEND_URL, "harucut://oauth2/callback");
         request = new MockHttpServletRequest();
         response = new MockHttpServletResponse();
     }
@@ -61,5 +61,16 @@ class CustomOAuth2FailureHandlerTest {
 
     private static AuthenticationException exception(String errorCode) {
         return new OAuth2AuthenticationException(new OAuth2Error(errorCode), errorCode);
+    }
+
+    @Test
+    @DisplayName("앱에서 시작한 로그인이 실패·취소되면 앱 스킴으로 error=oauth2")
+    void appLoginFailure() throws IOException {
+        MockHttpServletRequest callback = com.harucut.auth.oauth2.app.AppLoginFixtures.callback(
+                java.util.Map.of("client", "app", "code_challenge", com.harucut.auth.oauth2.app.AppLoginFixtures.CHALLENGE));
+
+        handler.onAuthenticationFailure(callback, response, exception("access_denied"));
+
+        assertThat(response.getRedirectedUrl()).isEqualTo("harucut://oauth2/callback?error=oauth2");
     }
 }

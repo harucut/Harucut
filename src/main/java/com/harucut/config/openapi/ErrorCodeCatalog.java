@@ -1,16 +1,30 @@
 package com.harucut.config.openapi;
 
+import com.harucut.asset.exception.AssetErrorCode;
 import com.harucut.auth.exception.AuthErrorCode;
+import com.harucut.booth.exception.BoothErrorCode;
 import com.harucut.common.exception.ErrorCode;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.coupon.exception.CouponErrorCode;
+import com.harucut.draft.exception.DraftErrorCode;
+import com.harucut.entitlement.exception.EntitlementErrorCode;
+import com.harucut.event.exception.EventErrorCode;
+import com.harucut.event.exception.PhotoErrorCode;
+import com.harucut.export.exception.ExportErrorCode;
 import com.harucut.frame.exception.FrameErrorCode;
+import com.harucut.media.exception.MediaErrorCode;
 import com.harucut.notice.exception.NoticeErrorCode;
+import com.harucut.participant.exception.ParticipantErrorCode;
 import com.harucut.payment.exception.PaymentErrorCode;
+import com.harucut.project.exception.ProjectErrorCode;
+import com.harucut.result.exception.ResultErrorCode;
 import com.harucut.subscription.exception.SubscriptionErrorCode;
 import com.harucut.terms.exception.TermsErrorCode;
+import com.harucut.workspace.exception.MemberErrorCode;
 
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Function;
@@ -37,7 +51,19 @@ public final class ErrorCodeCatalog {
                     SubscriptionErrorCode.values(),
                     FrameErrorCode.values(),
                     PaymentErrorCode.values(),
-                    CouponErrorCode.values())
+                    CouponErrorCode.values(),
+                    MediaErrorCode.values(),
+                    AssetErrorCode.values(),
+                    BoothErrorCode.values(),
+                    DraftErrorCode.values(),
+                    EventErrorCode.values(),
+                    ParticipantErrorCode.values(),
+                    ResultErrorCode.values(),
+                    MemberErrorCode.values(),
+                    PhotoErrorCode.values(),
+                    ExportErrorCode.values(),
+                    EntitlementErrorCode.values(),
+                    ProjectErrorCode.values())
             .flatMap(Arrays::stream)
             .collect(Collectors.toMap(
                     ErrorCode::getCode,
@@ -48,6 +74,11 @@ public final class ErrorCodeCatalog {
                     LinkedHashMap::new));
 
     private ErrorCodeCatalog() {
+    }
+
+    /** 등록된 모든 에러 코드(선언 순서). 프론트 계약 산출물(docs/api/error-codes.generated.json)이 이걸 쓴다. */
+    public static Collection<ErrorCode> all() {
+        return Collections.unmodifiableCollection(BY_CODE.values());
     }
 
     public static ErrorCode require(String code) {

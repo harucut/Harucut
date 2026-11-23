@@ -73,6 +73,83 @@ class FourcutRendererTest {
         }
     }
 
+    /*
+     * 배경 배치(fit·focal·crop). 필드가 없으면 예전과 같은 COVER·중앙이어야 한다 — 이미 저장된 프레임과
+     * 이 필드를 모르는 Lambda 가 같은 결과를 내야 하기 때문이다.
+     */
+    @Nested
+    @DisplayName("배경 배치 — fit·focal·crop")
+    class BackgroundPlacement {
+
+        private static final Color BASE = new Color(0x23, 0x26, 0x2D);
+
+        @Test
+        @DisplayName("배치 필드가 없으면 COVER·중앙을 명시한 것과 픽셀이 같다")
+        void defaultsEqualExplicitCoverCenter() {
+            Map<String, byte[]> assets = Map.of("bg", twoTonePng(40, 10, RED, BLUE));
+            BufferedImage implicit = decode(render(spec(new BackgroundAttributes.Image("bg", 1.0, null),
+                    List.of(), List.of(), List.of()), List.of(), assets));
+            BufferedImage explicit = decode(render(spec(new BackgroundAttributes.Image("bg", 1.0, null, null,
+                            BackgroundAttributes.Fit.COVER, 0.5, 0.5, null),
+                    List.of(), List.of(), List.of()), List.of(), assets));
+
+            for (int x = 0; x < 100; x += 9) {
+                for (int y = 0; y < 100; y += 9) {
+                    assertThat(pixel(implicit, x, y)).isEqualTo(pixel(explicit, x, y));
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("CONTAIN 은 이미지 전체를 넣고 남는 쪽에 바탕색이 보인다")
+        void containLetterboxes() {
+            // 40x10 → 100x25 로 맞춰 세로 가운데. 위·아래는 바탕색
+            BufferedImage result = decode(render(spec(new BackgroundAttributes.Image("bg", 1.0, null, null,
+                            BackgroundAttributes.Fit.CONTAIN, null, null, null),
+                    List.of(), List.of(), List.of()), List.of(), Map.of("bg", solidPng(40, 10, RED))));
+
+            assertThat(pixel(result, 50, 5)).isEqualTo(BASE);
+            assertThat(pixel(result, 50, 50)).isEqualTo(RED);
+            assertThat(pixel(result, 50, 95)).isEqualTo(BASE);
+        }
+
+        @Test
+        @DisplayName("COVER 의 focalX 0 은 왼쪽을, 1 은 오른쪽을 남긴다")
+        void focalChoosesVisibleSide() {
+            Map<String, byte[]> assets = Map.of("bg", twoTonePng(40, 10, RED, BLUE));
+
+            BufferedImage left = decode(render(spec(new BackgroundAttributes.Image("bg", 1.0, null, null,
+                            null, 0.0, null, null),
+                    List.of(), List.of(), List.of()), List.of(), assets));
+            BufferedImage right = decode(render(spec(new BackgroundAttributes.Image("bg", 1.0, null, null,
+                            null, 1.0, null, null),
+                    List.of(), List.of(), List.of()), List.of(), assets));
+
+            assertThat(pixel(left, 50, 50)).isEqualTo(RED);
+            assertThat(pixel(right, 50, 50)).isEqualTo(BLUE);
+        }
+
+        @Test
+        @DisplayName("crop 으로 원본의 왼쪽 절반만 쓰면 캔버스 전체가 왼쪽 색이다")
+        void cropUsesSourceRegion() {
+            BufferedImage result = decode(render(spec(new BackgroundAttributes.Image("bg", 1.0, null, null,
+                            null, null, null, new BackgroundAttributes.Crop(0, 0, 0.5, 1)),
+                    List.of(), List.of(), List.of()), List.of(), Map.of("bg", twoTonePng(20, 20, RED, BLUE))));
+
+            assertThat(pixel(result, 5, 50)).isEqualTo(RED);
+            assertThat(pixel(result, 95, 50)).isEqualTo(RED);
+        }
+
+        @Test
+        @DisplayName("범위를 벗어난 focal·crop 은 만들 수 없다")
+        void invalidPlacementRejected() {
+            assertThatThrownBy(() -> new BackgroundAttributes.Image("bg", 1.0, null, null, null, 1.5, null, null))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> new BackgroundAttributes.Crop(0.6, 0, 0.5, 1))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
     @Nested
     @DisplayName("원본 4장 — 슬롯에 cover")
     class SourcePhotos {
@@ -122,6 +199,98 @@ class FourcutRendererTest {
 
             assertCloseTo(pixel(result, 44, 50), RED, 3);
             assertCloseTo(pixel(result, 56, 50), BLUE, 3);
+        }
+    }
+
+    @Nested
+    @DisplayName("자유 사진 칸 — 회전·모양·입력 순번(ADR-0012)")
+    class FreeCells {
+
+        private final List<Slot> grid = List.of(new Slot(5, 5, 40, 40), new Slot(55, 5, 40, 40),
+                new Slot(5, 55, 40, 40), new Slot(55, 55, 40, 40));
+        private final List<byte[]> photos = List.of(solidPng(10, 10, RED), solidPng(10, 10, GREEN),
+                solidPng(10, 10, BLUE), solidPng(10, 10, YELLOW));
+
+        @Test
+        @DisplayName("칸 i 에는 원본 shotIndex 번이 들어간다 — 거꾸로 매기면 거꾸로")
+        void shotIndexChoosesSource() {
+            ComposeSpec spec = cells(grid, List.of(rect(0, 0, 3), rect(0, 0, 2), rect(0, 0, 1), rect(0, 0, 0)));
+
+            BufferedImage result = decode(render(spec, photos, Map.of()));
+
+            assertThat(pixel(result, 25, 25)).isEqualTo(YELLOW);
+            assertThat(pixel(result, 75, 25)).isEqualTo(BLUE);
+            assertThat(pixel(result, 25, 75)).isEqualTo(GREEN);
+            assertThat(pixel(result, 75, 75)).isEqualTo(RED);
+        }
+
+        @Test
+        @DisplayName("ELLIPSE 는 칸에 내접한 타원 밖(모서리)을 배경으로 남기고, RECT 둥근 모서리도 모서리를 남긴다")
+        void shapesClip() {
+            ComposeSpec spec = cells(grid, List.of(
+                    new ComposeSpec.Cell(0, ComposeSpec.CellShape.ELLIPSE, 0, 0), rect(0, 15, 1), rect(0, 0, 2), rect(0, 0, 3)));
+
+            BufferedImage result = decode(render(spec, photos, Map.of()));
+
+            assertThat(pixel(result, 25, 25)).isEqualTo(RED);     // 타원 중심
+            assertThat(pixel(result, 7, 7)).isEqualTo(WHITE);     // 타원 밖 모서리
+            assertThat(pixel(result, 75, 25)).isEqualTo(GREEN);
+            assertThat(pixel(result, 57, 7)).isEqualTo(WHITE);    // 둥근 모서리 밖
+            assertThat(pixel(result, 7, 75)).isEqualTo(BLUE);     // 반지름 0 은 모서리까지
+        }
+
+        @Test
+        @DisplayName("회전은 칸 중심 기준 — 90도 돌린 가로 칸은 세로로 서서, 원래 칸 밖을 덮고 원래 칸의 양 끝을 비운다")
+        void rotatesAroundCenter() {
+            // 60×20 가로 칸, 중심 (50,50) — 90도 돌리면 20×60 세로
+            List<Slot> one = List.of(new Slot(20, 40, 60, 20));
+            ComposeSpec spec = new ComposeSpec(100, 100, whiteBackground(), one, List.of(false), List.of(),
+                    List.of(rect(90, 0, 0)));
+
+            BufferedImage result = decode(render(spec, List.of(solidPng(10, 10, RED)), Map.of()));
+
+            assertThat(pixel(result, 50, 50)).isEqualTo(RED);
+            assertThat(pixel(result, 50, 25)).isEqualTo(RED);     // 원래 칸 위쪽 밖 — 회전한 칸 안
+            assertThat(pixel(result, 25, 50)).isEqualTo(WHITE);   // 원래 칸 왼쪽 끝 — 회전한 칸 밖
+        }
+
+        @Test
+        @DisplayName("칸 정보가 슬롯 수와 다르거나 shotIndex 가 겹치면 스냅샷을 만들 수 없다")
+        void invalidCells() {
+            assertThatThrownBy(() -> cells(grid, List.of(rect(0, 0, 0))))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> cells(grid, List.of(rect(0, 0, 0), rect(0, 0, 0), rect(0, 0, 1), rect(0, 0, 2))))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        private ComposeSpec cells(List<Slot> slots, List<ComposeSpec.Cell> cells) {
+            return new ComposeSpec(100, 100, whiteBackground(), slots, List.of(false, false, false, false), List.of(), cells);
+        }
+
+        private static ComposeSpec.Cell rect(double rotation, int cornerRadius, int shotIndex) {
+            return new ComposeSpec.Cell(rotation, ComposeSpec.CellShape.RECT, cornerRadius, shotIndex);
+        }
+    }
+
+    @Nested
+    @DisplayName("실패 종류 — 원본·자산을 구분한다")
+    class FailureCodes {
+
+        @Test
+        @DisplayName("원본을 읽지 못하면 SOURCE_UNREADABLE, 자산이 없으면 ASSET_MISSING, 자산을 읽지 못하면 ASSET_UNREADABLE")
+        void codes() {
+            ComposeSpec onePhoto = spec(whiteBackground(), List.of(new Slot(0, 0, 10, 10)), List.of(), List.of());
+            assertThatThrownBy(() -> render(onePhoto, List.of(new byte[]{1, 2, 3}), Map.of()))
+                    .isInstanceOfSatisfying(ComposeFailureException.class,
+                            e -> assertThat(e.code()).isEqualTo(ComposeFailureCode.SOURCE_UNREADABLE));
+
+            ComposeSpec sticker = spec(whiteBackground(), List.of(), List.of(), List.of(layer("sticker", 0, 0, 10, 10, 0, 1, 1.0)));
+            assertThatThrownBy(() -> render(sticker, List.of(), Map.of()))
+                    .isInstanceOfSatisfying(ComposeFailureException.class,
+                            e -> assertThat(e.code()).isEqualTo(ComposeFailureCode.ASSET_MISSING));
+            assertThatThrownBy(() -> render(sticker, List.of(), Map.of("sticker", new byte[]{9})))
+                    .isInstanceOfSatisfying(ComposeFailureException.class,
+                            e -> assertThat(e.code()).isEqualTo(ComposeFailureCode.ASSET_UNREADABLE));
         }
     }
 

@@ -62,7 +62,14 @@ class ApiErrorDocumentationCustomizerTest {
             ApiResponses responses = customise(SECURED).getResponses();
 
             assertThat(exampleCodes(responses, "401")).containsExactly("AUTH-010", "AUTH-011", "AUTH-012");
-            assertThat(exampleCodes(responses, "403")).containsExactly("GEN-021");
+            assertThat(exampleCodes(responses, "403")).containsExactly("GEN-021", "AUTH-042");
+        }
+
+        @Test
+        @DisplayName("정지 계정에 열린 경로에는 AUTH-042 를 붙이지 않는다 — 탈퇴 요청 상태의 GEN-021 만 남는다")
+        void blockedAllowedPathHasNoBlockedError() {
+            assertThat(exampleCodes(customise("/api/auth/user/info").getResponses(), "403")).containsExactly("GEN-021");
+            assertThat(exampleCodes(customise("/api/harucut/exit").getResponses(), "403")).containsExactly("GEN-021");
         }
 
         @Test
@@ -87,7 +94,7 @@ class ApiErrorDocumentationCustomizerTest {
 
             customizer.customise(openAPI);
 
-            assertThat(exampleCodes(operationOf(openAPI).getResponses(), "403")).containsExactly("GEN-021");
+            assertThat(exampleCodes(operationOf(openAPI).getResponses(), "403")).containsExactly("GEN-021", "AUTH-042");
         }
 
         @Test
@@ -109,9 +116,9 @@ class ApiErrorDocumentationCustomizerTest {
             Operation operation = customise(SECURED,
                     "SUBS-002: 보관 기간 초과", "SUBS-003: 개수 초과");
 
-            // 자동으로 붙은 GEN-021 과 선언한 SUBS-002 · SUBS-003 이 403 하나에 모인다
+            // 자동으로 붙은 GEN-021·AUTH-042 와 선언한 SUBS-002 · SUBS-003 이 403 하나에 모인다
             assertThat(exampleCodes(operation.getResponses(), "403"))
-                    .containsExactly("GEN-021", "SUBS-002", "SUBS-003");
+                    .containsExactly("GEN-021", "AUTH-042", "SUBS-002", "SUBS-003");
         }
 
         @Test
@@ -135,7 +142,7 @@ class ApiErrorDocumentationCustomizerTest {
         void mergesNotesForSameCode() {
             Operation operation = customise(SECURED, "GEN-021: 남의 s3Key 를 지정함");
 
-            assertThat(exampleCodes(operation.getResponses(), "403")).containsExactly("GEN-021");
+            assertThat(exampleCodes(operation.getResponses(), "403")).containsExactly("GEN-021", "AUTH-042");
             assertThat(operation.getResponses().get("403").getDescription())
                     .contains("탈퇴 요청")
                     .contains("남의 s3Key");

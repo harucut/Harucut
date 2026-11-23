@@ -17,6 +17,10 @@ public class OpenApiConfig {
 
     public static final String COOKIE_SCHEME = "cookieAuth";
     public static final String BEARER_SCHEME = "bearerAuth";
+    public static final String PARTICIPANT_SCHEME = "participantToken";
+    public static final String BOOTH_SCHEME = "boothToken";
+    public static final String RESULT_SCHEME = "resultAccess";
+    public static final String MEDIA_SHARE_SCHEME = "mediaShare";
 
     private static final String ACCESS_TOKEN_COOKIE = "accessToken";
 
@@ -31,7 +35,19 @@ public class OpenApiConfig {
                         new Server().url("https://api.harucut.com").description("운영")))
                 .components(new Components()
                         .addSecuritySchemes(COOKIE_SCHEME, cookieScheme())
-                        .addSecuritySchemes(BEARER_SCHEME, bearerScheme()));
+                        .addSecuritySchemes(BEARER_SCHEME, bearerScheme())
+                        .addSecuritySchemes(PARTICIPANT_SCHEME, headerScheme("X-Participant-Token",
+                                "행사 참가자 세션 토큰. `POST /api/public/events/{slug}/sessions` 응답의 token 원문을 그대로 싣는다. 쿠키가 아니다."))
+                        .addSecuritySchemes(BOOTH_SCHEME, headerScheme("X-Booth-Token",
+                                "등록된 부스 기기의 토큰. 페어링 교환 응답에서 한 번만 받는다."))
+                        .addSecuritySchemes(RESULT_SCHEME, new SecurityScheme()
+                                .type(SecurityScheme.Type.HTTP)
+                                .scheme("bearer")
+                                .description("결과 토큰. 결과 링크 `/r#<token>` 의 fragment 를 `Authorization: Bearer <token>` 으로 싣는다."))
+                        .addSecuritySchemes(MEDIA_SHARE_SCHEME, new SecurityScheme()
+                                .type(SecurityScheme.Type.HTTP)
+                                .scheme("bearer")
+                                .description("사진 공유 토큰. 공유 주소 `/s/<token>` 의 토큰을 `Authorization: Bearer <token>` 으로 싣는다. 쿠키가 아니다.")));
 
         return openAPI;
     }
@@ -58,17 +74,33 @@ public class OpenApiConfig {
                 tag("내 정보", "프로필 조회, 닉네임·프로필 이미지 변경, 요금제 사용량"),
                 tag("약관", "활성 약관 조회와 동의·철회"),
                 tag("공지", "게시된 공지 목록과 단건"),
+                tag("공간", "프레임·자산·초안·행사가 속하는 공간. 개인 공간과 조직 공간"),
+                tag("문의", "행사·기업 도입 문의(로그인 없이)"),
+                tag("공간 멤버", "조직 공간의 멤버 초대·역할·회수, 초대 미리보기·수락, 감사 로그"),
+                tag("행사 고객·권한", "행사 고객 초대와 행사 사진 권한(EventGrant). 공간 역할만으로는 사진을 보지 않는다"),
+                tag("행사 사진함", "행사 결과 사진 — 목록·다운로드·삭제. 그 행사의 사진 권한(EventGrant)이 있어야 한다"),
+                tag("행사 운영", "운영자(조직 공간 OWNER·ADMIN) — 행사 만들기·설정·게시·일시중지·촬영 종료"),
+                tag("프로젝트·브랜드 기본값", "운영자(조직 공간 OWNER·ADMIN) — 프로젝트와 공간·프로젝트 기본값. 행사 설정이 공간 → 프로젝트 → 행사 순서로 물려받는다"),
+                tag("행사 참가", "로그인 없는 참가자 — 행사 조회 → 세션 → 동의 → 회차 → 촬영 업로드 → 합성 → 결과 토큰. 자격은 `X-Participant-Token` 헤더"),
+                tag("부스", "행사장 공용 촬영 기기 — 연결 코드 교환 → 기기 토큰(`X-Booth-Token`) → 다음 손님 세션·회차 확인·닫기. 촬영 자체는 손님의 참가자 토큰으로"),
+                tag("행사 결과 수령", "결과 링크(`/r#<token>`)로 여는 결과 상태·다운로드. 자격은 Bearer 결과 토큰"),
+                tag("자산", "공통 이미지 자산 — 업로드 의도 → S3 PUT → 완료 검증. VERIFIED 만 프레임에 쓴다"),
                 tag("파일 업로드", "S3 presigned URL 발급. 업로드는 프론트가 S3로 직접 한다"),
                 tag("프레임", "네컷 사진의 틀. 만들고 저장하고 불러온다"),
+                tag("프레임 초안", "편집기 문서의 서버 초안. revision 이 같을 때만 저장된다"),
                 tag("네컷 합성", "원본 사진 + 프레임 → 완성 이미지. 접수(202) 후 폴링한다"),
-                tag("사진 보관함", "합성이 끝난 내 사진. 목록·다운로드·이름변경·삭제"),
+                tag("사진 보관함", "합성이 끝난 내 사진. 목록·다운로드·이름변경·삭제·공유 링크"),
+                tag("사진 공유 링크", "공유 주소(`/s/<token>`)로 여는 사진 한 장 — 로그인 없이 보고 저장한다. 자격은 Bearer 공유 토큰"),
+                tag("푸시 기기", "앱의 Expo 푸시 토큰 등록·해제. 합성 완료·실패, 결제 실패, 구독 만료 예고를 보낸다"),
                 tag("구독", "내 요금제 조회와 자동갱신 해지"),
                 tag("결제", "빌링키 기반 구독 결제와 결제 내역"),
                 tag("쿠폰", "쿠폰 사용과 내 쿠폰 목록"),
+                tag("계약·이용권 관리", "관리자 — 문의·계약·이용권·수동 부여(ManualGrant)·공간 종류(업체/주최자)"),
+                tag("계정 관리", "관리자 — 계정 찾기·정지·해제"),
                 tag("공지 관리", "관리자 — 공지 작성·수정·게시·삭제"),
                 tag("약관 관리", "관리자 — 약관 등록과 버전 개정"),
                 tag("시스템 프레임 관리", "관리자 — 모든 사용자에게 제공되는 기본 프레임"),
-                tag("구독 관리", "관리자 — 특정 사용자의 구독 조회"),
+                tag("감사 로그 관리", "관리자 — 전체 운영 행동 기록"),
                 tag("쿠폰 관리", "관리자 — 쿠폰 발행·집계·비활성화"),
                 tag("결제 웹훅", "PG사가 호출한다. 프론트가 부르는 API 가 아니다"),
                 tag("소셜 연동 해제", "네이버가 호출한다. 프론트가 부르는 API 가 아니다"));
@@ -91,6 +123,14 @@ public class OpenApiConfig {
                 .description("운영 인증 경로. 로그인 응답의 `Set-Cookie: accessToken=...` 을 브라우저가 자동으로 싣는다.");
     }
 
+    private SecurityScheme headerScheme(String header, String description) {
+        return new SecurityScheme()
+                .type(SecurityScheme.Type.APIKEY)
+                .in(SecurityScheme.In.HEADER)
+                .name(header)
+                .description(description);
+    }
+
     private SecurityScheme bearerScheme() {
         return new SecurityScheme()
                 .type(SecurityScheme.Type.HTTP)
@@ -109,7 +149,7 @@ public class OpenApiConfig {
                 .group("1-user")
                 .displayName("사용자 API")
                 .pathsToMatch("/api/**")
-                .pathsToExclude("/api/admin/**", "/api/payments/webhook", "/api/oauth2/unlink/**")
+                .pathsToExclude("/api/admin/**", "/api/payments/webhook", "/api/payments/webhooks/**", "/api/oauth2/unlink/**")
                 .build();
     }
 
@@ -127,7 +167,7 @@ public class OpenApiConfig {
         return GroupedOpenApi.builder()
                 .group("3-webhook")
                 .displayName("웹훅 (외부 시스템이 호출)")
-                .pathsToMatch("/api/payments/webhook", "/api/oauth2/unlink/**")
+                .pathsToMatch("/api/payments/webhook", "/api/payments/webhooks/**", "/api/oauth2/unlink/**")
                 .build();
     }
 

@@ -16,6 +16,8 @@ import java.util.Collection;
 @RequiredArgsConstructor
 public class FrameAssetManager {
 
+    private static final java.time.Duration IN_USE_RETENTION = java.time.Duration.ofHours(2);
+
     private final FileStorageService fileStorageService;
     private final S3Deleter s3Deleter;
 
@@ -25,6 +27,16 @@ public class FrameAssetManager {
     // 관리자가 만드는 시스템 프레임 전용이다(ROLE_ADMIN이 이미 신뢰 경계라 소유자 개념이 없다).
     // 사용자 경로에서는 절대 null을 넘기지 말 것
     public String normalizeSource(ComponentType type, String source, String ownerPublicId) {
+        if (type == ComponentType.STICKER) {
+            // 스티커는 정적 경로가 기본이지만 uploads/ key 도 들어온다 — 합성은 그 key 를 그대로
+            // 읽으므로(ComposeSpecAssembler) 남의 key 를 막지 않으면 남의 파일로 합성할 수 있다.
+            // 검사만 하고 값은 바꾸지 않는다: 정규화하면 응답에 presign 없는 key 가 나가
+            // 지금 화면이 보던 값이 달라진다(스티커의 주소 변환은 별도 작업)
+            if (ownerPublicId != null) {
+                S3Keys.assertOwnedBy(source, ownerPublicId);
+            }
+            return source;
+        }
         if (type != ComponentType.PHOTO) {
             return source;
         }
@@ -41,9 +53,10 @@ public class FrameAssetManager {
         return normalized;
     }
 
-    // 응답 조립: PHOTO이고 관리 대상이면 presigned GET URL, 아니면 원본 그대로
+    // 응답 조립: PHOTO·STICKER 이고 관리 대상이면 presigned GET URL, 아니면 원본 그대로(정적 스티커 경로·TEXT 본문).
+    // 재저장용 순수 key 는 응답의 key 필드가 따로 들고 간다
     public String resolveSource(ComponentType type, String source) {
-        if (type != ComponentType.PHOTO) {
+        if (type == ComponentType.TEXT) {
             return source;
         }
         return presignIfManaged(source);
@@ -56,6 +69,11 @@ public class FrameAssetManager {
     // 커밋 후 삭제 예약 — 거르기와 발행은 storage 공용 부품이 한다 (media와 공유)
     public void deleteAfterCommit(Collection<String> keys) {
         s3Deleter.deleteAfterCommit(keys);
+    }
+
+    /** 끝나지 않은 합성이 쓰는 key — 재접수 총 기한(ComposeRetryPolicy)이 지난 뒤에 지운다. 삭제 기록이 남아 재시도 배치가 맡는다 */
+    public void deleteLater(Collection<String> keys) {
+        keys.forEach(key -> s3Deleter.holdForUpload(key, IN_USE_RETENTION));
     }
 
     private String presignIfManaged(String source) {

@@ -65,66 +65,22 @@ class ComposeJobTest {
         }
     }
 
+    // 상태 전이 자체는 ComposeJobRepository 의 조건부 UPDATE 다 — ComposeJobRepositoryTest 에서 본다
     @Nested
-    @DisplayName("상태 전이 — 먼저 기록된 결과가 이긴다")
-    class Transitions {
+    @DisplayName("실패 사유 자르기")
+    class FailureReason {
 
         @Test
-        @DisplayName("complete하면 DONE이 되고 결과 key와 mediaId가 채워진다")
-        void completeFillsResult() {
-            ComposeJob job = job();
-
-            job.complete("uploads/users/abc/fourcuts/result.png", 42L);
-
-            assertThat(job.getStatus()).isEqualTo(ComposeStatus.DONE);
-            assertThat(job.getResultKey()).isEqualTo("uploads/users/abc/fourcuts/result.png");
-            assertThat(job.getMediaId()).isEqualTo(42L);
-        }
-
-        @Test
-        @DisplayName("fail하면 FAILED가 되고 사유가 남는다")
-        void failKeepsReason() {
-            ComposeJob job = job();
-
-            job.fail("원본을 읽을 수 없다");
-
-            assertThat(job.getStatus()).isEqualTo(ComposeStatus.FAILED);
-            assertThat(job.getFailureReason()).isEqualTo("원본을 읽을 수 없다");
-        }
-
-        @Test
-        @DisplayName("긴 실패 사유는 255자로 잘려 저장된다 — 컬럼 길이 초과로 죽지 않는다")
+        @DisplayName("긴 실패 사유는 255자로 잘린다 — 컬럼 길이 초과로 죽지 않는다")
         void longReasonTruncated() {
-            ComposeJob job = job();
-
-            job.fail("x".repeat(300));
-
-            assertThat(job.getFailureReason()).hasSize(255);
+            assertThat(ComposeJob.truncateFailureReason("x".repeat(300))).hasSize(255);
         }
 
         @Test
-        @DisplayName("DONE인 Job에 fail을 불러도 결과가 바뀌지 않는다 — 재실행 경합 보호")
-        void failIgnoredAfterDone() {
-            ComposeJob job = job();
-            job.complete("uploads/result.png", 42L);
-
-            job.fail("뒤늦은 실패");
-
-            assertThat(job.getStatus()).isEqualTo(ComposeStatus.DONE);
-            assertThat(job.getFailureReason()).isNull();
-        }
-
-        @Test
-        @DisplayName("FAILED인 Job에 complete를 불러도 결과가 바뀌지 않는다")
-        void completeIgnoredAfterFail() {
-            ComposeJob job = job();
-            job.fail("원본 유실");
-
-            job.complete("uploads/late.png", 99L);
-
-            assertThat(job.getStatus()).isEqualTo(ComposeStatus.FAILED);
-            assertThat(job.getResultKey()).isNull();
-            assertThat(job.getMediaId()).isNull();
+        @DisplayName("짧은 사유와 null 은 그대로다")
+        void shortReasonKept() {
+            assertThat(ComposeJob.truncateFailureReason("원본을 읽을 수 없다")).isEqualTo("원본을 읽을 수 없다");
+            assertThat(ComposeJob.truncateFailureReason(null)).isNull();
         }
     }
 

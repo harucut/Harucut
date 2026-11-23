@@ -70,16 +70,14 @@ spring:
     job:
       enabled: false
 
-  # Spring Batch 메타테이블(BATCH_*) 생성. Boot 4는 배치 스키마를 만들어주지 않는다
-  # (JDBC 저장소 자체가 옵트인이다 — BatchConfig 참고). 스크립트에 IF NOT EXISTS가 없어
-  # 두 번째 기동부터는 오류가 나지만 continue-on-error가 무시한다 — 재기동에 안전하다.
-  sql:
-    init:
-      mode: always
-      # DB 종류별 스크립트 — test 프로필은 schema-h2.sql로 통째로 덮어쓰고,
-      # 컨테이너(파일 H2)는 SPRING_SQL_INIT_SCHEMA_LOCATIONS 환경변수로 덮어쓴다.
-      schema-locations: classpath:org/springframework/batch/core/schema-mysql.sql
-      continue-on-error: true
+  # Flyway — 기본 OFF. 운영 스키마를 V1 기준선에 명시적으로 편입(baseline)하기 전에는 켜지 않는다.
+  # 켜는 순간 ddl-auto 도 validate 로 바꿔야 한다 (둘이 동시에 스키마를 고치면 안 된다).
+  # baseline-on-migrate 는 쓰지 않는다 — 잘못된 DB 를 조용히 기준선으로 삼는 보호 해제다.
+  # docs/adr-0005-flyway-adoption.md
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    locations: classpath:db/migration
+    baseline-on-migrate: false
 
   task:
     scheduling:
@@ -104,9 +102,50 @@ cookie:
 
 mail:
   from: ${MAIL_FROM:no-reply@harucut.com}
+  # 서비스 전체의 하루 발송 상한 — 넘으면 429. 기본은 Gmail SMTP 한도(500/일) 아래. 메일 서비스를 바꾸면 올린다
+  daily-limit: ${MAIL_DAILY_LIMIT:400}
 
 frontend:
   url: ${FRONTEND_URL:http://localhost:5173}
+
+# 푸시 발송기 — log(기본, 로그만) · expo(Expo Push API — 실연동 미확인: EAS projectId·액세스 토큰 필요)
+push:
+  sender: ${PUSH_SENDER:log}
+  expo:
+    access-token: ${EXPO_ACCESS_TOKEN:}
+
+# BFF 가 자기를 증명하는 비밀 — 맞는 요청만 BFF 가 넘긴 클라이언트 IP 를 믿는다(ClientIpResolver). 비면 getRemoteAddr()
+security:
+  bff:
+    shared-secret: ${BFF_SHARED_SECRET:}
+
+# CORS 허용 출처이자 쿠키 인증 변경 요청의 출처 검사(OriginCheckFilter) 허용 목록. 쉼표로 구분한다
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:https://harucut.com,https://www.harucut.com,http://localhost:5173,http://localhost:3000}
+
+billing:
+  store:
+    # mock(로컬·테스트) · real(애플 JWS 서명 검증 + 구글 Play API — 실연동 미확인). 운영에서 mock 은 STORE_MOCK_ALLOWED 없이는 기동하지 않는다
+    verifier: ${STORE_VERIFIER:mock}
+    mock:
+      allowed-outside-local: ${STORE_MOCK_ALLOWED:false}
+    # 스토어 상품 id → 등급 (App Store Connect·Play Console 의 상품 id 와 같아야 한다 — 실연동 미확인)
+    products:
+      "[harucut.plus.monthly]": PLUS
+      "[harucut.pro.monthly]": PRO
+    apple:
+      bundle-id: ${APPLE_BUNDLE_ID:com.harucut.app}
+      # Apple Root CA - G3 PEM. 비어 있으면 실검증이 전부 실패한다
+      root-certificates: ${APPLE_ROOT_CERTIFICATES:}
+      allow-sandbox: ${APPLE_ALLOW_SANDBOX:true}
+    google:
+      package-name: ${GOOGLE_PACKAGE_NAME:com.harucut.app}
+      push-token: ${GOOGLE_RTDN_PUSH_TOKEN:}
+
+app:
+  oauth2:
+    # 앱 로그인(시스템 브라우저)이 끝나면 돌아갈 앱 스킴 — 셸의 app.json scheme. 이 한 곳으로만 돌려보낸다(열린 redirect 없음)
+    callback-url: ${APP_OAUTH2_CALLBACK_URL:harucut://oauth2/callback}
 
 cloud:
   aws:
@@ -158,6 +197,20 @@ management:
       exposure:
         # '*' 로 열지 않는다. heapdump 에는 메모리에 있던 JWT 가 그대로 들어있다
         include: health,prometheus,metrics
+
+  # 무중단 배포·로드밸런서용 프로브 (ADR-0009 §7-3). 배포 스크립트가 보는 /actuator/health 는 그대로(DB·Redis 전부).
+  # - liveness(/actuator/health/liveness): 앱 자체 상태만 — 외부 의존이 잠깐 끊겼다고 재시작시키지 않는다
+  # - readiness(/actuator/health/readiness): DB 까지. Redis 는 넣지 않는다 — 리프레시 토큰·이메일 인증·빈도 제한(fail-open)에만 쓰고
+  #   행사 참가·부스·합성·사진함은 Redis 없이 돈다. 모든 인스턴스가 같은 Redis 를 보므로 넣으면 잠깐 끊길 때 전 인스턴스가 함께 빠진다
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
 
   metrics:
     tags:

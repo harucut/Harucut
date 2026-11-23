@@ -82,11 +82,23 @@ role/status만 토큰에 넣으면 서비스가 `publicId`로 다시 조회해�
 차단 → (최대 30분 뒤) 재발급 요청
      → DB에서 BLOCKED 읽음
      → 새 access 토큰에 status=BLOCKED 박힘
-     → authorities() 가 빈 리스트
-     → 전부 403
+     → authorities() 가 ROLE_BLOCKED 하나
+     → 마이페이지와 탈퇴 말고는 403 AUTH-042
 ```
 
 세션 삭제는 이걸 앞당길 뿐 필수가 아니다.
+
+### 정지 API 뒤의 범위 (2026-11)
+
+정지(`POST /api/admin/users/{userId}/block`)가 생기면서 지연이 줄었다. 정지 계정은 쓰지 못하고 마이페이지와 탈퇴만 된다(사용자 결정).
+
+- 정지하면 모든 refresh 세션을 지운다. 다시 로그인·재발급은 되고 토큰에 `status=BLOCKED` 가 실린다. 탈퇴 요청 계정과 같은 흐름이다.
+- `BLOCKED` 에 열린 것은 내 정보·탈퇴(`SecurityPaths.BLOCKED_ALLOWED`), 상태 조회·복구(`AUTHENTICATED_ONLY`), 로그아웃·재발급(`PUBLIC`)이다. 그 밖은 403 `AUTH-042`.
+- 관리·사진·행사 경로(`SecurityPaths.ACCOUNT_CHECKED`)는 요청마다 역할·상태를 DB에서 다시 본다(`AccountStateInterceptor`). 정지 전에 받은 토큰이어도 정지면 바로 403 `AUTH-042`, ADMIN 권한이 빠지면 403 `GEN-021`.
+- 내 정보(`GET /api/auth/user/info`)의 `userStatus` 는 DB 값이다. 정지 전 토큰을 든 사람도 마이페이지에서 바로 제한 화면을 본다.
+- `BLOCKED` 가 실린 토큰은 믿지 않고 DB 로 다시 본다(`JwtAuthenticationFilter`). 해제하면 access 만료를 기다리지 않는다. 정지 계정의 요청만 조회한다.
+- 탈퇴 요청으로 상태가 바뀌어도 `users.blocked_at` 이 남아, 복구하면 `ACTIVE` 가 아니라 `BLOCKED` 로 돌아간다(정지 회피 방지).
+- **30분 지연은 그 밖의 일반 API 에 정지 전 토큰을 들고 올 때만 남는다.** 요청마다 조회하는 비용을 피하려는 선택이고, 전체로 넓힐지는 제품 결정이다.
 
 ### 그래서 refresh 토큰에는 role/status를 넣으면 안 된다
 

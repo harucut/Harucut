@@ -1,5 +1,6 @@
 package com.harucut.media.batch;
 
+import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeMetrics;
 import com.harucut.media.compose.ComposeRequestedEvent;
 import com.harucut.media.compose.ComposeWorker;
@@ -48,6 +49,19 @@ public class ComposeRerunScheduler {
             metrics.recordPendingBacklog(composeService.countPending());
         } catch (Exception e) {
             log.warn("[합성 재실행] 적체 수 조회 실패 — 게이지만 낡는다", e);
+        }
+
+        // 예산을 다 쓴 작업을 먼저 끝낸다 — 예약을 돌려주고 원본을 지운다. 한 건이 실패해도 나머지와 재접수는 계속 간다
+        for (ComposeService.ExpiredDispatch expired : composeService.findDispatchExpired(staleAfter, batchSize)) {
+            try {
+                if (composeService.failJob(expired.jobId(), "앱 재접수 상한 초과(횟수·총 기한)",
+                        ComposeFailureCode.DISPATCH_EXHAUSTED, expired.attemptNo())) {
+                    metrics.rerunExhausted();
+                    log.warn("[합성 재실행] 재접수 상한 초과 — 최종 실패: jobId={} attempt={}", expired.jobId(), expired.attemptNo());
+                }
+            } catch (Exception e) {
+                log.error("[합성 재실행] 최종 실패 처리 실패 — 다음 주기에 다시 본다: jobId={}", expired.jobId(), e);
+            }
         }
 
         List<ComposeRequestedEvent> stalled = composeService.findStalled(staleAfter, batchSize);

@@ -40,9 +40,10 @@ class CustomOAuth2UserTest {
     }
 
     @Test
-    @DisplayName("BLOCKED 사용자는 권한이 비어 있다")
-    void blockedHasNoAuthority() {
-        assertThat(principal(UserStatus.BLOCKED).getAuthorities()).isEmpty();
+    @DisplayName("BLOCKED 사용자는 ROLE_BLOCKED 하나만 갖는다")
+    void blockedHasOnlyBlockedRole() {
+        assertThat(principal(UserStatus.BLOCKED).getAuthorities()).extracting(GrantedAuthority::getAuthority)
+                .containsExactly("ROLE_BLOCKED");
     }
 
     @Test

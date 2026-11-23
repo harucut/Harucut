@@ -3,10 +3,12 @@ package com.harucut.auth.controller;
 import com.harucut.auth.dto.SendCodeRequest;
 import com.harucut.auth.dto.VerifyCodeRequest;
 import com.harucut.auth.email.EmailVerificationService;
+import com.harucut.auth.service.AuthRateLimits;
 import com.harucut.common.response.Response;
 import com.harucut.config.openapi.ApiErrors;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class EmailAuthController {
 
     private final EmailVerificationService emailVerificationService;
+    private final AuthRateLimits authRateLimits;
 
     @Operation(
             summary = "가입용 인증 코드 발송",
@@ -40,7 +43,8 @@ public class EmailAuthController {
             "AUTH-090: 메일 발송 실패. 쿨다운은 풀리므로 바로 재시도할 수 있다"
     })
     @PostMapping("/code")
-    public Response<Void> sendCode(@Valid @RequestBody SendCodeRequest request) {
+    public Response<Void> sendCode(@Valid @RequestBody SendCodeRequest request, HttpServletRequest servletRequest) {
+        authRateLimits.checkMailRequest(servletRequest);
         emailVerificationService.sendVerificationCode(request.email());
         return Response.ok();
     }

@@ -63,48 +63,64 @@ public class TokenController {
     }
 
     @Operation(
-            summary = "로그아웃",
+            summary = "로그아웃 — 이 기기만",
             description = """
                     **항상 200 이다.** 토큰이 없어도, 만료됐어도 성공한다.
 
+                    이 기기의 refresh 세션만 끊는다 — 다른 기기는 그대로다. 전체 기기는 `DELETE /logout/all`.
                     로그아웃이 실패하면 사용자는 로그아웃조차 할 수 없게 된다. 그래서 인증을 요구하지 않고,
                     서버 상태 정리(저장된 refresh 삭제)는 되면 하고 안 되면 만료로 정리되게 뒀다.
                     응답에는 두 쿠키를 만료시키는 `Set-Cookie` 가 실린다.
                     """)
     @DeleteMapping("/logout")
     public ResponseEntity<Response<Void>> logout(
+            @CookieValue(value = CookieManager.REFRESH_TOKEN, required = false) String refreshToken
+    ) {
+        refreshClaims(refreshToken).ifPresent(claims -> quietly(claims.publicId(), () -> refreshTokenService.revokeSession(claims)));
+        return expiredCookies();
+    }
+
+    @Operation(
+            summary = "로그아웃 — 모든 기기",
+            description = """
+                    **항상 200 이다.** 이 사용자의 모든 refresh 세션을 끊는다. 응답 모양은 `DELETE /logout` 과 같다.
+
+                    사용자는 access 토큰 또는 refresh 토큰으로 정한다. 다른 기기의 access 토큰은 만료(30분)까지 유효하다.
+                    """)
+    @DeleteMapping("/logout/all")
+    public ResponseEntity<Response<Void>> logoutAll(
             @AuthenticationPrincipal AuthenticatedUser principal,
             @CookieValue(value = CookieManager.REFRESH_TOKEN, required = false) String refreshToken
     ) {
-        resolvePublicId(principal, refreshToken).ifPresent(this::revokeQuietly);
+        Optional<String> publicId = principal != null
+                ? Optional.of(principal.publicId())
+                : refreshClaims(refreshToken).map(JwtClaims::publicId);
+        publicId.ifPresent(id -> quietly(id, () -> refreshTokenService.revokeAll(id)));
+        return expiredCookies();
+    }
 
+    private ResponseEntity<Response<Void>> expiredCookies() {
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, expired(CookieManager.ACCESS_TOKEN))
                 .header(HttpHeaders.SET_COOKIE, expired(CookieManager.REFRESH_TOKEN))
                 .body(Response.ok());
     }
 
-    private void revokeQuietly(String publicId) {
+    private void quietly(String publicId, Runnable revoke) {
         try {
-            refreshTokenService.revoke(publicId);
+            revoke.run();
         } catch (RuntimeException e) {
             log.warn("[logout] refresh 토큰 삭제 실패. TTL로 정리. publicId={}", publicId, e);
         }
     }
 
-    private Optional<String> resolvePublicId(AuthenticatedUser principal, String refreshToken) {
-        if (principal != null) {
-            return Optional.of(principal.publicId());
-        }
+    private Optional<JwtClaims> refreshClaims(String refreshToken) {
         if (!StringUtils.hasText(refreshToken)) {
             return Optional.empty();
         }
-
         try {
             JwtClaims claims = jwtTokenService.parse(refreshToken);
-            return claims.type() == TokenType.REFRESH
-                    ? Optional.of(claims.publicId())
-                    : Optional.empty();
+            return claims.type() == TokenType.REFRESH ? Optional.of(claims) : Optional.empty();
         } catch (RuntimeException e) {
             return Optional.empty();
         }

@@ -1,5 +1,7 @@
 package com.harucut.auth.service;
 
+import com.harucut.workspace.service.WorkspaceService;
+import org.mockito.InOrder;
 import com.harucut.auth.exception.AuthErrorCode;
 import com.harucut.auth.oauth2.unlink.OAuth2UnlinkService;
 import com.harucut.common.exception.BusinessException;
@@ -17,10 +19,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import org.mockito.ArgumentCaptor;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import com.harucut.storage.event.S3DeleteEvent;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -35,6 +35,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 
 @ExtendWith(MockitoExtension.class)
@@ -61,7 +62,10 @@ class UserExitServiceTest {
     private OAuth2UnlinkService unlinkService;
 
     @Mock
-    private ApplicationEventPublisher eventPublisher;
+    private com.harucut.storage.service.S3Deleter s3Deleter;
+
+    @Mock
+    private WorkspaceService workspaceService;
 
     private UserExitService service;
 
@@ -69,7 +73,7 @@ class UserExitServiceTest {
     void setUp() {
         Clock clock = Clock.fixed(NOW.atZone(ZONE).toInstant(), ZONE);
         service = new UserExitService(userRepository, refreshTokenService, clock,
-                List.of(firstHandler, secondHandler), List.of(unlinkService), eventPublisher);
+                List.of(firstHandler, secondHandler), List.of(unlinkService), s3Deleter, workspaceService);
     }
 
     @Nested
@@ -79,7 +83,7 @@ class UserExitServiceTest {
         @Test
         @DisplayName("상태가 DELETED_REQUESTED가 되고 요청 시각이 기록된다")
         void marksDeleteRequested() {
-            User user = givenActiveUser();
+            User user = givenActiveUserLocked();
 
             service.requestExit(PUBLIC_ID);
 
@@ -88,19 +92,67 @@ class UserExitServiceTest {
         }
 
         @Test
-        @DisplayName("refresh 토큰이 삭제된다")
-        void revokesRefreshToken() {
-            givenActiveUser();
+        @DisplayName("조직 공간의 마지막 OWNER 면 MEMBER-004 — 탈퇴 상태로 넘어가지 않는다(R5 L561)")
+        void lastOwnerCannotExit() {
+            given(userRepository.findIdByPublicId(PUBLIC_ID)).willReturn(Optional.of(7L));
+            org.mockito.BDDMockito.willThrow(new com.harucut.common.exception.BusinessException(com.harucut.workspace.exception.MemberErrorCode.LAST_OWNER))
+                    .given(workspaceService).requireNotLastOwner(7L);
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.requestExit(PUBLIC_ID))
+                    .isInstanceOf(com.harucut.common.exception.BusinessException.class);
+
+            // 본인 행을 잠그기 전에 막힌다 — 탈퇴 상태로 바꿀 행을 건드리지 않는다
+            then(userRepository).should(org.mockito.Mockito.never()).lockByPublicId(PUBLIC_ID);
+            then(refreshTokenService).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("정지 계정도 탈퇴를 요청할 수 있고, 복구하면 ACTIVE 가 아니라 BLOCKED 로 돌아간다(정지 회피 방지)")
+        void blockedCanRequestExitAndReturnsToBlocked() {
+            User user = givenActiveUserLocked();
+            user.block(NOW);
 
             service.requestExit(PUBLIC_ID);
 
-            then(refreshTokenService).should().revoke(PUBLIC_ID);
+            assertThat(user.getUserStatus()).isEqualTo(UserStatus.DELETED_REQUESTED);
+            assertThat(user.getDeleteRequestedAt()).isEqualTo(NOW);
+            then(refreshTokenService).should().revokeAll(PUBLIC_ID);
+
+            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
+            service.reActivate(PUBLIC_ID);
+
+            assertThat(user.getUserStatus()).isEqualTo(UserStatus.BLOCKED);
+            assertThat(user.getDeleteRequestedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("정지했다가 해제한 계정은 복구하면 ACTIVE 다")
+        void unblockedReturnsToActive() {
+            User user = givenActiveUserLocked();
+            user.block(NOW);
+            user.unblock();
+
+            service.requestExit(PUBLIC_ID);
+            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
+            service.reActivate(PUBLIC_ID);
+
+            assertThat(user.getUserStatus()).isEqualTo(UserStatus.ACTIVE);
+        }
+
+        @Test
+        @DisplayName("refresh 토큰이 삭제된다")
+        void revokesRefreshToken() {
+            givenActiveUserLocked();
+
+            service.requestExit(PUBLIC_ID);
+
+            then(refreshTokenService).should().revokeAll(PUBLIC_ID);
         }
 
         @Test
         @DisplayName("없는 사용자는 AUTH-020이고 토큰을 건드리지 않는다")
         void unknownUser() {
-            given(userRepository.findByPublicId(PUBLIC_ID)).willReturn(Optional.empty());
+            given(userRepository.findIdByPublicId(PUBLIC_ID)).willReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.requestExit(PUBLIC_ID))
                     .isInstanceOf(BusinessException.class)
@@ -132,7 +184,7 @@ class UserExitServiceTest {
 
             service.reActivate(PUBLIC_ID);
 
-            then(refreshTokenService).should().revoke(PUBLIC_ID);
+            then(refreshTokenService).should().revokeAll(PUBLIC_ID);
         }
 
         @Test
@@ -194,6 +246,19 @@ class UserExitServiceTest {
         }
 
         @Test
+        @DisplayName("개인 공간은 모든 핸들러가 끝난 뒤에 지운다 — 핸들러가 지우는 데이터가 공간을 참조한다")
+        void deletesWorkspaceAfterHandlers() {
+            givenDeleteRequestedUserById(USER_ID);
+
+            service.exit(USER_ID);
+
+            InOrder order = inOrder(firstHandler, secondHandler, workspaceService);
+            order.verify(firstHandler).handleUserDeletion(USER_ID);
+            order.verify(secondHandler).handleUserDeletion(USER_ID);
+            order.verify(workspaceService).deleteForUser(USER_ID);
+        }
+
+        @Test
         @DisplayName("행은 남고 개인정보만 익명화된다")
         void anonymizesUser() {
             User user = givenDeleteRequestedUserById(USER_ID);
@@ -214,30 +279,28 @@ class UserExitServiceTest {
 
             service.exit(USER_ID);
 
-            then(refreshTokenService).should().revoke(user.getPublicId());
+            then(refreshTokenService).should().revokeAll(user.getPublicId());
         }
 
         @Test
-        @DisplayName("프로필이 업로드된 이미지면 S3 삭제 이벤트가 나간다")
+        @DisplayName("프로필이 업로드된 이미지면 삭제 기록을 남긴다 — S3 가 실패해도 재시도한다")
         void publishesProfileImageDeletion() {
             User user = givenDeleteRequestedUserById(USER_ID);
             user.changeProfileImageUrl("uploads/users/abc/profile/me.png");
 
             service.exit(USER_ID);
 
-            ArgumentCaptor<S3DeleteEvent> captor = ArgumentCaptor.forClass(S3DeleteEvent.class);
-            then(eventPublisher).should().publishEvent(captor.capture());
-            assertThat(captor.getValue().keys()).containsExactly("uploads/users/abc/profile/me.png");
+            then(s3Deleter).should().deleteAfterCommit(List.of("uploads/users/abc/profile/me.png"));
         }
 
         @Test
-        @DisplayName("프로필이 기본 이미지면 S3 이벤트가 나가지 않는다")
+        @DisplayName("프로필이 기본 이미지면 지울 key 가 없다")
         void skipsDefaultProfileImage() {
             givenDeleteRequestedUserById(USER_ID);
 
             service.exit(USER_ID);
 
-            then(eventPublisher).shouldHaveNoInteractions();
+            then(s3Deleter).shouldHaveNoInteractions();
         }
 
         @Test
@@ -301,6 +364,15 @@ class UserExitServiceTest {
             given(userRepository.findById(userId)).willReturn(Optional.of(user));
             return user;
         }
+    }
+
+    // 탈퇴 요청은 id 만 읽고(엔티티를 올리지 않는다) 마지막 OWNER 검사 뒤에 본인 행을 잠근다
+    private User givenActiveUserLocked() {
+        User user = UserFixtures.localUser("exit@harucut.com", "encoded");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        given(userRepository.findIdByPublicId(PUBLIC_ID)).willReturn(Optional.of(7L));
+        given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
+        return user;
     }
 
     private User givenActiveUser() {

@@ -17,6 +17,7 @@ public record AuthenticatedUser(
 ) implements AuthenticatedPrincipal {
 
     private static final String DELETED_REQUESTED_ROLE = "ROLE_DELETED_REQUESTED";
+    private static final String BLOCKED_ROLE = "ROLE_BLOCKED";
 
     public static AuthenticatedUser from(JwtClaims claims) {
         return new AuthenticatedUser(claims.publicId(), claims.role(), claims.status());
@@ -26,7 +27,9 @@ public record AuthenticatedUser(
         return switch(status) {
             case ACTIVE -> List.of(new SimpleGrantedAuthority(role.name()));
             case DELETED_REQUESTED -> List.of(new SimpleGrantedAuthority(DELETED_REQUESTED_ROLE));
-            case BLOCKED, DELETED -> List.of();
+            // 마이페이지와 탈퇴만 열린다(SecurityPaths.BLOCKED_ALLOWED). 그 밖은 403 AUTH-042
+            case BLOCKED -> List.of(new SimpleGrantedAuthority(BLOCKED_ROLE));
+            case DELETED -> List.of();
         };
     }
 

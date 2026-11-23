@@ -41,11 +41,18 @@ class CustomUserPrincipalTest {
                     .containsExactly("ROLE_DELETED_REQUESTED");
         }
 
-        @ParameterizedTest
-        @EnumSource(value = UserStatus.class, names = {"BLOCKED", "DELETED"})
-        @DisplayName("차단/삭제 사용자는 권한이 없다")
-        void blockedOrDeletedUserHasNoAuthority(UserStatus status) {
-            assertThat(principal(status, UserRole.ROLE_USER).getAuthorities()).isEmpty();
+        @Test
+        @DisplayName("차단 사용자는 ROLE_BLOCKED 하나만 — 마이페이지와 탈퇴만 열린다. ADMIN 도 역할을 잃는다")
+        void blockedUserHasOnlyBlockedRole() {
+            assertThat(principal(UserStatus.BLOCKED, UserRole.ROLE_ADMIN).getAuthorities())
+                    .extracting(GrantedAuthority::getAuthority)
+                    .containsExactly("ROLE_BLOCKED");
+        }
+
+        @Test
+        @DisplayName("삭제 사용자는 권한이 없다")
+        void deletedUserHasNoAuthority() {
+            assertThat(principal(UserStatus.DELETED, UserRole.ROLE_USER).getAuthorities()).isEmpty();
         }
 
         @Test

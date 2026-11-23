@@ -39,7 +39,8 @@ out/
 ### macOS ###
 .DS_Store
 
-photo/
+# 루트의 부하 테스트 사진 폴더만 — 「photo/」는 소스의 photo 패키지(테스트 포함)까지 통째로 무시했다
+/photo/
 .env
 
 # monitoring·docs 는 저장소에 포함한다 — ADR·측정 결과·대시보드가 설계 근거 그 자체다.

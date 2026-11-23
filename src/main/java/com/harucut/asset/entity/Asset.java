@@ -1,0 +1,180 @@
+package com.harucut.asset.entity;
+
+import com.harucut.asset.enums.AssetOrigin;
+import com.harucut.asset.enums.AssetPurpose;
+import com.harucut.asset.enums.AssetStatus;
+import com.harucut.common.entity.BaseEntity;
+import com.harucut.common.utils.PublicIds;
+import jakarta.persistence.*;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+// 공통 이미지 자산 한 건. S3 key 는 서버가 정하고, 권한은 workspace_id 로 판정한다 (ADR-0006 §2)
+@Entity
+@Table(name = "asset",
+        indexes = {
+                @Index(name = "idx_asset_workspace_id", columnList = "workspace_id"),
+                @Index(name = "idx_asset_created_at", columnList = "created_at")
+        })
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+public class Asset extends BaseEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "asset_id")
+    private Long id;
+
+    @Column(name = "public_id", nullable = false, unique = true, length = 12)
+    private String publicId;
+
+    // NULL = SYSTEM 범위
+    @Column(name = "workspace_id")
+    private Long workspaceId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private AssetPurpose purpose;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private AssetOrigin origin;
+
+    @Column(name = "s3_key", nullable = false, unique = true, length = 512)
+    private String s3Key;
+
+    @Column(name = "content_type", nullable = false, length = 64)
+    private String contentType;
+
+    @Column(name = "declared_size", nullable = false)
+    private long declaredSize;
+
+    @Column(name = "actual_size")
+    private Long actualSize;
+
+    private Integer width;
+
+    private Integer height;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private AssetStatus status;
+
+    // REJECTED 일 때만 — 오류 코드 문자열(ASSET-00x)
+    @Column(name = "reject_reason", length = 16)
+    private String rejectReason;
+
+    @Column(name = "uploaded_by_user_id")
+    private Long uploadedByUserId;
+
+    @Column(name = "verified_at")
+    private LocalDateTime verifiedAt;
+
+    // ── CAPTURE_INPUT(행사 촬영 입력) 전용 — 어느 회차의 몇 번째 칸인지, 어느 합성 작업에 묶였는지 ──
+    @Column(name = "event_id")
+    private Long eventId;
+
+    @Column(name = "participant_id")
+    private Long participantId;
+
+    @Column(name = "capture_run_id")
+    private Long captureRunId;
+
+    @Column(name = "slot_index")
+    private Integer slotIndex;
+
+    // 한 입력은 한 job 에만 귀속된다 — 다른 job 의 성공 정리가 이 입력을 지워 깨뜨리지 않게(R5 14절)
+    @Column(name = "bound_compose_job_id")
+    private Long boundComposeJobId;
+
+    // ── 서버 생성 TEXT_RENDER(참가자 자유 문구, R5 D06) 전용 — 어떤 문구·스타일로 구웠는지의 스냅샷 ──
+    @Column(name = "text_snapshot", length = 200)
+    private String textSnapshot;
+
+    @Column(name = "text_style_id", length = 40)
+    private String textStyleId;
+
+    private Asset(String publicId, Long workspaceId, AssetPurpose purpose, AssetOrigin origin, String s3Key,
+                  String contentType, long declaredSize, Long uploadedByUserId) {
+        this.publicId = publicId;
+        this.workspaceId = workspaceId;
+        this.purpose = purpose;
+        this.origin = origin;
+        this.s3Key = s3Key;
+        this.contentType = contentType;
+        this.declaredSize = declaredSize;
+        this.uploadedByUserId = uploadedByUserId;
+        this.status = AssetStatus.PENDING_UPLOAD;
+    }
+
+    /**
+     * 브라우저가 올릴 자산. key 는 public id 에서 나오므로 public id 를 먼저 정해 받는다 —
+     * 호출자가 같은 값으로 key 를 만든다.
+     */
+    public static Asset pendingUpload(String publicId, Long workspaceId, AssetPurpose purpose, String s3Key,
+                                      String contentType, long declaredSize, Long uploadedByUserId) {
+        return new Asset(publicId, workspaceId, purpose, AssetOrigin.CREATOR_BROWSER, s3Key,
+                contentType, declaredSize, uploadedByUserId);
+    }
+
+    /** 행사 참가자의 촬영 입력. 공간 범위가 아니라 행사·참가자·회차 범위다 */
+    public static Asset captureInput(String publicId, Long eventId, Long participantId, Long captureRunId,
+                                     int slotIndex, String s3Key, String contentType, long declaredSize) {
+        Asset asset = new Asset(publicId, null, AssetPurpose.CAPTURE_INPUT, AssetOrigin.CREATOR_BROWSER, s3Key,
+                contentType, declaredSize, null);
+        asset.eventId = eventId;
+        asset.participantId = participantId;
+        asset.captureRunId = captureRunId;
+        asset.slotIndex = slotIndex;
+        return asset;
+    }
+
+    /**
+     * 서버가 참가자 자유 문구로 구운 PNG(출처 SERVER). 서버가 직접 올렸으므로 만들 때 이미 검증 상태다.
+     * 행사·참가자·회차와 문구 스냅샷을 남기고, 같은 트랜잭션에서 그 작업에 묶는다 — 촬영 입력으로 재사용하지 않는다
+     */
+    public static Asset serverTextRender(String publicId, Long eventId, Long participantId, Long captureRunId, String s3Key,
+                                         long size, int width, int height, String text, String styleId, LocalDateTime now) {
+        Asset asset = new Asset(publicId, null, AssetPurpose.TEXT_RENDER, AssetOrigin.SERVER, s3Key, "image/png", size, null);
+        asset.eventId = eventId;
+        asset.participantId = participantId;
+        asset.captureRunId = captureRunId;
+        asset.textSnapshot = text;
+        asset.textStyleId = styleId;
+        asset.verify(size, width, height, now);
+        return asset;
+    }
+
+    public static String newPublicId() {
+        return PublicIds.generate();
+    }
+
+    public void verify(long actualSize, int width, int height, LocalDateTime now) {
+        requirePending();
+        this.status = AssetStatus.VERIFIED;
+        this.actualSize = actualSize;
+        this.width = width;
+        this.height = height;
+        this.verifiedAt = now;
+    }
+
+    public void reject(String reason) {
+        requirePending();
+        this.status = AssetStatus.REJECTED;
+        this.rejectReason = reason;
+    }
+
+    public boolean isVerified() {
+        return status == AssetStatus.VERIFIED;
+    }
+
+    // 끝난 판정은 바꾸지 않는다 — REJECTED 를 다시 검사하려면 새 intent 를 만든다
+    private void requirePending() {
+        if (status != AssetStatus.PENDING_UPLOAD) {
+            throw new IllegalStateException("이미 판정이 끝난 자산이다: " + publicId + " " + status);
+        }
+    }
+}

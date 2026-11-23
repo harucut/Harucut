@@ -1,6 +1,7 @@
 package com.harucut.user.dto;
 
 import com.harucut.user.entity.User;
+import com.harucut.user.enums.UserStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description = "내 정보")
@@ -32,7 +33,12 @@ public record UserInfoResponse(
         String planTier,
 
         @Schema(description = "해당 요금제의 월 구독료(원). BASIC 0 / PLUS 3900 / PRO 9900", example = "0")
-        int monthlyPrice
+        int monthlyPrice,
+
+        @Schema(description = """
+                **지금** 계정 상태 — 토큰이 아니라 DB 값이다. `BLOCKED` 면 제한 화면을 그린다.
+                정지 전에 받은 토큰을 든 사람도 여기서 바로 알 수 있다.""", example = "ACTIVE")
+        UserStatus userStatus
 ) {
     public static UserInfoResponse from(User user, String profileUrl, String planTier, int monthlyPrice) {
         return new UserInfoResponse(
@@ -42,7 +48,8 @@ public record UserInfoResponse(
                 profileUrl,
                 user.getProvider().name(),
                 planTier,
-                monthlyPrice
+                monthlyPrice,
+                user.getUserStatus()
         );
     }
 }

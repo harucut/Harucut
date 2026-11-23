@@ -1,4 +1,7 @@
 spring:
+  # 기존 운영 DB 는 baseline 편입(ADR-0005 §3) 전에 이 설정으로 뜨면 기동에서 죽는다 — 스키마가 망가지는 것보다 낫다
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
   datasource:
     # 기본값을 두지 않는다 — 빠지면 localhost 로 조용히 붙으려다 엉뚱한 오류를 내느니 기동에서 죽는 게 낫다
     url: ${DB_URL}
@@ -6,8 +9,8 @@ spring:
     password: ${DB_PASSWORD}
   jpa:
     hibernate:
-      # 운영 전이라 Flyway 대신 update 로 간다. 실데이터가 생기면 마이그레이션 도구로 바꿀 것
-      ddl-auto: update
+      # 스키마는 Flyway 만 고친다. update 가 V2+ 의 표를 먼저 만들면 그 뒤로 migration 이 영영 실패한다(ADR-0005)
+      ddl-auto: validate
     open-in-view: false
     show-sql: false
 
@@ -23,3 +26,26 @@ server:
   # nginx 가 HTTPS 를 풀고 http 로 넘긴다. X-Forwarded-* 를 믿지 않으면
   # 스프링이 자기를 http://localhost:8080 으로 알고, OAuth2 redirect-uri({baseUrl})가 틀어진다
   forward-headers-strategy: native
+
+# 아래 기본값은 전부 닫힌 쪽이다 — env 가 빠져도 mock·공개 명세로 뜨지 않는다. 여는 값은 deploy/prod/.env.example 에 적었다
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:https://harucut.com,https://www.harucut.com}
+
+payment:
+  gateway:
+    # 실제 PG 구현 전까지 닫아 둔다 — 발급·청구가 전부 실패한다(DisabledPaymentGateway)
+    provider: ${PAYMENT_GATEWAY_PROVIDER:disabled}
+  webhook:
+    provider: ${PAYMENT_WEBHOOK_PROVIDER:disabled}
+
+billing:
+  store:
+    # 애플은 루트 인증서가 있어야 통과하고 구글은 아직 항상 거절한다 — 서명 없이 통과시키는 mock 으로 뜨지 않는다
+    verifier: ${STORE_VERIFIER:real}
+
+springdoc:
+  # 관리자 API 까지 인증 없이 열리고, 병렬 호출 몇 개로 600MB 컨테이너가 OOM 으로 죽는다(2026-11-02 실측)
+  api-docs:
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:false}

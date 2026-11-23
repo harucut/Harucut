@@ -67,19 +67,6 @@ class FrameDtoSerializationTest {
         }
 
         @Test
-        @DisplayName("소문자 zindex로 보내도 인식된다 — 하위 호환 alias")
-        void lowercaseZindexAlias() {
-            String json = """
-                    { "type": "STICKER", "source": "/static/stickers/heart.png", "zindex": 7 }
-                    """;
-
-            FrameCreateRequest.ComponentRequest component =
-                    objectMapper.readValue(json, FrameCreateRequest.ComponentRequest.class);
-
-            assertThat(component.zIndex()).isEqualTo(7);
-        }
-
-        @Test
         @DisplayName("좌표·회전·zIndex를 안 보내면 0이다 — 컴팩트 생성자가 소유한 기본값")
         void missingCoordinatesDefaultToZero() {
             String json = """
@@ -120,7 +107,8 @@ class FrameDtoSerializationTest {
             FrameResponse.ComponentResponse response = new FrameResponse.ComponentResponse(
                     10L, ComponentType.PHOTO, "https://presigned.example/photo.png",
                     "uploads/users/AbCdEf12Gh/components/photo1.png",
-                    120.5, 220.0, 360.0, 480.0, 1.0, 0.0, 3, Map.of());
+                    120.5, 220.0, 360.0, 480.0, 1.0, 0.0, 3, Map.of(),
+                    false, null, null, null, null);
 
             String json = objectMapper.writeValueAsString(response);
 

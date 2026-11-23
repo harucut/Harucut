@@ -19,10 +19,12 @@ import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.ActiveProfiles;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-// 탈퇴 하드삭제용 벌크 쿼리 검증. JPQL 벌크 DELETE는 cascade/orphanRemoval을 우회하므로
+// 탈퇴 하드삭제용 벌크 쿼리 검증(FrameUserDeletionHandler 가 쓰는 셋). JPQL 벌크 DELETE는 cascade/orphanRemoval을 우회하므로
 // 컴포넌트 → 프레임 순서가 강제된다 — 그 사실 자체를 FK 위반으로 증명한다
 @DataJpaTest
 @AutoConfigureJson
@@ -30,6 +32,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @ActiveProfiles("test")
 @DisplayName("프레임 탈퇴 삭제 쿼리")
 class FrameDeletionQueryTest {
+
+    private static final long PERSONAL_WORKSPACE_ID = -1L;   // 공간이 없던 옛 행(workspaceId null)만 쓴다
 
     @Autowired
     private TestEntityManager em;
@@ -48,8 +52,10 @@ class FrameDeletionQueryTest {
         em.flush();
         em.clear();
 
-        frameRepository.deleteComponentsByUserId(mine.getId());
-        frameRepository.deleteByUserId(mine.getId());
+        List<Long> frameIds = frameRepository.findPersonalWithComponents(mine.getId(), PERSONAL_WORKSPACE_ID)
+                .stream().map(Frame::getId).toList();
+        frameRepository.deleteComponentsByFrameIdIn(frameIds);
+        frameRepository.deleteByIdIn(frameIds);
 
         assertThat(frameRepository.findAll())
                 .extracting(Frame::getTitle)
@@ -61,11 +67,11 @@ class FrameDeletionQueryTest {
     @DisplayName("컴포넌트를 먼저 지우지 않으면 FK가 막는다")
     void fkBlocksFrameFirstDeletion() {
         User mine = em.persist(User.localUser("mine@harucut.com", "encoded", "나"));
-        em.persist(frameWithComponents(mine, 1));
+        Frame frame = em.persist(frameWithComponents(mine, 1));
         em.flush();
         em.clear();
 
-        assertThatThrownBy(() -> frameRepository.deleteByUserId(mine.getId()))
+        assertThatThrownBy(() -> frameRepository.deleteByIdIn(List.of(frame.getId())))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
@@ -79,7 +85,7 @@ class FrameDeletionQueryTest {
         em.flush();
         em.clear();
 
-        assertThat(frameRepository.findAllWithComponentsByUserId(mine.getId()))
+        assertThat(frameRepository.findPersonalWithComponents(mine.getId(), PERSONAL_WORKSPACE_ID))
                 .singleElement()
                 .satisfies(frame -> {
                     assertThat(Hibernate.isInitialized(frame.getComponents())).isTrue();

@@ -1,0 +1,469 @@
+[ {
+  "code" : "ASSET-001",
+  "status" : 409,
+  "message" : "The uploaded object was not found."
+}, {
+  "code" : "ASSET-002",
+  "status" : 422,
+  "message" : "The uploaded object size does not match or exceeds the limit."
+}, {
+  "code" : "ASSET-003",
+  "status" : 422,
+  "message" : "The uploaded object is not a valid image of the declared type."
+}, {
+  "code" : "ASSET-004",
+  "status" : 422,
+  "message" : "The image exceeds the pixel limit."
+}, {
+  "code" : "ASSET-005",
+  "status" : 400,
+  "message" : "This purpose cannot be uploaded through this endpoint."
+}, {
+  "code" : "ASSET-006",
+  "status" : 503,
+  "message" : "Asset verification is busy. Retry shortly."
+}, {
+  "code" : "AUTH-001",
+  "status" : 400,
+  "message" : "Invalid credentials."
+}, {
+  "code" : "AUTH-002",
+  "status" : 400,
+  "message" : "Incorrect password."
+}, {
+  "code" : "AUTH-003",
+  "status" : 400,
+  "message" : "Invalid or expired verification code."
+}, {
+  "code" : "AUTH-004",
+  "status" : 400,
+  "message" : "Failed to register email."
+}, {
+  "code" : "AUTH-005",
+  "status" : 400,
+  "message" : "This account is pending deletion."
+}, {
+  "code" : "AUTH-007",
+  "status" : 400,
+  "message" : "This account is not a deletion target."
+}, {
+  "code" : "AUTH-008",
+  "status" : 400,
+  "message" : "Social accounts do not have a password."
+}, {
+  "code" : "AUTH-010",
+  "status" : 401,
+  "message" : "Authentication failed."
+}, {
+  "code" : "AUTH-011",
+  "status" : 401,
+  "message" : "Invalid access token."
+}, {
+  "code" : "AUTH-012",
+  "status" : 401,
+  "message" : "Expired access token."
+}, {
+  "code" : "AUTH-020",
+  "status" : 404,
+  "message" : "User not found."
+}, {
+  "code" : "AUTH-030",
+  "status" : 409,
+  "message" : "This email is already in use."
+}, {
+  "code" : "AUTH-040",
+  "status" : 429,
+  "message" : "Too many verification requests."
+}, {
+  "code" : "AUTH-041",
+  "status" : 400,
+  "message" : "The app login code is invalid or expired."
+}, {
+  "code" : "AUTH-042",
+  "status" : 403,
+  "message" : "This account is blocked."
+}, {
+  "code" : "AUTH-090",
+  "status" : 500,
+  "message" : "Failed to send verification email."
+}, {
+  "code" : "AUTH-091",
+  "status" : 500,
+  "message" : "Failed to unlink OAuth2 provider account."
+}, {
+  "code" : "BOOTH-001",
+  "status" : 400,
+  "message" : "The pairing code is wrong or expired."
+}, {
+  "code" : "BOOTH-002",
+  "status" : 410,
+  "message" : "The pairing was closed after too many failed attempts."
+}, {
+  "code" : "BOOTH-003",
+  "status" : 403,
+  "message" : "The booth device is revoked, unassigned or its token is invalid."
+}, {
+  "code" : "BOOTH-004",
+  "status" : 409,
+  "message" : "The booth device already has an active capture run."
+}, {
+  "code" : "BOOTH-005",
+  "status" : 409,
+  "message" : "The capture run state version does not match."
+}, {
+  "code" : "BOOTH-006",
+  "status" : 403,
+  "message" : "The event has reached its booth device limit."
+}, {
+  "code" : "COUPON-001",
+  "status" : 404,
+  "message" : "The requested coupon does not exist."
+}, {
+  "code" : "COUPON-002",
+  "status" : 409,
+  "message" : "A coupon with this code already exists."
+}, {
+  "code" : "COUPON-003",
+  "status" : 400,
+  "message" : "Coupon grant tier must be PLUS or PRO."
+}, {
+  "code" : "COUPON-004",
+  "status" : 400,
+  "message" : "This coupon is inactive or past its redemption deadline."
+}, {
+  "code" : "COUPON-005",
+  "status" : 409,
+  "message" : "This coupon has reached its maximum number of redemptions."
+}, {
+  "code" : "COUPON-006",
+  "status" : 409,
+  "message" : "You have already redeemed this coupon."
+}, {
+  "code" : "COUPON-007",
+  "status" : 409,
+  "message" : "You already have a reserved coupon grant awaiting activation."
+}, {
+  "code" : "COUPON-008",
+  "status" : 409,
+  "message" : "Coupons cannot be used on an unlimited subscription."
+}, {
+  "code" : "DRAFT-001",
+  "status" : 409,
+  "message" : "The draft was saved from another device."
+}, {
+  "code" : "DRAFT-002",
+  "status" : 413,
+  "message" : "The draft document is too large."
+}, {
+  "code" : "ENT-001",
+  "status" : 403,
+  "message" : "No entitlement applies to this event."
+}, {
+  "code" : "ENT-002",
+  "status" : 409,
+  "message" : "The event has reached its compose quota."
+}, {
+  "code" : "ENT-003",
+  "status" : 409,
+  "message" : "The contract or entitlement cannot change to this state."
+}, {
+  "code" : "ENT-004",
+  "status" : 403,
+  "message" : "The entitlement does not include this feature."
+}, {
+  "code" : "ENT-005",
+  "status" : 409,
+  "message" : "The allocations exceed the parent entitlement's compose quota."
+}, {
+  "code" : "ENT-006",
+  "status" : 409,
+  "message" : "The allocation cannot be reduced below what is already used or reserved."
+}, {
+  "code" : "EVENT-001",
+  "status" : 409,
+  "message" : "The event is not open for capture."
+}, {
+  "code" : "EVENT-002",
+  "status" : 403,
+  "message" : "This participation channel is not allowed for the event."
+}, {
+  "code" : "EVENT-003",
+  "status" : 400,
+  "message" : "The event settings cannot be published."
+}, {
+  "code" : "EVENT-004",
+  "status" : 409,
+  "message" : "The event slug is already in use."
+}, {
+  "code" : "EVENT-005",
+  "status" : 409,
+  "message" : "The event settings were modified by another save."
+}, {
+  "code" : "EVENT-006",
+  "status" : 409,
+  "message" : "The event is not accepting participation now."
+}, {
+  "code" : "EXPORT-001",
+  "status" : 409,
+  "message" : "The export is not ready yet."
+}, {
+  "code" : "EXPORT-002",
+  "status" : 410,
+  "message" : "The export has expired, failed or been invalidated."
+}, {
+  "code" : "EXPORT-003",
+  "status" : 400,
+  "message" : "The export selection is empty or too large."
+}, {
+  "code" : "FRAME-001",
+  "status" : 404,
+  "message" : "The requested system frame does not exist."
+}, {
+  "code" : "FRAME-002",
+  "status" : 409,
+  "message" : "The frame was modified by another save."
+}, {
+  "code" : "FRAME-003",
+  "status" : 400,
+  "message" : "The frame has too many layers."
+}, {
+  "code" : "FRAME-004",
+  "status" : 400,
+  "message" : "The frame is too large to compose."
+}, {
+  "code" : "FRAME-005",
+  "status" : 400,
+  "message" : "The referenced asset cannot be used in this frame."
+}, {
+  "code" : "FRAME-006",
+  "status" : 409,
+  "message" : "A published version of this frame is used by an event."
+}, {
+  "code" : "FRAME-007",
+  "status" : 403,
+  "message" : "The workspace has reached its frame limit."
+}, {
+  "code" : "FRAME-008",
+  "status" : 409,
+  "message" : "Frames with free photo cells cannot be composed yet."
+}, {
+  "code" : "GEN-001",
+  "status" : 400,
+  "message" : "Bad request."
+}, {
+  "code" : "GEN-002",
+  "status" : 400,
+  "message" : "Invalid input value."
+}, {
+  "code" : "GEN-003",
+  "status" : 400,
+  "message" : "Validation failed."
+}, {
+  "code" : "GEN-004",
+  "status" : 400,
+  "message" : "Missing request parameter."
+}, {
+  "code" : "GEN-005",
+  "status" : 400,
+  "message" : "Type mismatch error."
+}, {
+  "code" : "GEN-006",
+  "status" : 400,
+  "message" : "Failed to parse JSON body."
+}, {
+  "code" : "GEN-011",
+  "status" : 401,
+  "message" : "Unauthorized access."
+}, {
+  "code" : "GEN-021",
+  "status" : 403,
+  "message" : "Access denied."
+}, {
+  "code" : "GEN-022",
+  "status" : 403,
+  "message" : "Request origin is not allowed."
+}, {
+  "code" : "GEN-031",
+  "status" : 404,
+  "message" : "Resource not found."
+}, {
+  "code" : "GEN-041",
+  "status" : 405,
+  "message" : "Method not allowed."
+}, {
+  "code" : "GEN-051",
+  "status" : 415,
+  "message" : "Unsupported media type."
+}, {
+  "code" : "GEN-061",
+  "status" : 429,
+  "message" : "Too many requests."
+}, {
+  "code" : "GEN-091",
+  "status" : 500,
+  "message" : "An internal server error occurred."
+}, {
+  "code" : "MEDIA-001",
+  "status" : 409,
+  "message" : "The idempotency key was already used with a different request."
+}, {
+  "code" : "MEDIA-002",
+  "status" : 404,
+  "message" : "The share link is closed or does not exist."
+}, {
+  "code" : "MEMBER-001",
+  "status" : 410,
+  "message" : "The invitation has expired."
+}, {
+  "code" : "MEMBER-002",
+  "status" : 400,
+  "message" : "The invitation is invalid, already used or revoked."
+}, {
+  "code" : "MEMBER-003",
+  "status" : 409,
+  "message" : "The user already has this access."
+}, {
+  "code" : "MEMBER-004",
+  "status" : 409,
+  "message" : "The last owner cannot be demoted or removed."
+}, {
+  "code" : "MEMBER-005",
+  "status" : 403,
+  "message" : "Members of an enterprise workspace cannot receive photo access."
+}, {
+  "code" : "NOTICE-001",
+  "status" : 404,
+  "message" : "The requested notice does not exist or is not published."
+}, {
+  "code" : "PART-001",
+  "status" : 401,
+  "message" : "The participant session is missing, expired or revoked."
+}, {
+  "code" : "PART-002",
+  "status" : 403,
+  "message" : "Required participation consent is missing."
+}, {
+  "code" : "PART-003",
+  "status" : 409,
+  "message" : "The capture run is not active."
+}, {
+  "code" : "PART-004",
+  "status" : 403,
+  "message" : "The frame is not offered to this capture run."
+}, {
+  "code" : "PART-005",
+  "status" : 409,
+  "message" : "The capture input cannot be used."
+}, {
+  "code" : "PART-006",
+  "status" : 403,
+  "message" : "This action is not allowed for a booth session."
+}, {
+  "code" : "PART-007",
+  "status" : 403,
+  "message" : "Free text is not offered for this event."
+}, {
+  "code" : "PART-008",
+  "status" : 400,
+  "message" : "The free text cannot be used."
+}, {
+  "code" : "PAY-001",
+  "status" : 502,
+  "message" : "Failed to issue a billing key."
+}, {
+  "code" : "PAY-002",
+  "status" : 402,
+  "message" : "Payment failed."
+}, {
+  "code" : "PAY-003",
+  "status" : 409,
+  "message" : "Already subscribed to a paid plan."
+}, {
+  "code" : "PAY-006",
+  "status" : 409,
+  "message" : "Duplicate payment request."
+}, {
+  "code" : "PAY-007",
+  "status" : 400,
+  "message" : "Invalid target plan tier."
+}, {
+  "code" : "PAY-008",
+  "status" : 400,
+  "message" : "Invalid webhook signature."
+}, {
+  "code" : "PHOTO-001",
+  "status" : 403,
+  "message" : "You do not have this photo permission for the event."
+}, {
+  "code" : "PROJECT-001",
+  "status" : 409,
+  "message" : "The project is archived."
+}, {
+  "code" : "PROJECT-002",
+  "status" : 409,
+  "message" : "The project of a published event cannot be changed."
+}, {
+  "code" : "RESULT-001",
+  "status" : 401,
+  "message" : "The result token is invalid or revoked."
+}, {
+  "code" : "RESULT-002",
+  "status" : 410,
+  "message" : "The result retention period has ended."
+}, {
+  "code" : "RESULT-003",
+  "status" : 409,
+  "message" : "The result is not ready yet."
+}, {
+  "code" : "SUBS-002",
+  "status" : 403,
+  "message" : "Requested history is beyond the plan's retention period."
+}, {
+  "code" : "SUBS-003",
+  "status" : 403,
+  "message" : "The number of stored frames exceeds the limit for the current plan."
+}, {
+  "code" : "SUBS-004",
+  "status" : 404,
+  "message" : "No active subscription found."
+}, {
+  "code" : "SUBS-005",
+  "status" : 409,
+  "message" : "The subscription's auto-renewal is already canceled."
+}, {
+  "code" : "SUBS-006",
+  "status" : 409,
+  "message" : "There is no auto-renewal to cancel for this subscription."
+}, {
+  "code" : "SUBS-007",
+  "status" : 400,
+  "message" : "The store purchase could not be verified."
+}, {
+  "code" : "SUBS-008",
+  "status" : 409,
+  "message" : "The store purchase belongs to another account."
+}, {
+  "code" : "SUBS-009",
+  "status" : 409,
+  "message" : "Already subscribed through another payment source."
+}, {
+  "code" : "SUBS-010",
+  "status" : 400,
+  "message" : "Unknown store product."
+}, {
+  "code" : "TERMS-001",
+  "status" : 404,
+  "message" : "The requested terms do not exist or are inactive."
+}, {
+  "code" : "TERMS-002",
+  "status" : 409,
+  "message" : "Terms code already exists."
+}, {
+  "code" : "TERMS-003",
+  "status" : 400,
+  "message" : "Required terms cannot be withdrawn."
+}, {
+  "code" : "TERMS-004",
+  "status" : 403,
+  "message" : "Required terms consent is missing or outdated."
+} ]

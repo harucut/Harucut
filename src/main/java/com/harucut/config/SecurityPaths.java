@@ -28,6 +28,9 @@ public final class SecurityPaths {
             "/api/harucut/login",
             "/api/harucut/reissue",
             "/api/harucut/logout",
+            "/api/harucut/logout/all",
+            // 앱 로그인 코드 교환 — 코드·PKCE 검증값이 자격이다
+            "/api/harucut/oauth2/exchange",
             "/api/harucut/reset/password/code",
             "/api/harucut/reset/password",
             "/api/harucut/reset/password/verification",
@@ -38,6 +41,12 @@ public final class SecurityPaths {
             "/api/oauth2/unlink/naver",
             "/api/terms",
             "/api/payments/webhook",
+            // 스토어 알림 — 애플은 JWS 서명, 구글은 푸시 URL 토큰으로 확인한다(ADR-0011 §2)
+            "/api/payments/webhooks/app-store",
+            "/api/payments/webhooks/google-play",
+            "/api/public/inquiries",
+            // 자유 문구 스타일 목록(정적 카탈로그)
+            "/api/public/text-styles",
             "/swagger-ui/**",
             "/swagger-ui.html",
             "/v3/api-docs/**",
@@ -45,7 +54,26 @@ public final class SecurityPaths {
     };
 
     /**
-     * 로그인만 되어 있으면 되는 경로 ({@code authenticated}). 나머지 경로는 전부
+     * 플랫폼 관리자 경로 ({@code hasRole("ADMIN")}). 컨트롤러마다 붙인 {@code @PreAuthorize} 와 별개로
+     * URL 수준에서 한 번 더 막는다 — 새 관리자 컨트롤러가 애노테이션을 빠뜨려도 일반 사용자에게 열리지 않는다.
+     */
+    public static final String ADMIN = "/api/admin/**";
+
+    /**
+     * access 토큰을 믿지 않고 요청마다 역할·상태를 DB 에서 다시 보는 경로 — 플랫폼 관리와 사진·행사 관리(R5 L636, AccountStateInterceptor).
+     */
+    public static final String[] ACCOUNT_CHECKED = {
+            ADMIN,
+            "/api/auth/events/**",
+            "/api/auth/me/events",
+            "/api/auth/projects/**",
+            "/api/auth/workspaces/**",
+            "/api/auth/booth-devices/**",
+            "/api/auth/invitations/**"
+    };
+
+    /**
+     * 로그인만 되어 있으면 되는 경로 ({@code authenticated}). 나머지 경로는 {@link #BLOCKED_ALLOWED} 를 빼면 전부
      * {@code hasAnyRole("USER","ADMIN")} 이라 탈퇴 요청·정지 상태에서 403 이 난다.
      *
      * <p>여기 있는 경로는 <b>역할을 보지 않으므로 그 403 이 나지 않는다.</b>
@@ -55,11 +83,51 @@ public final class SecurityPaths {
      */
     public static final String[] AUTHENTICATED_ONLY = {
             "/api/auth/status",
-            "/api/harucut/reactivate"
+            "/api/harucut/reactivate",
+            // 로그아웃 직전의 푸시 기기 해제 — 탈퇴 요청·정지 상태에서도 기기를 떼어 낼 수 있어야 한다
+            "/api/auth/devices/unregister"
     };
 
+    /**
+     * 정지(BLOCKED) 계정에도 열린 경로 — 마이페이지와 탈퇴. 그 밖의 보호 경로는 403 AUTH-042 다(CustomAccessDeniedHandler).
+     * 탈퇴 요청 상태에는 열지 않는다. 상태 조회·복구는 AUTHENTICATED_ONLY, 로그아웃·재발급은 PUBLIC 에 있다
+     */
+    public static final String[] BLOCKED_ALLOWED = {
+            "/api/auth/user/info",
+            "/api/harucut/exit"
+    };
+
+    /**
+     * 행사 참가·부스·결과 경로 — 회원 체인이 아니라 {@code EventSecurityConfig} 의 전용 체인이 받는다.
+     * 자격은 쿠키가 아니라 헤더다(참가자 토큰·부스 토큰·결과 토큰). 개인 사진 공유 링크도 같은 Bearer 방식이라 여기 있다.
+     */
+    public static final String[] EVENT = {
+            "/api/public/events/**", "/api/participant/**", "/api/booth/**",
+            "/api/public/booth-pairings/**", "/api/public/results/**", "/api/public/media-shares/**"
+    };
+
+    /**
+     * 쿠키 인증 변경 요청의 출처 검사(OriginCheckFilter)에서 빼는 경로. 다른 사이트(결제사·스토어·소셜 제공자)가
+     * 보내는 게 정상인 콜백·웹훅과, 자격을 본문으로 받는 앱 코드 교환이다. 행사 경로는 체인이 따로라 여기 없어도 대상이 아니다.
+     */
+    public static final String[] ORIGIN_CHECK_EXEMPT = {
+            "/api/payments/webhook",
+            "/api/payments/webhooks/**",
+            "/oauth2/**",
+            "/login/oauth2/**",
+            "/api/oauth2/unlink/naver",
+            "/api/harucut/oauth2/exchange"
+    };
+
+    /** 행사 체인 안에서 자격 없이 여는 경로(행사 조회·BYOD 세션 발급·부스 페어링 교환). */
+    public static final String[] EVENT_OPEN = {"/api/public/events/**", "/api/public/booth-pairings/**"};
+
     private static final List<PathPattern> PARSED_PUBLIC = parse(PUBLIC);
+    private static final List<PathPattern> PARSED_EVENT = parse(EVENT);
+    private static final List<PathPattern> PARSED_EVENT_OPEN = parse(EVENT_OPEN);
     private static final List<PathPattern> PARSED_AUTHENTICATED_ONLY = parse(AUTHENTICATED_ONLY);
+    private static final List<PathPattern> PARSED_BLOCKED_ALLOWED = parse(BLOCKED_ALLOWED);
+    private static final List<PathPattern> PARSED_ORIGIN_CHECK_EXEMPT = parse(ORIGIN_CHECK_EXEMPT);
 
     private SecurityPaths() {
     }
@@ -72,12 +140,44 @@ public final class SecurityPaths {
                         .toArray(RequestMatcher[]::new));
     }
 
+    /** 계정 상태를 다시 보는 경로 매처. */
+    public static RequestMatcher accountCheckedMatcher() {
+        return new OrRequestMatcher(
+                Arrays.stream(ACCOUNT_CHECKED)
+                        .map(PathPatternRequestMatcher::pathPattern)
+                        .toArray(RequestMatcher[]::new));
+    }
+
+    /** 출처 검사 제외 경로 매처. */
+    public static RequestMatcher originCheckExemptMatcher() {
+        return new OrRequestMatcher(
+                Arrays.stream(ORIGIN_CHECK_EXEMPT)
+                        .map(PathPatternRequestMatcher::pathPattern)
+                        .toArray(RequestMatcher[]::new));
+    }
+
     public static boolean isPublic(String pathTemplate) {
         return matches(PARSED_PUBLIC, pathTemplate);
     }
 
+    public static boolean isEvent(String pathTemplate) {
+        return matches(PARSED_EVENT, pathTemplate);
+    }
+
+    public static boolean isEventOpen(String pathTemplate) {
+        return matches(PARSED_EVENT_OPEN, pathTemplate);
+    }
+
+    public static boolean isBlockedAllowed(String pathTemplate) {
+        return matches(PARSED_BLOCKED_ALLOWED, pathTemplate);
+    }
+
     public static boolean isAuthenticatedOnly(String pathTemplate) {
         return matches(PARSED_AUTHENTICATED_ONLY, pathTemplate);
+    }
+
+    public static boolean isOriginCheckExempt(String pathTemplate) {
+        return matches(PARSED_ORIGIN_CHECK_EXEMPT, pathTemplate);
     }
 
     private static List<PathPattern> parse(String[] patterns) {

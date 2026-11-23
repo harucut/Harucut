@@ -2,10 +2,18 @@ package com.harucut.media.service;
 
 import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.frame.attributes.BackgroundAttributes;
+import com.harucut.entitlement.service.EntitlementService;
+import com.harucut.frame.cell.FreeCellsGate;
 import com.harucut.frame.entity.Frame;
+import com.harucut.frame.exception.FrameErrorCode;
 import com.harucut.frame.service.FrameService;
+import com.harucut.media.compose.ComposeInputFingerprint;
 import com.harucut.media.compose.ComposeMetrics;
+import com.harucut.media.compose.ComposeOutputPolicy;
 import com.harucut.media.compose.ComposeRequestedEvent;
+import com.harucut.media.compose.ComposeRetryPolicy;
+import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeSpec;
 import com.harucut.media.compose.ComposeSpecAssembler;
 import com.harucut.media.compose.ImageFormat;
@@ -14,9 +22,13 @@ import com.harucut.media.dto.ComposeRequest;
 import com.harucut.media.entity.ComposeJob;
 import com.harucut.media.entity.UserMedia;
 import com.harucut.media.enums.ComposeStatus;
+import com.harucut.media.exception.MediaErrorCode;
 import com.harucut.media.repository.ComposeJobRepository;
 import com.harucut.media.repository.UserMediaRepository;
 import com.harucut.media.util.DisplayNames;
+import com.harucut.push.service.PushMessage;
+import com.harucut.push.service.PushRequestedEvent;
+import com.harucut.storage.enums.UploadType;
 import com.harucut.storage.service.S3Deleter;
 import com.harucut.storage.util.S3Keys;
 import com.harucut.user.entity.User;
@@ -27,10 +39,12 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -44,43 +58,121 @@ public class ComposeService {
     private final UserMediaRepository userMediaRepository;
     private final FrameService frameService;
     private final ComposeSpecAssembler composeSpecAssembler;
+    private final FreeCellsGate freeCellsGate;
     private final S3Deleter s3Deleter;
     private final ApplicationEventPublisher eventPublisher;
     private final ComposeMetrics composeMetrics;
     private final Clock clock;
+    private final ObjectMapper objectMapper;
+    private final EntitlementService entitlementService;
+    private final ComposeOutputPolicy outputPolicy;
+    private final ComposeRetryPolicy retryPolicy;
+
+    // 최종 실패한 작업의 결과·썸네일 자리를 다시 지우기까지 — 늦게 도착한 실행(AWS 비동기 큐 최대 6시간 + 실행 시간)이
+    // 그 자리에 쓸 수 있는 동안. 실패 확정 때 한 번, 이 시간 뒤 한 번 더 지운다(R5 D09 지연 재삭제)
+    public static final Duration LATE_WRITE_WINDOW = Duration.ofHours(6).plusMinutes(30);
+
+    // 입력을 지운 뒤 다시 지우기까지 — 조건부 PUT 도 지운 key 에는 다시 쓸 수 있고, 개인 원본 PUT URL 은 24시간 유효하다(R5 L679)
+    static final Duration INPUT_PUT_WINDOW = Duration.ofHours(24).plusMinutes(30);
+
+    // ComposeJob.spec_json 컬럼 길이와 같아야 한다
+    private static final int SPEC_JSON_MAX_CHARS = 8000;
 
     public ComposeJobResponse requestCompose(String publicId, ComposeRequest request) {
         User user = getUser(publicId);
 
         // 멱등 재생: 더블클릭·재시도는 기존 Job을 그대로 받는다 — 새 실행 없음.
         // 정확히 동시에 온 중복은 (user, key) unique가 막는다 (한쪽은 실패하지만 데이터는 안전)
-        Optional<ComposeJob> existing =
-                composeJobRepository.findByUserAndIdempotencyKey(user, request.idempotencyKey());
-        if (existing.isPresent()) {
-            composeMetrics.requestReplayed();
-            return ComposeJobResponse.from(existing.get());
-        }
-
-        // 원본은 정규화된 key로 저장하고, 검사도 그 값으로 한다 — URL로 감싼 남의 key 차단
+        // 원본은 정규화된 key로 저장하고, 검사도 그 값으로 한다 — URL로 감싼 남의 key 차단.
+        // 재생 판정(지문 비교)도 저장된 값과 같은 모양으로 비교해야 하므로 먼저 정규화한다
         List<String> sourceKeys = request.sourceKeys().stream()
                 .map(S3Keys::normalizeToKey)
                 .toList();
+
+        Optional<ComposeJob> existing = composeJobRepository.findByIdempotencyScopeAndIdempotencyKey(
+                ComposeJob.personalScope(user.getId()), request.idempotencyKey());
+        if (existing.isPresent()) {
+            return replay(existing.get(), request, sourceKeys);
+        }
+
         validateSourceOwnership(publicId, sourceKeys);
 
         Frame frame = frameService.getComposableFrame(user, request.frameId());
+        freeCellsGate.requireRenderable(frame);   // 자유 사진 칸 — 렌더 스위치 전에는 409 FRAME-008
         ComposeSpec spec = composeSpecAssembler.assemble(frame, request.backgroundColor());
 
-        ComposeJob job = composeJobRepository.save(ComposeJob.create(
-                user, frame.getId(), request.idempotencyKey(), sourceKeys, spec));
+        ComposeJob job = accept(ComposeJob.create(user, frame.getId(), request.idempotencyKey(), sourceKeys, spec));
+        // 업로드 발급 때 남긴 "24시간 뒤 원본 삭제" 책임을 작업이 가져간다 — 이제 성공·최종 실패가 원본을 지운다
+        sourceKeys.forEach(s3Deleter::release);
+        return ComposeJobResponse.from(job);
+    }
+
+    /**
+     * 준비된 작업을 접수한다 — 저장하고, 커밋 후 실행할 이벤트를 발행한다. 개인 합성과 행사 참가자 합성이 같은 입구를 쓴다.
+     * spec_json 상한(8000자)도 여기서 본다.
+     */
+    public ComposeJob accept(ComposeJob prepared) {
+        assertSpecFits(prepared.getSpec());
+        // 출력 계약은 접수 때 고정한다 — 같은 작업의 재시도가 다른 계약으로 실행되지 않게
+        prepared.fixRenderContract(outputPolicy.contractForNewJobs());
+        prepared.fixInputFingerprint(ComposeInputFingerprint.of(objectMapper.writeValueAsString(prepared.getSpec()),
+                prepared.sourceKeys(), prepared.getRenderContract()));
+        ComposeJob job = composeJobRepository.save(prepared);
 
         // 실행은 커밋 후에 시작된다(AFTER_COMMIT 리스너) — 커밋 전에 실행 스레드가 뜨면
         // 아직 안 보이는 Job을 상대로 결과를 기록하려다 실패한다
-        eventPublisher.publishEvent(new ComposeRequestedEvent(
-                job.getId(), spec, job.sourceKeys(),
-                resultKeyFor(publicId, job.getId()), thumbnailKeyFor(publicId, job.getId()),
-                RESULT_FORMAT));
+        eventPublisher.publishEvent(requested(job));
         composeMetrics.requestAccepted();
+        return job;
+    }
+
+    // 정확히 동시에 온 중복 요청의 패자가 여기로 온다. requestCompose 의 INSERT 가
+    // (user, idempotency_key) 유니크에 걸려 그 트랜잭션은 롤백됐다 — 새 트랜잭션에서 승자의 Job 을
+    // 다시 읽어 지문을 비교한다. 승자가 없으면 다른 제약 위반이라 null 을 돌려 호출자가 원래 예외를 던진다
+    @Transactional(readOnly = true)
+    public ComposeJobResponse replayAfterConflict(String publicId, ComposeRequest request) {
+        User user = getUser(publicId);
+        List<String> sourceKeys = request.sourceKeys().stream()
+                .map(S3Keys::normalizeToKey)
+                .toList();
+        return composeJobRepository.findByIdempotencyScopeAndIdempotencyKey(
+                        ComposeJob.personalScope(user.getId()), request.idempotencyKey())
+                .map(job -> replay(job, request, sourceKeys))
+                .orElse(null);
+    }
+
+    // 멱등 재생: 같은 키 + 같은 요청이면 기존 Job 을 그대로, 같은 키 + 다른 요청이면 409.
+    // 지문 컬럼을 따로 두지 않고 Job 이 이미 저장한 값(프레임·원본 4장·배경색)과 비교한다
+    private ComposeJobResponse replay(ComposeJob job, ComposeRequest request, List<String> sourceKeys) {
+        if (!sameRequest(job, request.frameId(), sourceKeys, request.backgroundColor())) {
+            throw new BusinessException(MediaErrorCode.IDEMPOTENCY_KEY_REUSED);
+        }
+        composeMetrics.requestReplayed();
         return ComposeJobResponse.from(job);
+    }
+
+    // 배경색은 요청에 있을 때만 비교한다. 저장된 spec 의 배경은 "덮어쓴 색"과 "프레임 원래 색"을
+    // 구분하지 못한다 — 색을 안 보낸 요청을 프레임 색과 비교하면, 그사이 프레임이 수정됐을 때
+    // 정상 재요청이 409 가 된다
+    static boolean sameRequest(ComposeJob job, Long frameId, List<String> sourceKeys,
+                               String backgroundColor) {
+        if (!job.getFrameId().equals(frameId) || !job.sourceKeys().equals(sourceKeys)) {
+            return false;
+        }
+        if (backgroundColor == null) {
+            return true;
+        }
+        return job.getSpec().background() instanceof BackgroundAttributes.Color color
+                && color.value().equalsIgnoreCase(backgroundColor);
+    }
+
+    // spec_json 은 8000자 컬럼이다. 넘으면 INSERT 가 DB 오류(500)로 죽는다 — 그 전에 설명 가능한 400 으로 끊는다.
+    // 프레임 저장 시점에도 같은 상한을 보지만, 상한이 생기기 전에 저장된 프레임이 여기로 올 수 있다
+    private void assertSpecFits(ComposeSpec spec) {
+        int chars = objectMapper.writeValueAsString(spec).length();
+        if (chars > SPEC_JSON_MAX_CHARS) {
+            throw new BusinessException(FrameErrorCode.SPEC_TOO_LARGE, "합성 스펙 " + chars + "자 > " + SPEC_JSON_MAX_CHARS);
+        }
     }
 
     // 게이지용. 재실행 배치가 30초마다 한 번만 부른다 — 스크레이프마다 세면
@@ -100,23 +192,83 @@ public class ComposeService {
 
     // ── 워커가 실행 결과를 기록할 때 부르는 전이 — 각자 자기 트랜잭션에서 돈다 ──
 
-    public void completeJob(Long jobId, String resultKey, String thumbnailKey) {
+    // 전이를 이긴 호출만 true 다 — 미디어 생성과 원본 삭제가 그 안에서만 일어난다.
+    // 재실행 경합·SQS 재배달로 같은 Job 의 통지가 두 번 와도 두 번째는 false 로 끝난다
+    public boolean completeJob(Long jobId, String resultKey, String thumbnailKey) {
+        return completeJob(jobId, resultKey, thumbnailKey, null, null);
+    }
+
+    /**
+     * 계약 2 는 호출자(소비자)가 저장된 한 쌍의 체크섬을 확인한 뒤 그 값과 함께 부른다 — 확정한 쌍이 작업에 남는다.
+     * 이전 시도의 성공도 받는다(PENDING 이면). 이미 끝난 작업을 늦은 성공으로 되살리지 않는다
+     */
+    public boolean completeJob(Long jobId, String resultKey, String thumbnailKey, String resultSha256, String thumbnailSha256) {
         ComposeJob job = composeJobRepository.findById(jobId)
                 .orElseThrow(() -> new IllegalStateException("합성 Job이 사라졌다: " + jobId));
         if (job.getStatus() != ComposeStatus.PENDING) {
-            return;   // 재실행 경합 — 먼저 끝난 쪽이 이미 기록했다
+            return false;   // 재실행 경합 — 먼저 끝난 쪽이 이미 기록했다
+        }
+        if (job.verifiedPairContract() && (resultSha256 == null || thumbnailSha256 == null)) {
+            throw new IllegalStateException("출력 계약 2 작업은 검증한 체크섬 쌍으로만 완료한다: " + jobId);
+        }
+        if (composeJobRepository.markDone(jobId, resultKey, resultSha256, thumbnailSha256,
+                ComposeStatus.PENDING, ComposeStatus.DONE) == 0) {
+            return false;   // 읽은 뒤 다른 통지가 먼저 전이했다
         }
 
-        UserMedia media = userMediaRepository.save(UserMedia.of(job.getUser(), resultKey,
-                thumbnailKey, DisplayNames.resolve(null, resultKey, LocalDateTime.now(clock))));
-        job.complete(resultKey, media.getId());
+        // 개인 작업만 보관함(user_media)에 들어간다. 행사 참가자 작업은 결과 토큰으로 받는다(ResultAccess, P2A)
+        if (job.getUser() != null) {
+            UserMedia media = userMediaRepository.save(UserMedia.of(job.getUser(), resultKey,
+                    thumbnailKey, DisplayNames.resolve(null, resultKey, LocalDateTime.now(clock))));
+            composeJobRepository.attachMedia(jobId, media.getId());
+            eventPublisher.publishEvent(new PushRequestedEvent(job.getUser().getId(), PushMessage.composeDone(jobId)));
+        }
+        if (job.getEventId() != null) {
+            // 사용량 예약을 확정한다 — 전이를 이긴 이 트랜잭션에서만(늦은 통지는 위에서 false 로 끝났다)
+            entitlementService.commit(jobId);
+        }
         // 원본은 성공 시 삭제 — 결과만 보관함에 남는다.
         // 원본은 합성 재료일 뿐 사용자의 보관 대상이 아니라 저장 비용만 먹는다
-        s3Deleter.deleteAfterCommit(job.sourceKeys());
+        s3Deleter.deleteAfterCommit(job.inputKeys(), INPUT_PUT_WINDOW);
+        return true;
     }
 
-    public void failJob(Long jobId, String reason) {
-        composeJobRepository.findById(jobId).ifPresent(job -> job.fail(reason));
+    // 최종 실패(RetriesExhausted)에서만 불린다 — 일시적 실패는 PENDING 으로 남아 재실행된다.
+    // 원본도 지운다: 같은 멱등키의 재요청은 이 FAILED Job 을 재생할 뿐 원본을 다시 읽지 않고,
+    // 다시 시도하려면 새 키로 원본을 새로 올려야 한다. 남겨 두면 아무도 안 쓰는 4장이 버킷에 쌓인다
+    public boolean failJob(Long jobId, String reason) {
+        return failJob(jobId, reason, ComposeFailureCode.UNKNOWN);
+    }
+
+    public boolean failJob(Long jobId, String reason, ComposeFailureCode code) {
+        return failJob(jobId, reason, code, null);
+    }
+
+    /**
+     * @param attemptNo 실패를 알린 실행의 시도 번호 — 있으면 지금 번호와 같을 때만 반영한다. 1차 실행의 늦은 실패가
+     *                  2차 접수 뒤 도착해 PENDING 을 FAILED 로 바꾸면 2차 성공이 버려진다(R5 D09). 다르면 PENDING 그대로(재실행이 이어 간다)
+     */
+    public boolean failJob(Long jobId, String reason, ComposeFailureCode code, Integer attemptNo) {
+        Optional<ComposeJob> job = composeJobRepository.findById(jobId);
+        if (job.isEmpty()) {
+            return false;
+        }
+        if (composeJobRepository.markFailed(jobId, ComposeJob.truncateFailureReason(reason), code, attemptNo,
+                ComposeStatus.PENDING, ComposeStatus.FAILED) == 0) {
+            return false;
+        }
+        if (job.get().getEventId() != null) {
+            entitlementService.release(jobId);   // 예약 수량을 돌려준다(돈의 환불이 아니다)
+        }
+        // 개인 작업만 푸시한다 — 행사 참가자는 계정이 없다
+        if (job.get().getUser() != null) {
+            eventPublisher.publishEvent(new PushRequestedEvent(job.get().getUser().getId(),
+                    PushMessage.composeFailed(jobId, code.name())));
+        }
+        s3Deleter.deleteAfterCommit(job.get().inputKeys(), INPUT_PUT_WINDOW);
+        // 실패한 작업의 결과·썸네일 자리 — 비공개지만 실행이 일부라도 썼을 수 있다. 지금 한 번, 늦은 실행이 쓸 수 있는 기간 뒤 한 번 더
+        s3Deleter.deleteAfterCommit(List.of(resultKeyFor(job.get()), thumbnailKeyFor(job.get())), LATE_WRITE_WINDOW);
+        return true;
     }
 
     // REQUIRES_NEW 가 필수다. 이 메서드의 호출자 중 하나가 AFTER_COMMIT 리스너(ComposeWorker)인데,
@@ -127,26 +279,68 @@ public class ComposeService {
     // 그 예외는 TransactionSynchronizationUtils 가 삼켜서 202 는 그대로 나가고 지표에도 안 잡힌다.
     // 결과는 "즉시 접수가 통째로 죽고 모든 합성이 30초 재실행 배치로만 도는" 상태였다.
     // 회귀 방지: ComposeClaimTransactionTest
+    // 이기면 방금 올린 시도 번호, 지면 null — 번호는 payload 에 실려 실패 통지 대조에 쓰인다(R5 D09)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean claim(Long jobId, Duration staleAfter) {
+    public Integer claim(Long jobId, Duration staleAfter) {
         LocalDateTime now = LocalDateTime.now(clock);
-        return composeJobRepository.claim(jobId, now, now.minus(staleAfter)) == 1;
+        if (composeJobRepository.claim(jobId, now, now.minus(staleAfter)) != 1) {
+            return null;
+        }
+        Integer attemptNo = composeJobRepository.findAttemptNo(jobId);
+        composeJobRepository.scheduleNextAttempt(jobId, now.plus(retryPolicy.backoffAfter(attemptNo)));
+        return attemptNo;
     }
 
     // 재실행 대상을 실행 payload 로 바꿔 내보낸다. 엔티티를 밖으로 내보내지 않는 이유는
     // 워커가 트랜잭션 밖에서 돌기 때문이다 — 지연 로딩이 거기서 터진다
     @Transactional(readOnly = true)
     public List<ComposeRequestedEvent> findStalled(Duration staleAfter, int limit) {
-        LocalDateTime staleBefore = LocalDateTime.now(clock).minus(staleAfter);
-        return composeJobRepository.findStalled(staleBefore, PageRequest.of(0, limit)).stream()
-                .map(job -> {
-                    String publicId = job.getUser().getPublicId();
-                    return new ComposeRequestedEvent(job.getId(), job.getSpec(), job.sourceKeys(),
-                            resultKeyFor(publicId, job.getId()),
-                            thumbnailKeyFor(publicId, job.getId()),
-                            RESULT_FORMAT);
-                })
+        LocalDateTime now = LocalDateTime.now(clock);
+        return composeJobRepository.findStalled(now, now.minus(staleAfter), retryPolicy.maxAttempts(),
+                        now.minus(retryPolicy.totalDeadline()), PageRequest.of(0, limit)).stream()
+                .map(ComposeService::requested)
                 .toList();
+    }
+
+    /** 재접수 예산을 다 쓴 작업 — 호출자가 시도 번호를 대조해 하나씩 최종 실패로 끝낸다 */
+    @Transactional(readOnly = true)
+    public List<ExpiredDispatch> findDispatchExpired(Duration staleAfter, int limit) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        return composeJobRepository.findDispatchExpired(now.minus(staleAfter), retryPolicy.maxAttempts(),
+                        now.minus(retryPolicy.totalDeadline()), PageRequest.of(0, limit)).stream()
+                .map(job -> new ExpiredDispatch(job.getId(), job.getAttemptNo()))
+                .toList();
+    }
+
+    public record ExpiredDispatch(Long jobId, int attemptNo) {
+    }
+
+    /** 통지가 이 작업의 지금 입력으로 돈 실행인가 — 작업 지문과 대조한다(R5 L492). 지문이 없는 작업(이 값이 생기기 전)은 대조하지 않는다 */
+    @Transactional(readOnly = true)
+    public boolean sameInput(Long jobId, String reportedFingerprint) {
+        return composeJobRepository.findById(jobId)
+                .map(ComposeJob::getInputFingerprint)
+                .map(stored -> stored.equals(reportedFingerprint))
+                .orElse(true);
+    }
+
+    /**
+     * 통지가 왔는데 작업 행이 없다 — 탈퇴로 함께 지워졌다. 늦게 끝난 실행이 다시 만든 결과를 지운다(되살리지 않는다, R5 L498~499).
+     * 예외로 두면 통지가 재전달을 돌다 DLQ 로 간다
+     *
+     * @return 작업이 없어 정리했으면 true
+     */
+    public boolean discardIfJobGone(Long jobId, String resultKey, String thumbnailKey) {
+        if (composeJobRepository.existsById(jobId)) {
+            return false;
+        }
+        s3Deleter.deleteAfterCommit(Arrays.asList(resultKey, thumbnailKey), LATE_WRITE_WINDOW);
+        return true;
+    }
+
+    private static ComposeRequestedEvent requested(ComposeJob job) {
+        return new ComposeRequestedEvent(job.getId(), job.getSpec(), job.sourceKeys(),
+                resultKeyFor(job), thumbnailKeyFor(job), RESULT_FORMAT, job.getRenderContract(), null, job.getInputFingerprint());
     }
 
     // 결과물 저장 포맷의 유일한 출처. 키 확장자와 Lambda로 보내는 지시가 **둘 다 여기서** 나온다.
@@ -161,13 +355,13 @@ public class ComposeService {
 
     // Job당 결정적 결과 key — 재실행이 겹쳐도 같은 객체를 덮어쓰므로 고아 파일이 안 생기고,
     // UserMedia의 s3Key unique가 중복 행의 최종 방어선이 된다
-    static String resultKeyFor(String publicId, Long jobId) {
-        return S3Keys.userRoot(publicId) + "fourcuts/job-" + jobId + "." + RESULT_FORMAT.extension();
+    public static String resultKeyFor(ComposeJob job) {
+        return job.getStorageRoot() + "fourcuts/job-" + job.getId() + "." + RESULT_FORMAT.extension();
     }
 
     // 썸네일도 같은 원칙의 결정적 key — 원본 옆에서 함께 살고 함께 지워진다
-    static String thumbnailKeyFor(String publicId, Long jobId) {
-        return S3Keys.userRoot(publicId) + "fourcuts/job-" + jobId + "-thumb.jpg";
+    public static String thumbnailKeyFor(ComposeJob job) {
+        return job.getStorageRoot() + "fourcuts/job-" + job.getId() + "-thumb.jpg";
     }
 
     // 남의 원본으로 합성 못 한다 — 정규화된 key의 내 prefix 검사, 403.
@@ -175,8 +369,8 @@ public class ComposeService {
     // 내 폴더인 것만으로는 부족하다: 같은 prefix 아래에 profile/·frames/·components/가 함께 살고,
     // 합성에 성공하면 여기 실린 key가 전부 삭제된다(completeJob). 사용자가 자기 스티커 key를
     // 원본 자리에 넣으면 그 스티커가 지워지고, 그걸 쓰는 프레임의 이후 합성이 전부 실패한다.
-    // 발급 경로(FourcutSourceUploadPathStrategy)가 이미 이 폴더만 내주므로 정상 요청은 안 막힌다
-    private static final String SOURCE_FOLDER = "fourcuts/sources/";
+    // 발급 경로(UploadType.FOURCUT_SOURCE 의 폴더)가 이미 이 폴더만 내주므로 정상 요청은 안 막힌다
+    private static final String SOURCE_FOLDER = UploadType.FOURCUT_SOURCE.folder();
 
     private void validateSourceOwnership(String publicId, List<String> sourceKeys) {
         String sourceRoot = S3Keys.userRoot(publicId) + SOURCE_FOLDER;

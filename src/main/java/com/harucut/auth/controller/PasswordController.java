@@ -3,11 +3,13 @@ package com.harucut.auth.controller;
 import com.harucut.auth.dto.*;
 import com.harucut.auth.password.PasswordChangeService;
 import com.harucut.auth.password.PasswordResetService;
+import com.harucut.auth.service.AuthRateLimits;
 import com.harucut.auth.security.AuthenticatedUser;
 import com.harucut.common.response.Response;
 import com.harucut.config.openapi.ApiErrors;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -21,6 +23,7 @@ public class PasswordController {
 
     private final PasswordChangeService passwordChangeService;
     private final PasswordResetService passwordResetService;
+    private final AuthRateLimits authRateLimits;
 
     @Operation(
             summary = "재설정 코드 발송",
@@ -34,10 +37,12 @@ public class PasswordController {
     @ApiErrors({
             "AUTH-040: 같은 이메일로 60초 안에 재요청",
             "AUTH-020: 그 이메일로 가입된 계정이 없음 (소셜 전용 계정 포함)",
-            "AUTH-090: 메일 발송 실패. 쿨다운은 풀린다"
+            "AUTH-090: 메일 발송 실패. 쿨다운은 풀린다",
+            "GEN-061: 같은 IP 의 메일 요청이 너무 많음(10분에 5회) 또는 서비스 일일 발송 상한"
     })
     @PostMapping("/reset/password/code")
-    public Response<Void> sendResetCode(@Valid @RequestBody SendResetCodeRequest request) {
+    public Response<Void> sendResetCode(@Valid @RequestBody SendResetCodeRequest request, HttpServletRequest servletRequest) {
+        authRateLimits.checkMailRequest(servletRequest);
         passwordResetService.sendResetCode(request.email());
         return Response.ok();
     }

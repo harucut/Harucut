@@ -1,0 +1,362 @@
+package com.harucut.entitlement.service;
+
+import com.harucut.audit.service.AuditLogService;
+import com.harucut.common.exception.BusinessException;
+import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.entitlement.dto.EntitlementDtos;
+import com.harucut.entitlement.entity.Contract;
+import com.harucut.entitlement.entity.Entitlement;
+import com.harucut.entitlement.enums.ContractStatus;
+import com.harucut.entitlement.enums.EntitlementScope;
+import com.harucut.entitlement.enums.EvidenceKind;
+import com.harucut.entitlement.enums.EntitlementStatus;
+import com.harucut.entitlement.enums.ReservationStatus;
+import com.harucut.entitlement.exception.EntitlementErrorCode;
+import com.harucut.entitlement.repository.ContractRepository;
+import com.harucut.entitlement.repository.EntitlementRepository;
+import com.harucut.entitlement.repository.UsageReservationRepository;
+import com.harucut.event.entity.Event;
+import com.harucut.event.enums.EventStatus;
+import com.harucut.event.repository.EventRepository;
+import com.harucut.user.entity.User;
+import com.harucut.user.repository.UserRepository;
+import com.harucut.workspace.entity.Workspace;
+import com.harucut.workspace.repository.WorkspaceRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * 플랫폼 CMS — 계약과 수동 이용권 (ADR-0008 §6-1). 계약은 DRAFT 로 만들고 ACTIVE 로 바꿀 때 이용권을 만든다.
+ * ENDED·CANCELLED 는 이용권을 지금 끝낸다(진행 중 예약은 그대로 확정·반환된다). 모든 변경은 감사 로그에 남긴다.
+ */
+@Service
+@Transactional
+@RequiredArgsConstructor
+public class ContractService {
+
+    // 허용 전이 — 나머지는 409 ENT-003
+    private static final Map<ContractStatus, Set<ContractStatus>> TRANSITIONS = Map.of(
+            ContractStatus.DRAFT, EnumSet.of(ContractStatus.ACTIVE, ContractStatus.CANCELLED),
+            ContractStatus.ACTIVE, EnumSet.of(ContractStatus.ENDED, ContractStatus.CANCELLED),
+            ContractStatus.ENDED, EnumSet.noneOf(ContractStatus.class),
+            ContractStatus.CANCELLED, EnumSet.noneOf(ContractStatus.class));
+
+    private final ContractRepository contractRepository;
+    private final EntitlementRepository entitlementRepository;
+    private final UsageReservationRepository reservationRepository;
+    private final EntitlementService entitlementService;
+    private final WorkspaceRepository workspaceRepository;
+    private final EventRepository eventRepository;
+    private final UserRepository userRepository;
+    private final AuditLogService auditLogService;
+    private final Clock clock;
+
+    public EntitlementDtos.Contract create(String adminPublicId, EntitlementDtos.ContractRequest request) {
+        User admin = user(adminPublicId);
+        Workspace workspace = organization(request.workspaceId());
+        List<Long> eventIds = request.scope() == EntitlementScope.EVENT ? events(workspace, request.eventIds()) : List.of();
+        if (request.paymentEvidence() != null && request.paymentEvidence().kind() == EvidenceKind.PORTONE
+                && contractRepository.existsByEvidenceKindAndEvidenceReference(EvidenceKind.PORTONE, request.paymentEvidence().reference())) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "이미 다른 계약에 연결된 결제입니다.");
+        }
+        LocalDateTime starts = local(request.startsAt());
+        LocalDateTime ends = local(request.endsAt());
+        if (!ends.isAfter(starts)) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "계약 종료는 시작보다 뒤여야 합니다.");
+        }
+        Contract contract = contractRepository.save(new Contract(workspace.getId(), request.contractorName().strip(),
+                request.scope(), eventIds, request.amount(), request.currency() == null ? "KRW" : request.currency().toUpperCase(),
+                starts, ends, request.paymentEvidence() == null ? null : request.paymentEvidence().kind(),
+                request.paymentEvidence() == null ? null : request.paymentEvidence().reference(),
+                terms(request.entitlement()), admin.getId()));
+        auditLogService.record(admin.getId(), workspace.getId(), null, "CONTRACT_CREATED", "CONTRACT", contract.getPublicId(),
+                Map.of("scope", request.scope().name()));
+        return view(contract);
+    }
+
+    @Transactional(readOnly = true)
+    public List<EntitlementDtos.Contract> list() {
+        return contractRepository.findAllByOrderByIdDesc(PageRequest.of(0, 200)).stream().map(this::view).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public EntitlementDtos.Contract get(String contractPublicId) {
+        return view(contractRepository.findByPublicId(contractPublicId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND)));
+    }
+
+    public EntitlementDtos.Contract changeStatus(String adminPublicId, String contractPublicId, ContractStatus to) {
+        User admin = user(adminPublicId);
+        Contract contract = contractRepository.findByPublicId(contractPublicId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        if (!TRANSITIONS.get(contract.getStatus()).contains(to)) {
+            throw new BusinessException(EntitlementErrorCode.INVALID_TRANSITION, contract.getStatus() + " → " + to);
+        }
+        ContractStatus from = contract.getStatus();
+        if (contractRepository.transition(contract.getId(), from, to) != 1) {
+            throw new BusinessException(EntitlementErrorCode.INVALID_TRANSITION, "다른 변경이 먼저 반영됐다");
+        }
+        if (to == ContractStatus.ACTIVE) {
+            if (contract.getScope() == EntitlementScope.WORKSPACE) {
+                entitlementRepository.save(Entitlement.fromContract(contract, null));
+            } else {
+                contract.eventIdList().forEach(eventId -> entitlementRepository.save(Entitlement.fromContract(contract, eventId)));
+            }
+        } else if (from == ContractStatus.ACTIVE) {
+            // 계약 행은 위 전이 UPDATE 로 잡혀 있다 — 배분 만들기도 계약 행을 먼저 잡으므로 둘이 줄을 선다.
+            // 이용권을 미리 골라 두지 않고 UPDATE(현재 읽기)로 끝낸다 — 그사이 커밋된 배분까지 끝나게
+            entitlementRepository.endByContract(contract.getId(), LocalDateTime.now(clock));
+        }
+        auditLogService.record(admin.getId(), contract.getWorkspaceId(), null, "CONTRACT_" + to.name(), "CONTRACT",
+                contract.getPublicId(), Map.of("from", from.name()));
+        return view(contractRepository.findById(contract.getId()).orElseThrow());
+    }
+
+    // ── 수동 이용권(ManualGrant) ──────────────────────
+
+    public EntitlementDtos.Entitlement grantManually(String adminPublicId, EntitlementDtos.ManualGrantRequest request) {
+        User admin = user(adminPublicId);
+        Workspace workspace = organization(request.workspaceId());
+        Long eventId = request.eventId() == null ? null : events(workspace, List.of(request.eventId())).getFirst();
+        LocalDateTime from = local(request.validFrom());
+        LocalDateTime to = local(request.validTo());
+        if (!to.isAfter(from)) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "유효기간 끝은 시작보다 뒤여야 합니다.");
+        }
+        Entitlement entitlement = entitlementRepository.save(Entitlement.manual(workspace.getId(), eventId,
+                terms(request.terms()), from, to, admin.getId(), request.grantorNote().strip()));
+        auditLogService.record(admin.getId(), workspace.getId(), eventId, "ENTITLEMENT_GRANTED", "ENTITLEMENT",
+                entitlement.getPublicId(), Map.of("composeQuota", request.terms().composeQuota()));
+        return view(entitlement);
+    }
+
+    @Transactional(readOnly = true)
+    public List<EntitlementDtos.Entitlement> entitlements() {
+        return entitlementRepository.findAllByOrderByIdDesc(PageRequest.of(0, 200)).stream().map(this::view).toList();
+    }
+
+    /** 회수·만료 전에 보여 줄 영향 — 이 이용권을 쓰는 운영 중 행사와 아직 종결되지 않은 예약 수 */
+    @Transactional(readOnly = true)
+    public EntitlementDtos.Impact impact(String entitlementPublicId) {
+        Entitlement entitlement = entitlement(entitlementPublicId);
+        List<Event> live = entitlement.getEventId() != null
+                ? eventRepository.findById(entitlement.getEventId()).filter(e -> e.getStatus() == EventStatus.LIVE).stream().toList()
+                : eventRepository.findAllByWorkspaceIdOrderByCreatedAtDesc(entitlement.getWorkspaceId()).stream()
+                .filter(e -> e.getStatus() == EventStatus.LIVE).toList();
+        // 지금 그 행사에 적용되는 이용권이 이것이거나 이것의 배분인 행사 — 부모를 회수하면 그 배분도 함께 끝나기 때문이다.
+        // 무관한 행사 범위 이용권에 덮였거나 이미 끝난·회수된 이용권은 영향이 없다
+        Long id = entitlement.getId();
+        return new EntitlementDtos.Impact(live.stream()
+                .filter(e -> entitlementService.applicable(e)
+                        .filter(applied -> id.equals(applied.getId()) || id.equals(applied.getParentEntitlementId())).isPresent())
+                .map(Event::getPublicId).toList(),
+                reservationRepository.countByEntitlementIdAndStatus(entitlement.getId(), ReservationStatus.RESERVED));
+    }
+
+    public EntitlementDtos.Entitlement revoke(String adminPublicId, String entitlementPublicId, String reason) {
+        User admin = user(adminPublicId);
+        Entitlement entitlement = entitlement(entitlementPublicId);
+        LocalDateTime now = LocalDateTime.now(clock);
+        String why = reason.strip();
+        if (entitlement.isAllocation()) {
+            // 배분 회수 — 부모를 먼저 잠그고(부모 → 자식), ACTIVE→REVOKED 가 1 행일 때만 그 현재 한도를 부모에 돌려준다
+            Long parentId = entitlement.getParentEntitlementId();
+            entitlementRepository.lockById(parentId);
+            Integer quota = entitlementRepository.lockActiveQuota(entitlement.getId()).stream().findFirst()
+                    .orElseThrow(() -> new BusinessException(EntitlementErrorCode.INVALID_TRANSITION, "이미 회수된 이용권"));
+            if (entitlementRepository.revokeIfActive(entitlement.getId(), now, why) != 1) {
+                throw new BusinessException(EntitlementErrorCode.INVALID_TRANSITION, "이미 회수된 이용권");
+            }
+            entitlementRepository.deallocate(parentId, quota);
+        } else {
+            if (entitlementRepository.revokeIfActive(entitlement.getId(), now, why) != 1) {
+                throw new BusinessException(EntitlementErrorCode.INVALID_TRANSITION, "이미 회수된 이용권");
+            }
+            // 기업 총량을 회수하면 그 배분도 함께 끝난다 — 부모 행을 쥔 채 활성 자식을 잠금 읽기로 고른다(방금 커밋된 배분도 빠지지 않게)
+            String derived = truncate("부모 이용권 회수: " + why, 500);
+            entitlementRepository.lockActiveChildIds(entitlement.getId())
+                    .forEach(childId -> entitlementRepository.revokeIfActive(childId, now, derived));
+        }
+        Entitlement revoked = entitlement(entitlementPublicId);
+        auditLogService.record(admin.getId(), revoked.getWorkspaceId(), revoked.getEventId(), "ENTITLEMENT_REVOKED",
+                "ENTITLEMENT", revoked.getPublicId(), Map.of("reason", why));
+        return view(revoked);
+    }
+
+    // ── 행사 배분(ADR-0009 §5-2) ──────────────────────
+
+    /** 기업 총량(공간 범위·배분이 아닌 활성 이용권)에서 행사 하나에 떼어 준다. 합이 부모 한도를 넘으면 409 ENT-005 */
+    public EntitlementDtos.Entitlement allocate(String adminPublicId, String parentPublicId, EntitlementDtos.AllocationRequest request) {
+        User admin = user(adminPublicId);
+        Entitlement parent = entitlement(parentPublicId);
+        if (parent.getStatus() != EntitlementStatus.ACTIVE || parent.getScope() != EntitlementScope.WORKSPACE || parent.isAllocation()) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "활성 공간 범위 이용권(기업 총량)에서만 배분할 수 있습니다.");
+        }
+        Event event = eventRepository.findByPublicId(request.eventId())
+                .filter(e -> e.getWorkspaceId().equals(parent.getWorkspaceId()))
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "이 공간의 행사가 아닙니다."));
+        // 잠금 순서: 계약 → 부모 → 자식. 계약 종료가 같은 계약 행을 먼저 잡으므로, 그사이 끝난 계약의 배분이 원래 기간으로 남지 않는다.
+        // 수동 부여 부모(계약 없음)는 부모 행만 — 부모 회수도 그 행을 잡는다
+        LocalDateTime now = LocalDateTime.now(clock);
+        if (parent.getContractId() != null
+                && !contractRepository.lockStatus(parent.getContractId()).contains(ContractStatus.ACTIVE.name())) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "계약이 진행 중이 아닙니다.");
+        }
+        if (entitlementRepository.lockValidParent(parent.getId(), now).isEmpty()) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "부모 이용권이 지금 유효하지 않습니다.");
+        }
+        // 빠른 거절만 일반 읽기로 — 범위 잠금 읽기는 다른 부모의 첫 배분과 빈 구간 gap lock 으로 교착된다. 경쟁은 DB 유니크가 막는다
+        boolean duplicated = entitlementRepository.findAllByParentEntitlementId(parent.getId()).stream()
+                .anyMatch(child -> child.getStatus() == EntitlementStatus.ACTIVE && event.getId().equals(child.getEventId()));
+        if (duplicated) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "이 행사에는 이미 배분이 있습니다 — 배분량을 바꾸세요.");
+        }
+        int quota = request.composeQuota();
+        if (entitlementRepository.allocate(parent.getId(), quota) != 1) {
+            throw exceeds(parent.getId(), quota);
+        }
+        Entitlement child;
+        try {
+            child = entitlementRepository.saveAndFlush(Entitlement.allocation(entitlementRepository.findById(parent.getId()).orElseThrow(),
+                    event.getId(), quota, admin.getId()));
+        } catch (DataIntegrityViolationException e) {
+            // DB 불변식(활성 배분은 부모·행사마다 하나 — uk_entitlement_active_allocation)이 막았다. 트랜잭션째 되돌린다
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "이 행사에는 이미 배분이 있습니다 — 배분량을 바꾸세요.");
+        }
+        auditLogService.record(admin.getId(), parent.getWorkspaceId(), event.getId(), "ENTITLEMENT_ALLOCATED", "ENTITLEMENT",
+                child.getPublicId(), Map.of("parent", parent.getPublicId(), "composeQuota", quota));
+        return view(child);
+    }
+
+    /** 배분량 바꾸기 — 늘리면 부모 합 검사(ENT-005), 줄이면 이미 사용·예약한 양 아래로는 ENT-006. 순서는 늘 부모 → 자식 */
+    public EntitlementDtos.Entitlement resize(String adminPublicId, String childPublicId, EntitlementDtos.AllocationResizeRequest request) {
+        User admin = user(adminPublicId);
+        Entitlement child = entitlement(childPublicId);
+        if (!child.isAllocation()) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "활성 행사 배분만 배분량을 바꿀 수 있습니다.");
+        }
+        Long parentId = child.getParentEntitlementId();
+        int quota = request.composeQuota();
+        // 부모를 먼저 잠근 뒤 자식의 현재 한도를 잠금 읽기로 — 잠금 전에 읽은 한도로 차이를 계산하면 동시 변경이 부모 합을 두 번 바꾼다.
+        // 늘리기: 부모 합을 원자적으로 늘리고(넘으면 ENT-005) 자식을 바꾼다. 줄이기: 자식을 조건부로 줄이고(사용·예약 아래면 ENT-006)
+        // 그다음 부모 합을 줄인다 — 거절된 요청은 흔적을 남기지 않는다
+        entitlementRepository.lockById(parentId);
+        int current = entitlementRepository.lockActiveQuota(child.getId()).stream().findFirst()
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "활성 행사 배분만 배분량을 바꿀 수 있습니다."));
+        int delta = quota - current;
+        if (delta > 0 && entitlementRepository.allocate(parentId, delta) != 1) {
+            throw exceeds(parentId, delta);
+        }
+        if (delta != 0 && entitlementRepository.resize(child.getId(), quota) != 1) {
+            Entitlement latest = entitlementRepository.findById(child.getId()).orElseThrow();
+            throw new BusinessException(EntitlementErrorCode.ALLOCATION_BELOW_USAGE, "사용 " + latest.getUsed() + " · 예약 " + latest.getReserved(),
+                    Map.of("used", latest.getUsed(), "reserved", latest.getReserved(), "requested", quota));
+        }
+        if (delta < 0) {
+            entitlementRepository.deallocate(parentId, -delta);
+        }
+        Entitlement resized = entitlement(childPublicId);
+        auditLogService.record(admin.getId(), resized.getWorkspaceId(), resized.getEventId(), "ENTITLEMENT_RESIZED", "ENTITLEMENT",
+                resized.getPublicId(), Map.of("composeQuota", quota, "delta", delta));
+        return view(resized);
+    }
+
+    private BusinessException exceeds(Long parentId, int requested) {
+        Entitlement parent = entitlementRepository.findById(parentId).orElseThrow();
+        return new BusinessException(EntitlementErrorCode.ALLOCATION_EXCEEDS_PARENT,
+                "총량 " + parent.getComposeQuota() + " · 배분 " + parent.getAllocatedQuota() + " · 요청 " + requested,
+                Map.of("parentQuota", parent.getComposeQuota(), "allocated", parent.getAllocatedQuota(), "requested", requested));
+    }
+
+    // ── helpers ──────────────────────
+
+    private Workspace organization(String workspacePublicId) {
+        Workspace workspace = workspaceRepository.findByPublicId(workspacePublicId)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        if (workspace.isPersonal()) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "계약·이용권은 조직 공간에만 줍니다.");
+        }
+        return workspace;
+    }
+
+    // 행사 public id → 내부 id. 그 공간의 행사여야 한다
+    private List<Long> events(Workspace workspace, List<String> eventPublicIds) {
+        if (eventPublicIds == null || eventPublicIds.isEmpty()) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "행사 범위에는 행사가 하나 이상 있어야 합니다.");
+        }
+        return eventPublicIds.stream().distinct().map(id -> eventRepository.findByPublicId(id)
+                        .filter(e -> e.getWorkspaceId().equals(workspace.getId()))
+                        .orElseThrow(() -> new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE, "이 공간의 행사가 아닙니다: " + id))
+                        .getId())
+                .toList();
+    }
+
+    private static Contract.Terms terms(EntitlementDtos.Terms t) {
+        return new Contract.Terms(t.composeQuota(), t.retentionDays(), t.maxBoothDevices(), t.maxLiveEvents(), t.features());
+    }
+
+    private static EntitlementDtos.Terms terms(Contract.Terms t) {
+        return new EntitlementDtos.Terms(t.composeQuota(), t.retentionDays(), t.maxBoothDevices(), t.maxLiveEvents(), t.features());
+    }
+
+    private Entitlement entitlement(String publicId) {
+        return entitlementRepository.findByPublicId(publicId).orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+    }
+
+    private EntitlementDtos.Contract view(Contract c) {
+        Map<Long, String> eventIds = eventRepository.findAllById(c.eventIdList()).stream()
+                .collect(Collectors.toMap(Event::getId, Event::getPublicId));
+        Optional<Workspace> workspace = workspaceRepository.findById(c.getWorkspaceId());
+        return new EntitlementDtos.Contract(c.getPublicId(), workspace.map(Workspace::getPublicId).orElse(null),
+                workspace.map(Workspace::getName).orElse(null), c.getContractorName(),
+                c.getScope(), c.eventIdList().stream().map(eventIds::get).filter(Objects::nonNull).toList(), c.getAmount(),
+                c.getCurrency(), offset(c.getStartsAt()), offset(c.getEndsAt()),
+                c.getEvidenceKind() == null ? null : new EntitlementDtos.Evidence(c.getEvidenceKind(), c.getEvidenceReference()),
+                offset(c.getPaymentVerifiedAt()), terms(c.terms()), c.getStatus(), offset(c.getCreatedAt()));
+    }
+
+    private EntitlementDtos.Entitlement view(Entitlement e) {
+        String eventId = e.getEventId() == null ? null : eventRepository.findById(e.getEventId()).map(Event::getPublicId).orElse(null);
+        String contractId = e.getContractId() == null ? null
+                : contractRepository.findById(e.getContractId()).map(Contract::getPublicId).orElse(null);
+        Optional<Workspace> workspace = workspaceRepository.findById(e.getWorkspaceId());
+        return new EntitlementDtos.Entitlement(e.getPublicId(), e.getScope(), workspace.map(Workspace::getPublicId).orElse(null),
+                workspace.map(Workspace::getName).orElse(null), eventId,
+                e.getSource(), contractId, new EntitlementDtos.Terms(e.getComposeQuota(), e.getRetentionDays(),
+                e.getMaxBoothDevices(), e.getMaxLiveEvents(), e.getFeatures()), e.getUsed(), e.getReserved(),
+                offset(e.getValidFrom()), offset(e.getValidTo()), e.getStatus(), e.getGrantorNote(), e.getRevokeReason(),
+                e.getParentEntitlementId() == null ? null
+                        : entitlementRepository.findById(e.getParentEntitlementId()).map(Entitlement::getPublicId).orElse(null),
+                e.getAllocatedQuota());
+    }
+
+    private User user(String publicId) {
+        return userRepository.findByPublicId(publicId).orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+    }
+
+    private LocalDateTime local(OffsetDateTime value) {
+        return value.atZoneSameInstant(clock.getZone()).toLocalDateTime();
+    }
+
+    private OffsetDateTime offset(LocalDateTime value) {
+        return value == null ? null : value.atZone(clock.getZone()).toOffsetDateTime();
+    }
+
+    private static String truncate(String value, int max) {
+        return value.length() <= max ? value : value.substring(0, max);
+    }
+}

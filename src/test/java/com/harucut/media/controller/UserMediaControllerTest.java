@@ -8,6 +8,7 @@ import com.harucut.common.exception.BusinessException;
 import com.harucut.common.exception.GlobalErrorCode;
 import com.harucut.common.response.PageResponse;
 import com.harucut.config.SecurityConfig;
+import com.harucut.media.dto.MediaShareLinkResponse;
 import com.harucut.media.dto.UserMediaResponse;
 import com.harucut.media.service.UserMediaService;
 import com.harucut.subscription.exception.SubscriptionErrorCode;
@@ -166,6 +167,22 @@ class UserMediaControllerTest extends SecurityBeansMockSupport {
 
             then(userMediaService).shouldHaveNoInteractions();
         }
+    }
+
+    @Test
+    @DisplayName("공유 링크는 data.token 하나다 — 남의 사진은 404 GEN-031")
+    void shareLink() {
+        given(userMediaService.shareLink(PUBLIC_ID, 7L)).willReturn(new MediaShareLinkResponse("tok-7"));
+        given(userMediaService.shareLink(PUBLIC_ID, 8L)).willThrow(new BusinessException(GlobalErrorCode.NOT_FOUND));
+
+        assertThat(mockMvc.post().uri(BASE_URI + "/7/share-link").cookie(accessCookie()))
+                .hasStatusOk()
+                .bodyJson()
+                .hasPathSatisfying("$.data.token", token -> assertThat(token).isEqualTo("tok-7"));
+        assertThat(mockMvc.post().uri(BASE_URI + "/8/share-link").cookie(accessCookie()))
+                .hasStatus(HttpStatus.NOT_FOUND)
+                .bodyJson()
+                .hasPathSatisfying("$.code", code -> assertThat(code).isEqualTo("GEN-031"));
     }
 
     @Test

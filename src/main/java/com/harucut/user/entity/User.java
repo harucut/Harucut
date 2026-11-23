@@ -9,9 +9,12 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.time.LocalDateTime;
 
+// @DynamicUpdate: 프로필·비밀번호를 고쳐 저장할 때 전체 열을 쓰면, 그사이 커밋된 정지(BLOCKED)를 읽었던 낡은 값으로 되돌린다 — 바뀐 열만 쓴다
+@DynamicUpdate
 @Entity
 @Table(
         name = "users",
@@ -67,6 +70,10 @@ public class User extends BaseEntity {
     @Column(name = "delete_requested_at")
     private LocalDateTime deleteRequestedAt;
 
+    // 정지 시각 — 탈퇴 요청으로 상태가 바뀌어도 남아서, 복구하면 ACTIVE 가 아니라 BLOCKED 로 돌아간다(정지 회피 방지)
+    @Column(name = "blocked_at")
+    private LocalDateTime blockedAt;
+
     private User(Provider provider, String providerId, String email,
                  String password, String username) {
         this.publicId = PublicIds.generate();
@@ -106,8 +113,18 @@ public class User extends BaseEntity {
     }
 
     public void reActivate() {
-        this.userStatus = UserStatus.ACTIVE;
+        this.userStatus = blockedAt == null ? UserStatus.ACTIVE : UserStatus.BLOCKED;
         this.deleteRequestedAt = null;
+    }
+
+    public void block(LocalDateTime now) {
+        this.userStatus = UserStatus.BLOCKED;
+        this.blockedAt = now;
+    }
+
+    public void unblock() {
+        this.userStatus = UserStatus.ACTIVE;
+        this.blockedAt = null;
     }
 
     public void delete() {
@@ -117,5 +134,6 @@ public class User extends BaseEntity {
         this.password = null;
         this.providerId = null;
         this.profileImageUrl = DEFAULT_PROFILE_IMAGE;
+        this.blockedAt = null;
     }
 }

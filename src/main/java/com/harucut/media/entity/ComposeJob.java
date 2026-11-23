@@ -1,9 +1,11 @@
 package com.harucut.media.entity;
 
 import com.harucut.common.entity.BaseEntity;
+import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeSpec;
 import com.harucut.media.converter.ComposeSpecConverter;
 import com.harucut.media.enums.ComposeStatus;
+import com.harucut.storage.util.S3Keys;
 import com.harucut.user.entity.User;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -24,14 +26,18 @@ import java.util.List;
         // 인덱스가 없으면 그 풀스캔 비용이 누적 행 수를 따라 계속 자란다.
         // 지금 규모에서 느려서 거는 게 아니라, 큰 테이블에 나중에 거는 편이 훨씬 비싸서 건다.
         //
-        // ⚠️ ddl-auto가 운영은 none, load는 validate인데 Hibernate의 validate는 인덱스를
+        // ⚠️ ddl-auto가 운영은 update(Flyway 편입 전), load는 validate인데 Hibernate의 validate는 인덱스를
         //    검사하지 않는다(테이블·컬럼·타입만 본다). 이 애노테이션만으로는 기존 DB에
         //    인덱스가 생기지 않는다 — local(update)로 새로 만들거나 CREATE INDEX를 직접 쳐야 한다
-        indexes = @Index(name = "idx_compose_job_status_started_at",
-                columnList = "status, started_at"),
+        indexes = {
+                @Index(name = "idx_compose_job_status_started_at", columnList = "status, started_at"),
+                @Index(name = "idx_compose_job_user_id", columnList = "user_id")
+        },
+        // 멱등은 "같은 주체의 같은 요청"이다. 주체는 개인(U:{userId})과 행사 참가자(P:{participantId})다 —
+        // user_id 만으로는 User 가 없는 참가자 작업의 멱등을 걸 수 없다 (ADR-0007 §6)
         uniqueConstraints =
-        @UniqueConstraint(name = "uk_compose_job_user_idempotency",
-                columnNames = {"user_id", "idempotency_key"}))
+        @UniqueConstraint(name = "uk_compose_job_scope_idempotency",
+                columnNames = {"idempotency_scope", "idempotency_key"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ComposeJob extends BaseEntity {
@@ -41,9 +47,34 @@ public class ComposeJob extends BaseEntity {
     @Column(name = "compose_job_id")
     private Long id;
 
+    // 개인 작업의 소유자. 행사 참가자 작업은 NULL — 참가자는 participant 쪽으로 이어진다(P2A)
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false)
+    @JoinColumn(name = "user_id")
     private User user;
+
+    // 서버가 정규화한 멱등 범위 — 요청자가 고를 수 없다. U:{userId} / P:{participantId}
+    @Column(name = "idempotency_scope", nullable = false, length = 80)
+    private String idempotencyScope;
+
+    // 결과·썸네일을 쓸 폴더(끝에 / 포함). 재실행이 User 를 다시 읽지 않고 같은 key 를 만들게 생성 때 고정한다
+    @Column(name = "storage_root", nullable = false, length = 255)
+    private String storageRoot;
+
+    // ── 행사 참가자 작업의 범위(P2A). 개인 작업은 전부 NULL ──
+    @Column(name = "event_id")
+    private Long eventId;
+
+    @Column(name = "participant_id")
+    private Long participantId;
+
+    @Column(name = "capture_run_id")
+    private Long captureRunId;
+
+    @Column(name = "experience_version_id")
+    private Long experienceVersionId;
+
+    @Column(name = "frame_version_id")
+    private Long frameVersionId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
@@ -86,12 +117,54 @@ public class ComposeJob extends BaseEntity {
     @Column(name = "failure_reason")
     private String failureReason;
 
+    // FAILED 일 때 실패 종류 — 화면 문구를 고른다(V26 이전 행은 null)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "failure_code", length = 30)
+    private ComposeFailureCode failureCode;
+
     @Column(name = "started_at")
     private LocalDateTime startedAt;
 
-    private ComposeJob(User user, Long frameId, String idempotencyKey,
-                       List<String> sourceKeys, ComposeSpec spec) {
+    // 앱이 이 작업을 실행기에 넘긴 횟수 — claim 마다 +1, payload 에 실려 간다. 실패 통지는 지금 번호와 같을 때만 반영한다(R5 D09)
+    @Column(name = "attempt_no", nullable = false)
+    private int attemptNo;
+
+    // 결과 보관 약정 — 접수 때 굳는다. 행사 보관 일수를 늘리면 함께 늘고, 줄여도 이미 약속한 기간은 줄지 않는다(R5 L330, O31). 개인 작업은 NULL
+    @Column(name = "retain_until")
+    private LocalDateTime retainUntil;
+
+    // 입력 지문 — spec·입력 key·출력 계약의 SHA-256. 재시도가 같은 입력으로 돌았는지 출력 검증에 쓴다(R5 L484·L490)
+    @Column(name = "input_fingerprint", length = 64)
+    private String inputFingerprint;
+
+    // 이 시각 전에는 다시 던지지 않는다(claim 때 백오프·지터로 정한다). 쓰는 곳은 claim 쿼리뿐이라 값을 읽을 일이 없다
+    @Column(name = "next_attempt_at")
+    private LocalDateTime nextAttemptAt;
+
+    // 출력 계약(ComposeOutputContract) — 접수 때 고정, 재시도가 바꾸지 않는다. null = 도입 전 작업(예전 계약)
+    @Column(name = "render_contract")
+    private Integer renderContract;
+
+    // 계약 2 에서 완료를 확정할 때 검증한 결과·썸네일의 SHA-256(base64) — 확정한 한 쌍의 기록
+    @Column(name = "result_sha256", length = 44)
+    private String resultSha256;
+
+    @Column(name = "thumbnail_sha256", length = 44)
+    private String thumbnailSha256;
+
+    // 행사 사진함의 삭제 요청 — 목록·ZIP·결과 링크에서 빠진다(ADR-0008 §3)
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
+    // 보관 기한이 지나 결과 객체를 지운 시각(ADR-0008 §7)
+    @Column(name = "purged_at")
+    private LocalDateTime purgedAt;
+
+    private ComposeJob(User user, String idempotencyScope, String storageRoot, Long frameId,
+                       String idempotencyKey, List<String> sourceKeys, ComposeSpec spec) {
         this.user = user;
+        this.idempotencyScope = idempotencyScope;
+        this.storageRoot = storageRoot;
         this.status = ComposeStatus.PENDING;
         this.idempotencyKey = idempotencyKey;
         this.frameId = frameId;
@@ -111,31 +184,96 @@ public class ComposeJob extends BaseEntity {
                 || sourceKeys.stream().anyMatch(key -> key == null || key.isBlank())) {
             throw new IllegalArgumentException("원본 사진 key는 정확히 4개여야 한다");
         }
-        return new ComposeJob(user, frameId, idempotencyKey, sourceKeys, spec);
+        return new ComposeJob(user, personalScope(user.getId()), S3Keys.userRoot(user.getPublicId()),
+                frameId, idempotencyKey, sourceKeys, spec);
     }
 
-    // 재실행이 겹치면 같은 Job을 두 번 끝낼 수 있다 — PENDING이 아닌 행의 전이는
-    // 조용히 무시해서 먼저 기록된 결과가 이긴다 (complete/fail 공통)
-    public void complete(String resultKey, Long mediaId) {
-        if (status != ComposeStatus.PENDING) {
-            return;
+    /**
+     * 행사 참가자 작업. User 가 없고, 멱등 범위는 P:{participantId}, 결과는 회차 폴더에 쓴다.
+     * frameId 는 추적용으로 발행본의 원본 프레임 id 를 넣는다 — 합성은 spec 스냅샷만 본다.
+     */
+    public static ComposeJob forParticipant(Long participantId, String storageRoot, Long frameId, String idempotencyKey,
+                                            List<String> sourceKeys, ComposeSpec spec, Long eventId,
+                                            Long captureRunId, Long experienceVersionId, Long frameVersionId) {
+        if (sourceKeys == null || sourceKeys.size() != 4
+                || sourceKeys.stream().anyMatch(key -> key == null || key.isBlank())) {
+            throw new IllegalArgumentException("원본 사진 key는 정확히 4개여야 한다");
         }
-        this.status = ComposeStatus.DONE;
-        this.resultKey = resultKey;
-        this.mediaId = mediaId;
+        ComposeJob job = new ComposeJob(null, participantScope(participantId), storageRoot, frameId,
+                idempotencyKey, sourceKeys, spec);
+        job.eventId = eventId;
+        job.participantId = participantId;
+        job.captureRunId = captureRunId;
+        job.experienceVersionId = experienceVersionId;
+        job.frameVersionId = frameVersionId;
+        return job;
     }
 
-    public void fail(String reason) {
-        if (status != ComposeStatus.PENDING) {
-            return;
-        }
-        this.status = ComposeStatus.FAILED;
-        this.failureReason = reason != null && reason.length() > 255
-                ? reason.substring(0, 255) : reason;
+    public static String participantScope(Long participantId) {
+        return "P:" + participantId;
+    }
+
+    public static String personalScope(Long userId) {
+        return "U:" + userId;
+    }
+
+    // 완료·실패 전이는 엔티티 메서드가 아니라 ComposeJobRepository 의 조건부 UPDATE 다.
+    // 메모리의 status 를 보고 고치면 동시에 온 두 통지가 둘 다 PENDING 을 보고 둘 다 이긴다.
+    // failure_reason 컬럼(기본 255자)에 맞춰 자르는 규칙만 여기 남긴다
+    public static String truncateFailureReason(String reason) {
+        return reason != null && reason.length() > 255 ? reason.substring(0, 255) : reason;
     }
 
     // Lambda 페이로드 조립용 — 슬롯 순서 그대로
+    /** 접수 때 출력 계약을 정한다 — 저장 전에 한 번만(accept) */
+    public void fixRenderContract(int contract) {
+        if (this.renderContract != null) {
+            throw new IllegalStateException("출력 계약은 접수 때 한 번만 정한다: " + id);
+        }
+        this.renderContract = contract;
+    }
+
+    public boolean verifiedPairContract() {
+        return renderContract != null && renderContract >= com.harucut.media.compose.ComposeOutputContract.VERIFIED_PAIR;
+    }
+
+    /** 결과 보관 약정이 끝났는가 — 정리 배치가 돌기 전에도 더는 내주지 않는다. 개인 작업(약정 없음)은 false */
+    public boolean retentionEndedAt(LocalDateTime now) {
+        return retainUntil != null && !now.isBefore(retainUntil);
+    }
+
+    public void fixRetention(LocalDateTime retainUntil) {
+        this.retainUntil = retainUntil;
+    }
+
+    public void fixInputFingerprint(String inputFingerprint) {
+        this.inputFingerprint = inputFingerprint;
+    }
+
     public List<String> sourceKeys() {
         return List.of(sourceKey1, sourceKey2, sourceKey3, sourceKey4);
+    }
+
+    /** 이 작업만 쓰는 서버 생성 레이어(참가자 자유 문구 PNG)가 놓이는 폴더 — 작업 저장 위치 아래 */
+    public static final String PRIVATE_TEXT_DIR = "text/";
+
+    /**
+     * 합성이 확정(성공·최종 실패)되면 지울 입력 — 원본 네 장과, 저장 위치 아래 text/ 의 서버 생성 레이어(R5 D06).
+     * 프레임 자산은 저장 위치 밖이라 여기 끼지 않는다(발행본이 계속 쓴다)
+     */
+    public List<String> inputKeys() {
+        List<String> keys = new java.util.ArrayList<>(sourceKeys());
+        if (spec != null && spec.layers() != null && storageRoot != null) {
+            String privateDir = storageRoot + PRIVATE_TEXT_DIR;
+            spec.layers().stream().map(ComposeSpec.Layer::source)
+                    .filter(source -> source != null && source.startsWith(privateDir))
+                    .forEach(keys::add);
+        }
+        return List.copyOf(keys);
+    }
+
+    // 사진함·묶음·결과 링크에서 더는 보이지 않는가 — 삭제 요청이나 보관 종료
+    public boolean isDeleted() {
+        return deletedAt != null || purgedAt != null;
     }
 }

@@ -2,6 +2,7 @@ package com.harucut.auth.security;
 
 import com.harucut.common.response.Response;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -17,6 +18,12 @@ class PlainApiFixtureController {
 
     @GetMapping
     public Response<Void> get() {
+        return Response.ok();
+    }
+
+    // 쿠키 인증 변경 요청의 출처 검사(OriginCheckFilter) 연결을 본다
+    @PostMapping
+    public Response<Void> post() {
         return Response.ok();
     }
 }

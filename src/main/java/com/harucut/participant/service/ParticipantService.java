@@ -1,0 +1,453 @@
+package com.harucut.participant.service;
+
+import com.harucut.media.enums.ComposeStatus;
+import com.harucut.entitlement.enums.Feature;
+import java.util.Optional;
+import com.harucut.entitlement.exception.EntitlementErrorCode;
+import com.harucut.event.service.EventFeatures;
+import com.harucut.event.service.ThemeResolver;
+import com.harucut.event.dto.PageTheme;
+import com.harucut.asset.dto.UploadIntentResponse;
+import com.harucut.asset.service.AssetService;
+import com.harucut.booth.exception.BoothErrorCode;
+import com.harucut.common.exception.BusinessException;
+import com.harucut.common.exception.GlobalErrorCode;
+import com.harucut.common.utils.OpaqueTokens;
+import com.harucut.config.RateLimiter;
+import com.harucut.event.dto.EventExperienceDocument;
+import com.harucut.event.dto.EventSettings;
+import com.harucut.entitlement.service.EntitlementService;
+import com.harucut.event.entity.Event;
+import com.harucut.event.entity.EventExperienceVersion;
+import com.harucut.event.exception.EventErrorCode;
+import com.harucut.event.repository.EventExperienceVersionRepository;
+import com.harucut.event.repository.EventFrameRepository;
+import com.harucut.event.repository.EventRepository;
+import com.harucut.frame.dto.FrameVersionResponse;
+import com.harucut.frame.entity.FrameVersion;
+import com.harucut.frame.repository.FrameVersionRepository;
+import com.harucut.frame.service.FrameVersionService;
+import com.harucut.media.dto.ComposeJobResponse;
+import com.harucut.media.entity.ComposeJob;
+import com.harucut.media.repository.ComposeJobRepository;
+import com.harucut.participant.config.ParticipationProperties;
+import com.harucut.participant.dto.ParticipantDtos;
+import com.harucut.participant.entity.CaptureRun;
+import com.harucut.participant.entity.Participant;
+import com.harucut.participant.entity.ParticipantConsent;
+import com.harucut.participant.entity.ParticipantSession;
+import com.harucut.participant.enums.CaptureRunStatus;
+import com.harucut.participant.enums.ConsentDecision;
+import com.harucut.participant.enums.ParticipantChannel;
+import com.harucut.participant.enums.SessionStatus;
+import com.harucut.participant.exception.ParticipantErrorCode;
+import com.harucut.participant.repository.CaptureRunRepository;
+import com.harucut.participant.repository.ParticipantConsentRepository;
+import com.harucut.participant.repository.ParticipantRepository;
+import com.harucut.participant.repository.ParticipantSessionRepository;
+import com.harucut.participant.security.ParticipantPrincipal;
+import com.harucut.result.dto.DownloadUrlResponse;
+import com.harucut.result.dto.ResultAccessRevokeResponse;
+import com.harucut.result.dto.ResultTokenResponse;
+import com.harucut.result.service.ResultService;
+import com.harucut.workspace.service.WorkspaceService;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
+
+import java.time.Clock;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 행사 참가자 흐름 (ADR-0007 §5): 세션 → 동의 → 회차 → 업로드 → (합성은 ParticipantComposeService) → 결과.
+ * 일반 비회원에게는 아무것도 열지 않는다 — 모든 쓰기는 유효한 참가자 세션으로만 된다.
+ */
+@Service
+@Transactional
+@RequiredArgsConstructor
+public class ParticipantService {
+
+    private static final Duration RATE_WINDOW = Duration.ofMinutes(1);
+
+    private final EventRepository eventRepository;
+    private final EventExperienceVersionRepository experienceVersionRepository;
+    private final EventFrameRepository eventFrameRepository;
+    private final ParticipantRepository participantRepository;
+    private final ParticipantSessionRepository sessionRepository;
+    private final ParticipantConsentRepository consentRepository;
+    private final CaptureRunRepository captureRunRepository;
+    private final ComposeJobRepository composeJobRepository;
+    private final AssetService assetService;
+    private final FrameVersionService frameVersionService;
+    private final FrameVersionRepository frameVersionRepository;
+    private final ResultService resultService;
+    private final RateLimiter rateLimiter;
+    private final EntitlementService entitlementService;
+    private final ThemeResolver themeResolver;
+    private final EventFeatures eventFeatures;
+    private final ParticipationProperties properties;
+    private final ObjectMapper objectMapper;
+    private final Clock clock;
+    private final EntityManager entityManager;
+    private final WorkspaceService workspaceService;
+
+    // ── 세션 ──────────────────────
+
+    public ParticipantDtos.SessionResponse createByodSession(String slug, String clientIp) {
+        if (!rateLimiter.tryAcquire("participant-session", clientIp, properties.publicRequestsPerMinute(), RATE_WINDOW)) {
+            throw new BusinessException(GlobalErrorCode.TOO_MANY_REQUESTS);
+        }
+        Event event = eventRepository.findBySlug(slug)
+                .filter(found -> found.getCurrentExperienceVersionId() != null)
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        if (!event.isByodEnabled()) {
+            throw new BusinessException(EventErrorCode.CHANNEL_NOT_ALLOWED);
+        }
+        requireCaptureOpen(event);
+        Participant participant = participantRepository.save(Participant.byod(event.getId()));
+        return issueSession(participant, properties.byodSessionTtl());
+    }
+
+    /** 부스가 다음 손님을 시작할 때(P2A-4) — 새 참가자와 RESTRICTED 세션 */
+    public ParticipantDtos.SessionResponse createBoothSession(Event event, Long boothDeviceId) {
+        if (!event.isBoothEnabled()) {
+            throw new BusinessException(EventErrorCode.CHANNEL_NOT_ALLOWED);
+        }
+        requireCaptureOpen(event);
+        Participant participant = participantRepository.save(Participant.booth(event.getId(), boothDeviceId));
+        return issueSession(participant, properties.boothSessionTtl());
+    }
+
+    private ParticipantDtos.SessionResponse issueSession(Participant participant, Duration ttl) {
+        String token = OpaqueTokens.generate();
+        LocalDateTime expiresAt = now().plus(ttl);
+        sessionRepository.save(ParticipantSession.restricted(participant.getId(), OpaqueTokens.hash(token), expiresAt));
+        return new ParticipantDtos.SessionResponse(token, participant.getPublicId(), SessionStatus.RESTRICTED, offset(expiresAt));
+    }
+
+    @Transactional(readOnly = true)
+    public ParticipantDtos.SessionView session(ParticipantPrincipal principal) {
+        ParticipantSession session = currentSession(principal);
+        Event event = event(principal.eventId());
+        EventExperienceDocument experience = currentExperience(event);
+        Map<String, ParticipantConsent> latest = latestDecisions(principal.participantId());
+        List<ParticipantDtos.SessionView.PendingConsent> pending = requiredItems(experience).stream()
+                .filter(item -> !agreed(latest.get(item.code()), item.version()))
+                .map(item -> new ParticipantDtos.SessionView.PendingConsent(item.code(), item.version()))
+                .toList();
+        // 재게시로 새 필수 동의가 생겼으면 세션이 ACTIVE 여도 제한 상태다 — 동의 화면으로 돌아가야 한다(requireActive 와 같은 판정)
+        SessionStatus status = pending.isEmpty() ? session.getStatus() : SessionStatus.RESTRICTED;
+        ParticipantDtos.RunView run = captureRunRepository
+                .findFirstByParticipantIdAndStatusOrderByIdDesc(principal.participantId(), CaptureRunStatus.ACTIVE)
+                .filter(found -> found.activeAt(now()))
+                .map(this::runView)
+                .orElse(null);
+        return new ParticipantDtos.SessionView(principal.participantPublicId(), event.getPublicId(), event.getSlug(),
+                principal.channel(), status, offset(session.getExpiresAt()), pending, run);
+    }
+
+    // ── 동의 ──────────────────────
+
+    public ParticipantDtos.ConsentResponse consent(ParticipantPrincipal principal, String eventPublicId,
+                                                   ParticipantDtos.ConsentRequest request) {
+        Event event = requireOwnEvent(principal, eventPublicId);
+        ParticipantSession session = currentSession(principal);
+        EventExperienceDocument experience = currentExperience(event);
+        Map<String, EventSettings.ConsentItem> offered = new HashMap<>();
+        experience.consentItems().forEach(item -> offered.put(item.code(), item));
+
+        LocalDateTime now = now();
+        for (ParticipantDtos.ConsentRequest.ConsentItem item : request.items()) {
+            EventSettings.ConsentItem current = offered.get(item.code());
+            if (current == null || !current.version().equals(item.version())) {
+                // 행사에 없는 항목이거나 옛 버전 문구에 대한 동의 — 기록하지 않고 거절한다
+                throw new BusinessException(GlobalErrorCode.INVALID_INPUT_VALUE,
+                        "현재 행사의 동의 항목·버전이 아닙니다: " + item.code() + " v" + item.version());
+            }
+            consentRepository.save(new ParticipantConsent(principal.participantId(), event.getId(), item.code(),
+                    item.version(), item.decision(), principal.channel(), event.getCurrentExperienceVersionId(), now));
+        }
+
+        Map<String, ParticipantConsent> latest = latestDecisions(principal.participantId());
+        boolean satisfied = requiredItems(experience).stream().allMatch(item -> agreed(latest.get(item.code()), item.version()));
+        SessionStatus next = satisfied ? SessionStatus.ACTIVE : SessionStatus.RESTRICTED;
+        // 조건부 UPDATE — 동의하는 사이 부스 회차 닫기·기기 회수로 회수됐으면 되살리지 않는다
+        if (sessionRepository.changeStatusUnlessRevoked(session.getId(), next) != 1) {
+            throw new BusinessException(ParticipantErrorCode.SESSION_INVALID);
+        }
+        return new ParticipantDtos.ConsentResponse(next);
+    }
+
+    // ── 회차 ──────────────────────
+
+    public ParticipantDtos.RunStartResponse startRun(ParticipantPrincipal principal, String eventPublicId) {
+        Event event = requireOwnEvent(principal, eventPublicId);
+        requireActive(principal);
+        requireCaptureOpen(event);
+        requireThemeEntitled(event);
+        requireWithinRate("capture-run", principal, properties.runsPerMinute());
+        entitlementService.requireRemaining(event);   // 찍고 나서 막히지 않게 — 접수에서 예약으로 다시 확인한다
+        if (principal.isBooth()) {
+            releaseExpiredBoothRun(principal.boothDeviceId());
+        }
+        CaptureRun run;
+        try {
+            run = captureRunRepository.saveAndFlush(CaptureRun.start(principal.participantId(), event.getId(),
+                    event.getCurrentExperienceVersionId(), principal.isBooth() ? principal.boothDeviceId() : null,
+                    now().plus(properties.captureRunTtl())));
+        } catch (DataIntegrityViolationException e) {
+            // 기기당 활성 회차 유니크(active_booth_device_id) — 이미 진행 중인 손님이 있다
+            throw new BusinessException(BoothErrorCode.RUN_ALREADY_ACTIVE);
+        }
+        int versionNo = experienceVersionRepository.findById(run.getExperienceVersionId())
+                .map(EventExperienceVersion::getVersionNo).orElseThrow();
+        return new ParticipantDtos.RunStartResponse(run.getPublicId(), versionNo, run.getStateVersion(), offset(run.getExpiresAt()));
+    }
+
+    // 기기의 활성 회차가 시간만 지나 남아 있으면 비운다 — 닫지 않고 떠난 손님 때문에 부스가 멈추지 않게.
+    // 아직 유효한 회차면 BOOTH-004
+    private void releaseExpiredBoothRun(Long boothDeviceId) {
+        captureRunRepository.findByActiveBoothDeviceId(boothDeviceId).ifPresent(existing -> {
+            if (existing.activeAt(now())) {
+                throw new BusinessException(BoothErrorCode.RUN_ALREADY_ACTIVE);
+            }
+            existing.expire(now());
+            // 떠난 손님의 자격과 미완료 입력을 함께 치운다(R5 L223) — 다음 손님이 그 회차의 응답을 보지 않게
+            sessionRepository.revokeAllByParticipantId(existing.getParticipantId());
+            assetService.discardUnboundInputs(existing.getId());
+            captureRunRepository.flush();
+        });
+    }
+
+    @Transactional(readOnly = true)
+    public FrameVersionResponse offeredFrame(ParticipantPrincipal principal, String eventPublicId, Long frameVersionId,
+                                             String captureRunId) {
+        requireOwnEvent(principal, eventPublicId);
+        CaptureRun run = ownRun(principal, captureRunId);
+        if (!offers(run.getExperienceVersionId(), frameVersionId)) {
+            throw new BusinessException(ParticipantErrorCode.FRAME_NOT_OFFERED);
+        }
+        return frameVersionService.view(frameVersionId);
+    }
+
+    // ── 업로드 ──────────────────────
+
+    public UploadIntentResponse createUploadIntent(ParticipantPrincipal principal, String eventPublicId,
+                                                   ParticipantDtos.CaptureUploadRequest request) {
+        Event event = requireOwnEvent(principal, eventPublicId);
+        requireActive(principal);
+        // 중지·종료된 행사에는 새 업로드 허가를 내주지 않는다(R5 L302)
+        requireCaptureOpen(event);
+        requireWithinRate("capture-intent", principal, properties.uploadIntentsPerMinute());
+        CaptureRun run = activeRun(principal, request.captureRunId());
+        if (assetService.countUnboundInputs(run.getId()) >= properties.maxUnboundInputsPerRun()) {
+            throw new BusinessException(GlobalErrorCode.TOO_MANY_REQUESTS);
+        }
+        return assetService.createCaptureInputIntent(event.getPublicId(), event.getId(), run.getPublicId(), run.getId(),
+                principal.participantId(), request.slotIndex(), request.contentType(), request.fileSize());
+    }
+
+    public AssetService.CompleteResult completeUpload(ParticipantPrincipal principal,
+                                                                               String assetPublicId) {
+        requireActive(principal);
+        requireCaptureOpen(event(principal.eventId()));
+        return assetService.completeCaptureInput(principal.participantId(), assetPublicId,
+                runId -> captureRunRepository.findById(runId).filter(run -> run.activeAt(now())).isPresent());
+    }
+
+    // ── 결과 ──────────────────────
+
+    @Transactional(readOnly = true)
+    public ComposeJobResponse job(ParticipantPrincipal principal, Long jobId) {
+        return ComposeJobResponse.from(ownJob(principal, jobId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<ParticipantDtos.MyResult> myResults(ParticipantPrincipal principal, String eventPublicId) {
+        Event event = requireOwnEvent(principal, eventPublicId);
+        requireByod(principal);
+        return composeJobRepository.findAllByParticipantIdAndEventIdOrderByIdDesc(principal.participantId(), event.getId())
+                .stream()
+                .filter(job -> !job.isDeleted())   // 사진함에서 삭제된 결과는 재방문 목록에도 없다
+                .map(job -> new ParticipantDtos.MyResult(job.getId(), job.getStatus(), offset(job.getCreatedAt()), resultService.thumbnailUrl(job, event),
+                        job.getStatus() == ComposeStatus.FAILED ? job.getFailureCode() : null, resultService.expiresAt(job, event)))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public DownloadUrlResponse download(ParticipantPrincipal principal, Long jobId) {
+        requireByod(principal);
+        return resultService.downloadForParticipant(ownJob(principal, jobId));
+    }
+
+    public ResultTokenResponse newResultAccess(ParticipantPrincipal principal, Long jobId) {
+        requireByod(principal);
+        ComposeJob job = ownJob(principal, jobId);
+        return resultService.issue(job, event(job.getEventId()));
+    }
+
+    /** 수령 권한(결과 토큰)으로는 회수하지 못한다 — 원 참가자 세션만(R5 L208) */
+    public ResultAccessRevokeResponse revokeResultAccess(ParticipantPrincipal principal, Long jobId) {
+        requireByod(principal);
+        return new ResultAccessRevokeResponse(resultService.revokeAccess(ownJob(principal, jobId)));
+    }
+
+    // ── 관문 ──────────────────────
+
+    Event requireOwnEvent(ParticipantPrincipal principal, String eventPublicId) {
+        Event event = event(principal.eventId());
+        if (!event.getPublicId().equals(eventPublicId)) {
+            // 다른 행사 ID 로 권한을 넓힐 수 없다 — 존재도 알리지 않는다
+            throw new BusinessException(GlobalErrorCode.NOT_FOUND);
+        }
+        return event;
+    }
+
+    // 세션 상태만 믿지 않는다 — 운영자가 재게시로 새 필수 동의를 더했으면 접수 때 현재 항목으로 다시 판정한다(R5 L545)
+    void requireActive(ParticipantPrincipal principal) {
+        if (currentSession(principal).getStatus() != SessionStatus.ACTIVE) {
+            throw new BusinessException(ParticipantErrorCode.CONSENT_REQUIRED);
+        }
+        EventExperienceDocument experience = currentExperience(event(principal.eventId()));
+        Map<String, ParticipantConsent> latest = latestDecisions(principal.participantId());
+        if (!requiredItems(experience).stream().allMatch(item -> agreed(latest.get(item.code()), item.version()))) {
+            throw new BusinessException(ParticipantErrorCode.CONSENT_REQUIRED);
+        }
+    }
+
+    // 게시 뒤 이용권의 기능이 회수되면 새 회차를 막는다 — 찍는 중인 화면과 완성된 이미지는 바꾸지 않는다(R5 L781, O32)
+    private void requireThemeEntitled(Event event) {
+        PageTheme theme = currentExperience(event).theme();
+        if ((themeResolver.usesCustomDesign(theme) && !eventFeatures.allows(event, Feature.CUSTOM_THEME))
+                || (themeResolver.hidesHarucutBranding(theme) && !eventFeatures.allows(event, Feature.WHITE_LABEL))) {
+            throw new BusinessException(EntitlementErrorCode.FEATURE_NOT_ENTITLED);
+        }
+    }
+
+    private void requireWithinRate(String bucket, ParticipantPrincipal principal, int perMinute) {
+        if (!rateLimiter.tryAcquire(bucket, String.valueOf(principal.participantId()), perMinute, RATE_WINDOW)) {
+            throw new BusinessException(GlobalErrorCode.TOO_MANY_REQUESTS);
+        }
+    }
+
+    /** 부스 회차가 끝났다 — 어느 합성에도 묶이지 않은 입력을 치운다 */
+    public void discardUnboundInputs(Long captureRunId) {
+        assetService.discardUnboundInputs(captureRunId);
+    }
+
+    void requireCaptureOpen(Event event) {
+        // accept-enabled 는 장애 때 새 접수만 멈추는 스위치다(R5 L694) — 이미 접수한 작업의 읽기·정리는 그대로 돈다
+        if (!properties.acceptEnabled() || !event.captureOpen(now())) {
+            throw new BusinessException(EventErrorCode.CAPTURE_NOT_OPEN);
+        }
+        // 공간의 OWNER 가 전부 정지면 새 참여를 받지 않는다 — 개인·부스 세션, 회차, 업로드, 합성이 전부 여기를 지난다. 결과 수령은 무관하다
+        if (workspaceService.participationSuspended(event.getWorkspaceId())) {
+            throw new BusinessException(EventErrorCode.PARTICIPATION_SUSPENDED);
+        }
+    }
+
+    /**
+     * 합성 접수용 — 행사 행을 공유 잠금으로 다시 읽어(refresh) 그 값으로 촬영 열림을 본다. 보관 종료가 같은 행을 쓰기 잠금으로
+     * 잡으므로, 이 접수가 커밋될 때까지 보관 종료가 기다리고(작업을 보고 판정), 이미 커밋된 보관 종료는 여기서 보인다
+     */
+    void requireCaptureOpenLocked(Event event) {
+        entityManager.refresh(event, LockModeType.PESSIMISTIC_READ);
+        requireCaptureOpen(event);
+    }
+
+    CaptureRun activeRun(ParticipantPrincipal principal, String captureRunId) {
+        CaptureRun run = ownRun(principal, captureRunId);
+        if (!run.activeAt(now())) {
+            throw new BusinessException(ParticipantErrorCode.CAPTURE_RUN_NOT_ACTIVE);
+        }
+        return run;
+    }
+
+    // 회차의 경험 버전이 제공하고 긴급 회수되지 않은 발행본만(R5 L297). 이미 접수한 작업의 재전송은 이 검사 앞에서 끝난다
+    boolean offers(Long experienceVersionId, Long frameVersionId) {
+        return eventFrameRepository.findAllByExperienceVersionIdOrderBySortOrderAsc(experienceVersionId).stream()
+                .anyMatch(frame -> frame.getFrameVersionId().equals(frameVersionId))
+                && frameVersionRepository.findById(frameVersionId).filter(FrameVersion::revoked).isEmpty();
+    }
+
+    private CaptureRun ownRun(ParticipantPrincipal principal, String captureRunId) {
+        return captureRunRepository.findByPublicId(captureRunId)
+                .filter(run -> run.getParticipantId().equals(principal.participantId()))
+                .orElseThrow(() -> new BusinessException(ParticipantErrorCode.CAPTURE_RUN_NOT_ACTIVE));
+    }
+
+    private ComposeJob ownJob(ParticipantPrincipal principal, Long jobId) {
+        ComposeJob owned = composeJobRepository.findById(jobId)
+                .filter(job -> principal.participantId().equals(job.getParticipantId()))
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+        // 부스는 기기의 지금 회차 작업만 — 늦게 끝난 이전 회차를 지금 손님 화면에 보이지 않는다(R5 L604, O25)
+        if (principal.isBooth() && !activeBoothRunId(principal.boothDeviceId()).filter(id -> id.equals(owned.getCaptureRunId())).isPresent()) {
+            throw new BusinessException(GlobalErrorCode.NOT_FOUND);
+        }
+        return owned;
+    }
+
+    private Optional<Long> activeBoothRunId(Long boothDeviceId) {
+        return captureRunRepository.findByActiveBoothDeviceId(boothDeviceId)
+                .filter(run -> run.activeAt(now()))
+                .map(CaptureRun::getId);
+    }
+
+    private void requireByod(ParticipantPrincipal principal) {
+        if (principal.channel() != ParticipantChannel.BYOD) {
+            throw new BusinessException(ParticipantErrorCode.BOOTH_SESSION_FORBIDDEN);
+        }
+    }
+
+    private ParticipantSession currentSession(ParticipantPrincipal principal) {
+        return sessionRepository.findById(principal.sessionId())
+                .filter(session -> session.usable(now()))
+                .orElseThrow(() -> new BusinessException(ParticipantErrorCode.SESSION_INVALID));
+    }
+
+    private EventExperienceDocument currentExperience(Event event) {
+        return experienceVersionRepository.findById(event.getCurrentExperienceVersionId())
+                .map(version -> objectMapper.readValue(version.getSettingsJson(), EventExperienceDocument.class))
+                .orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+    }
+
+    private Map<String, ParticipantConsent> latestDecisions(Long participantId) {
+        Map<String, ParticipantConsent> latest = new HashMap<>();
+        consentRepository.findAllByParticipantIdOrderByIdAsc(participantId)
+                .forEach(consent -> latest.put(consent.getItemCode(), consent));
+        return latest;
+    }
+
+    private static List<EventSettings.ConsentItem> requiredItems(EventExperienceDocument experience) {
+        return experience.consentItems().stream().filter(item -> Boolean.TRUE.equals(item.required())).toList();
+    }
+
+    private static boolean agreed(ParticipantConsent consent, int version) {
+        return consent != null && consent.getDecision() == ConsentDecision.AGREED && consent.getItemVersion() == version;
+    }
+
+    private Event event(Long eventId) {
+        return eventRepository.findById(eventId).orElseThrow(() -> new BusinessException(GlobalErrorCode.NOT_FOUND));
+    }
+
+    private ParticipantDtos.RunView runView(CaptureRun run) {
+        return new ParticipantDtos.RunView(run.getPublicId(), run.getStateVersion(), offset(run.getExpiresAt()));
+    }
+
+    private LocalDateTime now() {
+        return LocalDateTime.now(clock);
+    }
+
+    private OffsetDateTime offset(LocalDateTime value) {
+        return value == null ? null : value.atZone(clock.getZone()).toOffsetDateTime();
+    }
+}

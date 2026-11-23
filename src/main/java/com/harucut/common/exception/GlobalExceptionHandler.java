@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import com.harucut.auth.security.CustomAccessDeniedHandler;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindException;
 import org.springframework.web.HttpMediaTypeNotAcceptableException;
@@ -29,10 +30,11 @@ import java.util.List;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<Response<Void>> handleBusinessException(BusinessException e) {
+    public ResponseEntity<Response<Object>> handleBusinessException(BusinessException e) {
         log.warn("[BusinessException] code={}, detail={}", e.getErrorCode().getCode(), e.getMessage());
 
-        return toResponseEntity(e.getErrorCode());
+        ErrorCode errorCode = e.getErrorCode();
+        return ResponseEntity.status(errorCode.getHttpStatus()).body(Response.error(errorCode, e.getData()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -87,7 +89,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<Response<Void>> handleAccessDeniedException(AccessDeniedException e) {
-        return toResponseEntity(GlobalErrorCode.FORBIDDEN);
+        return toResponseEntity(CustomAccessDeniedHandler.deniedCode());
     }
 
     @ExceptionHandler(Exception.class)

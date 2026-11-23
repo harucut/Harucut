@@ -28,6 +28,10 @@ ENV TZ=Asia/Seoul
 
 RUN addgroup -S app && adduser -S app -G app
 
+# 참가자 자유 문구 서버 렌더(TextRenderer)가 Java2D 로 글자를 그린다 — 글꼴 래스터라이저가 시스템 freetype 을 쓴다.
+# 글꼴 파일은 JAR 안의 Pretendard 라 시스템 글꼴은 필요 없다. ⚠️ 실제 이미지에서 렌더 확인 필요(실연동 미확인)
+RUN apk add --no-cache freetype fontconfig
+
 # H2 파일 DB 등 쓰기 경로. named volume 이 이 디렉터리에 마운트되면
 # 소유권(app:app)을 그대로 물려받아 비루트 유저로도 쓰기가 가능하다.
 RUN mkdir -p /data && chown app:app /data
@@ -35,6 +39,9 @@ RUN mkdir -p /data && chown app:app /data
 USER app
 
 COPY --from=builder /app/build/libs/*.jar app.jar
+
+# 600MB 컨테이너 기준(deploy/prod/compose.yml). 유휴 상태에서 이미 500MB 를 쓴다 — 힙 60% 는 힙이 찰 때 OOM kill 이 났다
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=40 -XX:ReservedCodeCacheSize=64m -Xss512k"
 
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]

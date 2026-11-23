@@ -3,6 +3,7 @@ package com.harucut.media.repository;
 import com.harucut.config.JpaAuditingConfig;
 import com.harucut.frame.attributes.BackgroundAttributes;
 import com.harucut.frame.enums.FrameType;
+import com.harucut.media.compose.ComposeFailureCode;
 import com.harucut.media.compose.ComposeSpec;
 import com.harucut.media.converter.ComposeSpecConverter;
 import com.harucut.media.entity.ComposeJob;
@@ -36,6 +37,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @ActiveProfiles("test")
 @DisplayName("ComposeJobRepository")
 class ComposeJobRepositoryTest {
+
+    private static final LocalDateTime FAR_PAST = LocalDateTime.of(2000, 1, 1, 0, 0);
+    private static final java.time.Duration STALE_AFTER = java.time.Duration.ofMinutes(10);
 
     private static final List<String> FOUR_KEYS = List.of(
             "uploads/users/abc/fourcuts/sources/1.jpg",
@@ -102,17 +106,30 @@ class ComposeJobRepositoryTest {
         }
 
         @Test
-        @DisplayName("findByUserAndIdempotencyKey가 같은 key의 재시도에게 기존 Job을 돌려준다")
+        @DisplayName("멱등 조회는 주체(scope)+key 로 — 개인 작업의 scope 는 U:{userId}")
         void findByIdempotencyKey() {
             User user = persistUser("owner@harucut.com");
             ComposeJob job = em.persist(ComposeJob.create(user, 7L, "retry-key", FOUR_KEYS, spec()));
             em.flush();
             em.clear();
 
-            assertThat(composeJobRepository.findByUserAndIdempotencyKey(user, "retry-key"))
+            assertThat(job.getIdempotencyScope()).isEqualTo("U:" + user.getId());
+            assertThat(job.getStorageRoot()).isEqualTo("uploads/users/" + user.getPublicId() + "/");
+            assertThat(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:" + user.getId(), "retry-key"))
                     .map(ComposeJob::getId).hasValue(job.getId());
-            assertThat(composeJobRepository.findByUserAndIdempotencyKey(user, "unknown-key"))
+            assertThat(composeJobRepository.findByIdempotencyScopeAndIdempotencyKey("U:" + user.getId(), "unknown-key"))
                     .isEmpty();
+        }
+
+        @Test
+        @DisplayName("다른 주체는 같은 key 를 써도 독립 작업이다")
+        void sameKeyDifferentScopes() {
+            User first = persistUser("a@harucut.com");
+            User second = persistUser("b@harucut.com");
+            em.persist(ComposeJob.create(first, 7L, "same-key", FOUR_KEYS, spec()));
+            em.persist(ComposeJob.create(second, 7L, "same-key", FOUR_KEYS, spec()));
+
+            org.assertj.core.api.Assertions.assertThatCode(() -> em.flush()).doesNotThrowAnyException();
         }
     }
 
@@ -177,14 +194,15 @@ class ComposeJobRepositoryTest {
             User mine = persistUser("mine@harucut.com");
             User other = persistUser("other@harucut.com");
             ComposeJob done = em.persist(ComposeJob.create(mine, 7L, "idem-1", FOUR_KEYS, spec()));
-            done.complete("uploads/results/r1.png", 11L);
             em.persist(ComposeJob.create(mine, 7L, "idem-2", FOUR_KEYS, spec()));
             ComposeJob othersDone = em.persist(ComposeJob.create(other, 7L, "idem-1", FOUR_KEYS, spec()));
-            othersDone.complete("uploads/results/r2.png", 12L);
             em.flush();
+            markDone(done.getId(), "uploads/results/r1.png");
+            markDone(othersDone.getId(), "uploads/results/r2.png");
 
-            assertThat(composeJobRepository.findResultKeysByUserId(mine.getId()))
-                    .containsExactly("uploads/results/r1.png");
+            em.clear();
+            assertThat(composeJobRepository.findAllByUserId(mine.getId())).extracting(ComposeJob::getResultKey)
+                    .containsExactlyInAnyOrder("uploads/results/r1.png", null);
         }
 
         @Test
@@ -209,7 +227,6 @@ class ComposeJobRepositoryTest {
     @DisplayName("claim — 조건부 UPDATE 선점")
     class Claim {
 
-        private static final Duration STALE_AFTER = Duration.ofMinutes(10);
 
         @Test
         @DisplayName("갓 만든 PENDING(started_at IS NULL)은 선점된다")
@@ -246,11 +263,27 @@ class ComposeJobRepositoryTest {
         @DisplayName("PENDING이 아닌 Job은 선점되지 않는다 — 끝난 작업을 다시 돌리지 않는다")
         void skipsFinishedJob() {
             Long jobId = persistJob("idem-done");
-            composeJobRepository.findById(jobId).orElseThrow().complete("uploads/r.png", 1L);
-            em.flush();
-            em.clear();
+            markDone(jobId, "uploads/r.png");
 
             assertThat(claim(jobId)).isZero();
+        }
+
+        @Test
+        @DisplayName("선점할 때마다 시도 번호가 오르고, 실패는 지금 시도 번호일 때만 반영된다(R5 D09)")
+        void attemptNumbersGuardLateFailures() {
+            Long jobId = persistJob("idem-attempt");
+            assertThat(claim(jobId)).isEqualTo(1);
+            assertThat(composeJobRepository.findAttemptNo(jobId)).isEqualTo(1);
+            startedAt(jobId, NOW.minusMinutes(30));
+            assertThat(claim(jobId)).isEqualTo(1);
+            assertThat(composeJobRepository.findAttemptNo(jobId)).isEqualTo(2);
+
+            // 1차 실행의 늦은 실패 — 2차가 진행 중이라 반영하지 않는다
+            assertThat(composeJobRepository.markFailed(jobId, "늦은 1차", null, 1, ComposeStatus.PENDING, ComposeStatus.FAILED)).isZero();
+            em.clear();
+            assertThat(reload(jobId).getStatus()).isEqualTo(ComposeStatus.PENDING);
+            // 지금 시도의 실패는 반영한다
+            assertThat(composeJobRepository.markFailed(jobId, "2차", null, 2, ComposeStatus.PENDING, ComposeStatus.FAILED)).isEqualTo(1);
         }
 
         private int claim(Long jobId) {
@@ -299,12 +332,21 @@ class ComposeJobRepositoryTest {
             Long failed = persistJob("idem-fin-failed");
             startedAt(done, NOW.minusHours(5));
             startedAt(failed, NOW.minusHours(5));
-            composeJobRepository.findById(done).orElseThrow().complete("uploads/r.png", 1L);
-            composeJobRepository.findById(failed).orElseThrow().fail("터졌다");
-            em.flush();
-            em.clear();
+            markDone(done, "uploads/r.png");
+            markFailed(failed, "터졌다");
 
             assertThat(stalled()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("User 가 없는 작업(행사 참가자)도 재실행 대상에 잡힌다 — inner join 이면 조용히 빠진다")
+        void picksUpJobWithoutUser() {
+            Long jobId = persistJob("idem-no-user");
+            em.getEntityManager().createNativeQuery("UPDATE compose_job SET user_id = NULL WHERE compose_job_id = ?")
+                    .setParameter(1, jobId).executeUpdate();
+            em.clear();
+
+            assertThat(stalled()).extracting(ComposeJob::getId).containsExactly(jobId);
         }
 
         @Test
@@ -336,12 +378,161 @@ class ComposeJobRepositoryTest {
             persistJob("idem-2");
             persistJob("idem-3");
 
-            assertThat(composeJobRepository.findStalled(STALE_BEFORE, PageRequest.of(0, 2)))
-                    .hasSize(2);
+            assertThat(stalled(PageRequest.of(0, 2))).hasSize(2);
+        }
+
+        @Test
+        @DisplayName("삭제된 작업은 다시 던지지 않는다(R5 L494) — 선점도 거절된다")
+        void excludesDeleted() {
+            Long jobId = persistJob("idem-deleted");
+            composeJobRepository.markDeleted(jobId, NOW);
+            em.flush();
+            em.clear();
+
+            assertThat(stalled()).isEmpty();
+            assertThat(composeJobRepository.claim(jobId, NOW, NOW.minus(STALE_AFTER))).isZero();
+        }
+
+        @Test
+        @DisplayName("다음 시도 시각 전에는 잡히지 않고 선점도 거절된다 — 백오프 동안 다시 던지지 않는다")
+        void respectsNextAttemptAt() {
+            Long jobId = persistJob("idem-backoff");
+            composeJobRepository.scheduleNextAttempt(jobId, NOW.plusMinutes(1));
+            em.flush();
+            em.clear();
+
+            assertThat(stalled()).isEmpty();
+            assertThat(composeJobRepository.claim(jobId, NOW, NOW.minus(STALE_AFTER))).isZero();
+
+            composeJobRepository.scheduleNextAttempt(jobId, NOW);
+            em.flush();
+            em.clear();
+            assertThat(stalled()).extracting(ComposeJob::getId).containsExactly(jobId);
+            assertThat(composeJobRepository.claim(jobId, NOW, NOW.minus(STALE_AFTER))).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("횟수를 다 쓰면 재접수에서 빠지고 기다린 뒤 만료로 잡힌다 — 조용히 남지 않는다")
+        void exhaustedByAttempts() {
+            Long jobId = persistJob("idem-exhausted");
+            claimTimes(jobId, 2);
+            startedAt(jobId, NOW.minusMinutes(5));
+            em.clear();
+
+            // 마지막 시도를 기다리는 중 — 재접수도 만료도 아니다
+            assertThat(composeJobRepository.findStalled(NOW, STALE_BEFORE, 2, FAR_PAST, firstTwenty)).isEmpty();
+            assertThat(composeJobRepository.findDispatchExpired(STALE_BEFORE, 2, FAR_PAST, firstTwenty)).isEmpty();
+
+            startedAt(jobId, NOW.minusMinutes(30));
+            em.clear();
+            assertThat(composeJobRepository.findStalled(NOW, STALE_BEFORE, 2, FAR_PAST, firstTwenty)).isEmpty();
+            assertThat(composeJobRepository.findDispatchExpired(STALE_BEFORE, 2, FAR_PAST, firstTwenty))
+                    .extracting(ComposeJob::getId).containsExactly(jobId);
+        }
+
+        @Test
+        @DisplayName("총 기한이 지나면 횟수가 남아도 재접수에서 빠지고 만료로 잡힌다 — 삭제된 작업도 만료로 끝나 예약이 돌아온다")
+        void exhaustedByDeadline() {
+            Long jobId = persistJob("idem-deadline");
+            Long deleted = persistJob("idem-deadline-deleted");
+            composeJobRepository.markDeleted(deleted, NOW);
+            em.flush();
+            em.clear();
+            LocalDateTime cutoffAfterCreated = FixedClockConfig.FIXED_NOW.plusSeconds(1);
+
+            assertThat(composeJobRepository.findStalled(NOW, STALE_BEFORE, 99, cutoffAfterCreated, firstTwenty)).isEmpty();
+            assertThat(composeJobRepository.findDispatchExpired(STALE_BEFORE, 99, cutoffAfterCreated, firstTwenty))
+                    .extracting(ComposeJob::getId).containsExactly(jobId, deleted);
+            // 기한 전이면 만료가 아니다
+            assertThat(composeJobRepository.findDispatchExpired(STALE_BEFORE, 99, FAR_PAST, firstTwenty)).isEmpty();
+        }
+
+        private void claimTimes(Long jobId, int times) {
+            for (int i = 0; i < times; i++) {
+                startedAt(jobId, NOW.minusMinutes(30));
+                em.clear();
+                assertThat(composeJobRepository.claim(jobId, NOW, NOW.minus(STALE_AFTER))).isEqualTo(1);
+            }
+            em.flush();
         }
 
         private List<ComposeJob> stalled() {
-            return composeJobRepository.findStalled(STALE_BEFORE, firstTwenty);
+            return stalled(firstTwenty);
+        }
+
+        private List<ComposeJob> stalled(Pageable pageable) {
+            return composeJobRepository.findStalled(NOW, STALE_BEFORE, 99, FAR_PAST, pageable);
+        }
+    }
+
+    /*
+     * 완료·실패 전이는 조건부 UPDATE 다. 영향 행 수 1 = 이 호출이 이겼다, 0 = 이미 다른 쪽이 끝냈다.
+     * 서비스는 이 값으로 미디어 생성·원본 삭제를 한 번만 한다.
+     */
+    @Nested
+    @DisplayName("완료·실패 전이 — 조건부 UPDATE")
+    class Transitions {
+
+        @Test
+        @DisplayName("PENDING 을 DONE 으로 바꾸면 1 이고 결과 key 가 남는다")
+        void markDoneFromPending() {
+            Long jobId = persistJob("idem-t-done");
+
+            assertThat(markDone(jobId, "uploads/r.png")).isEqualTo(1);
+            assertThat(reload(jobId).getStatus()).isEqualTo(ComposeStatus.DONE);
+            assertThat(reload(jobId).getResultKey()).isEqualTo("uploads/r.png");
+        }
+
+        @Test
+        @DisplayName("두 번째 완료는 0 이다 — 재배달된 통지가 결과를 덮지 않는다")
+        void secondMarkDoneLoses() {
+            Long jobId = persistJob("idem-t-twice");
+            markDone(jobId, "uploads/first.png");
+
+            assertThat(markDone(jobId, "uploads/second.png")).isZero();
+            assertThat(reload(jobId).getResultKey()).isEqualTo("uploads/first.png");
+        }
+
+        @Test
+        @DisplayName("DONE 뒤의 실패는 0 이다 — 늦은 실패가 성공을 지우지 않는다")
+        void failAfterDoneLoses() {
+            Long jobId = persistJob("idem-t-late-fail");
+            markDone(jobId, "uploads/r.png");
+
+            assertThat(markFailed(jobId, "뒤늦은 실패")).isZero();
+            assertThat(reload(jobId).getStatus()).isEqualTo(ComposeStatus.DONE);
+            assertThat(reload(jobId).getFailureReason()).isNull();
+        }
+
+        @Test
+        @DisplayName("실패 종류도 같은 조건부 UPDATE 로 남는다(V26)")
+        void failureCodeStored() {
+            Long jobId = persistJob("idem-failure-code");
+            assertThat(composeJobRepository.markFailed(jobId, "원본 없음", ComposeFailureCode.SOURCE_MISSING, null,
+                    ComposeStatus.PENDING, ComposeStatus.FAILED)).isEqualTo(1);
+            em.clear();
+            assertThat(composeJobRepository.findById(jobId).orElseThrow().getFailureCode()).isEqualTo(ComposeFailureCode.SOURCE_MISSING);
+        }
+
+        @Test
+        @DisplayName("FAILED 뒤의 완료는 0 이다")
+        void doneAfterFailLoses() {
+            Long jobId = persistJob("idem-t-late-done");
+            markFailed(jobId, "원본 유실");
+
+            assertThat(markDone(jobId, "uploads/late.png")).isZero();
+            assertThat(reload(jobId).getStatus()).isEqualTo(ComposeStatus.FAILED);
+            assertThat(reload(jobId).getResultKey()).isNull();
+        }
+
+        @Test
+        @DisplayName("mediaId 는 따로 붙는다")
+        void attachMedia() {
+            Long jobId = persistJob("idem-t-media");
+            markDone(jobId, "uploads/r.png");
+
+            composeJobRepository.attachMedia(jobId, 42L);
+            assertThat(reload(jobId).getMediaId()).isEqualTo(42L);
         }
     }
 
@@ -369,6 +560,20 @@ class ComposeJobRepositoryTest {
     private ComposeJob reload(Long jobId) {
         em.clear();
         return composeJobRepository.findById(jobId).orElseThrow();
+    }
+
+    private int markDone(Long jobId, String resultKey) {
+        int affected = composeJobRepository.markDone(jobId, resultKey,
+                ComposeStatus.PENDING, ComposeStatus.DONE);
+        em.clear();
+        return affected;
+    }
+
+    private int markFailed(Long jobId, String reason) {
+        int affected = composeJobRepository.markFailed(jobId, reason, null, null,
+                ComposeStatus.PENDING, ComposeStatus.FAILED);
+        em.clear();
+        return affected;
     }
 
     // ── fixtures ──────────────────────────────

@@ -52,7 +52,7 @@ class FrameListQueryCountTest {
         Statistics statistics = statistics();
         statistics.clear();
 
-        List<Frame> frames = frameRepository.findAllWithComponentsByUser(user);
+        List<Frame> frames = frameRepository.findPersonalWithComponentsByUser(user);
         // 지연 로딩이었다면 여기서 프레임마다 추가 SELECT가 나간다
         frames.forEach(frame -> assertThat(frame.getComponents()).hasSize(2));
 

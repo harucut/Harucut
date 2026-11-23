@@ -36,6 +36,7 @@ public class ComposeMetrics {
     private final Counter notifiedUnusable;
 
     private final Counter rerunSubmitted;
+    private final Counter rerunExhausted;
 
     // 게이지는 스크레이프 때마다 읽힌다. COUNT 쿼리를 그 시점에 돌리면 스크레이프 주기가
     // DB 부하를 정하게 되므로, 30초 재실행 주기가 갱신한 값을 들고만 있는다
@@ -69,6 +70,9 @@ public class ComposeMetrics {
 
         this.rerunSubmitted = counter(registry, "harucut.compose.rerun",
                 "재실행 배치가 다시 던진 Job 수", "result", "submitted");
+
+        this.rerunExhausted = counter(registry, "harucut.compose.rerun",
+                "재접수 상한을 넘겨 최종 실패로 끝낸 Job 수", "result", "exhausted");
 
         Gauge.builder("harucut.compose.pending", pendingBacklog, AtomicLong::doubleValue)
                 .description("아직 끝나지 않은 Job 수 — 30초마다 갱신, 아직 못 잰 동안은 -1")
@@ -135,6 +139,10 @@ public class ComposeMetrics {
 
     public void rerunSubmitted(int count) {
         rerunSubmitted.increment(count);
+    }
+
+    public void rerunExhausted() {
+        rerunExhausted.increment();
     }
 
     public void recordPendingBacklog(long count) {

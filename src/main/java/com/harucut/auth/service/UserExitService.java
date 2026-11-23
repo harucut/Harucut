@@ -3,13 +3,13 @@ package com.harucut.auth.service;
 import com.harucut.auth.exception.AuthErrorCode;
 import com.harucut.auth.oauth2.unlink.OAuth2UnlinkService;
 import com.harucut.common.exception.BusinessException;
-import com.harucut.storage.event.S3DeleteEvent;
+import com.harucut.storage.service.S3Deleter;
 import com.harucut.storage.util.S3Keys;
 import com.harucut.user.entity.User;
 import com.harucut.user.enums.UserStatus;
 import com.harucut.user.repository.UserRepository;
+import com.harucut.workspace.service.WorkspaceService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,13 +26,21 @@ public class UserExitService {
     private final Clock clock;
     private final List<UserDeletionHandler> handlers;
     private final List<OAuth2UnlinkService> unlinkServices;
-    private final ApplicationEventPublisher eventPublisher;
+    private final S3Deleter s3Deleter;
+    private final WorkspaceService workspaceService;
 
     @Transactional
     public void requestExit(String publicId) {
-        User user = findUser(publicId);
+        Long userId = userRepository.findIdByPublicId(publicId)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.USER_NOT_FOUND));
+        // 마지막 OWNER 검사가 본인 행 잠금보다 먼저다 — 조직 OWNER 멤버십 → 그 회원들 순서로 잠근다. 함께 탈퇴를 신청하는 다른 OWNER·역할을
+        // 바꾸는 요청과 같은 순서로 잡아야 교착 없이 줄을 선다(본인 행을 먼저 잡으면 서로의 회원 행을 기다리며 맞물린다)
+        workspaceService.requireNotLastOwner(userId);
+        // 잠금 읽기 — 동시에 커밋되는 정지와 줄을 선다. 정지 계정도 탈퇴할 수 있고, 복구하면 BLOCKED 로 돌아간다(User.reActivate)
+        User user = userRepository.lockByPublicId(publicId)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.USER_NOT_FOUND));
         user.deleteRequested(LocalDateTime.now(clock));
-        refreshTokenService.revoke(publicId);
+        refreshTokenService.revokeAll(publicId);
     }
 
     @Transactional
@@ -41,7 +49,7 @@ public class UserExitService {
         if (user.getUserStatus() != UserStatus.DELETED_REQUESTED) {
             throw new BusinessException(AuthErrorCode.NOT_DELETION_TARGET);
         }
-        refreshTokenService.revoke(publicId);
+        refreshTokenService.revokeAll(publicId);
         user.reActivate();
     }
 
@@ -58,6 +66,9 @@ public class UserExitService {
         String profileImageKey = user.getProfileImageUrl();
 
         handlers.forEach(handler -> handler.handleUserDeletion(userId));
+        // 핸들러 뒤에 따로 부른다 — 프레임 등 핸들러가 지우는 데이터가 이 공간을 FK 로 참조한다.
+        // 핸들러 목록의 순서는 보장되지 않아서 하나의 핸들러로 끼워 넣지 않았다
+        workspaceService.deleteForUser(userId);
 
         // 핸들러들의 벌크 삭제(clearAutomatically)가 컨텍스트를 비웠다 — 위의 user는 유령이라
         // 그대로 delete()하면 익명화가 조용히 증발한다. 재로드가 필수다.
@@ -71,11 +82,12 @@ public class UserExitService {
                 .findFirst()
                 .ifPresent(service -> service.unlink(managedUser));
 
-        refreshTokenService.revoke(publicId);
+        refreshTokenService.revokeAll(publicId);
         managedUser.delete();
 
+        // 삭제 기록을 남긴다 — S3 가 실패해도 재시도 배치가 지운다
         if (S3Keys.isManagedKey(profileImageKey)) {
-            eventPublisher.publishEvent(new S3DeleteEvent(List.of(profileImageKey)));
+            s3Deleter.deleteAfterCommit(List.of(profileImageKey));
         }
     }
 

@@ -46,6 +46,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
@@ -116,7 +117,12 @@ class ExportHandBackMysqlTest {
         ExportJob handedBack = exportJobRepository.findById(saved.getId()).orElseThrow();
         assertThat(handedBack.getStatus()).isEqualTo(ExportStatus.PENDING);
         String newKey = handedBack.getS3Key();
-        assertThat(deletionRepository.findAll()).singleElement().satisfies(row -> assertThat(row.getS3Key()).isEqualTo(oldKey));
+        // 커밋 뒤 첫 삭제(전용 스레드)가 실패를 남길 때까지 — 그 뒤에 차례를 당겨야 늦은 첫 시도가 일정을 되돌리지 않는다
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(deletionRepository.findAll()).singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getS3Key()).isEqualTo(oldKey);
+                    assertThat(row.getAttempts()).isEqualTo(1);
+                }));
         // 오래 기다려 그 예약의 차례가 이미 지났다
         jdbcTemplate.update("update s3_deletion set next_attempt_at = ? where key_hash = ?",
                 LocalDateTime.now().minusMinutes(1), OpaqueTokens.hash(oldKey));

@@ -1,6 +1,10 @@
 package com.harucut.support.mysql;
 
+import com.harucut.admin.service.AdminUserService;
+import com.harucut.auth.service.RefreshTokenRepository;
+import com.harucut.auth.service.UserExitService;
 import com.harucut.booth.service.BoothDeviceService;
+import com.harucut.common.exception.BusinessException;
 import com.harucut.event.dto.EventResponse;
 import com.harucut.event.dto.EventSettings;
 import com.harucut.event.service.EventService;
@@ -14,10 +18,12 @@ import com.harucut.frame.service.FrameVersionService;
 import com.harucut.storage.service.FileStorageService;
 import com.harucut.storage.util.S3Keys;
 import com.harucut.user.entity.User;
+import com.harucut.user.enums.UserStatus;
 import com.harucut.user.repository.UserRepository;
 import com.harucut.workspace.dto.WorkspaceResponse;
 import com.harucut.workspace.entity.WorkspaceMembership;
 import com.harucut.workspace.enums.WorkspaceRole;
+import com.harucut.workspace.exception.MemberErrorCode;
 import com.harucut.workspace.repository.WorkspaceMembershipRepository;
 import com.harucut.workspace.repository.WorkspaceRepository;
 import com.harucut.workspace.service.MembershipService;
@@ -77,8 +83,11 @@ class LockedReadMysqlTest {
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private BoothDeviceService boothDeviceService;
     @Autowired private EventService eventService;
+    @Autowired private UserExitService userExitService;
+    @Autowired private AdminUserService adminUserService;
 
     @MockitoBean private FileStorageService fileStorageService;
+    @MockitoBean private RefreshTokenRepository refreshTokenRepository;
 
     @Test
     @DisplayName("두 OWNER 가 동시에 서로를 내려도 OWNER 가 0 명이 되지 않는다")
@@ -89,12 +98,86 @@ class LockedReadMysqlTest {
         Long workspaceId = workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId();
         membershipRepository.save(WorkspaceMembership.member(workspaceId, second.getId(), WorkspaceRole.OWNER));
 
-        List<Throwable> failures = raceBehind(() -> membershipRepository.lockActiveOwnerIds(workspaceId),
+        List<Throwable> failures = raceBehind(() -> membershipRepository.lockActiveOwnerUserIds(workspaceId),
                 () -> membershipService.changeRole(first.getPublicId(), org.workspaceId(), second.getPublicId(), WorkspaceRole.ADMIN),
                 () -> membershipService.changeRole(second.getPublicId(), org.workspaceId(), first.getPublicId(), WorkspaceRole.ADMIN));
 
-        assertThat(membershipRepository.lockActiveOwnerIds(workspaceId)).hasSize(1);
+        assertThat(membershipRepository.lockActiveOwnerUserIds(workspaceId)).hasSize(1);
         assertThat(failures).hasSize(1);   // 뒤쪽은 MEMBER-004(마지막 OWNER)
+    }
+
+    @Test
+    @DisplayName("두 OWNER 가 동시에 탈퇴를 신청해도 하나만 받는다 — 뒤쪽은 앞쪽의 탈퇴 신청을 보고 MEMBER-004, 교착 없음")
+    void concurrentOwnerExitRequestsKeepOneOwner() throws Exception {
+        User first = userRepository.save(User.localUser("exit-a@owner.test", "e", "가"));
+        User second = userRepository.save(User.localUser("exit-b@owner.test", "e", "나"));
+        WorkspaceResponse org = workspaceService.createOrganization(first.getPublicId(), "탈퇴 공간");
+        Long workspaceId = workspaceRepository.findByPublicId(org.workspaceId()).orElseThrow().getId();
+        membershipRepository.save(WorkspaceMembership.member(workspaceId, second.getId(), WorkspaceRole.OWNER));
+
+        // 두 요청이 OWNER 멤버십 잠금 앞에서 줄을 선 뒤 풀린다. 앞쪽 커밋(DELETED_REQUESTED)을 뒤쪽이 잠금 읽기로 본다
+        List<Throwable> failures = raceBehind(() -> membershipRepository.lockActiveOwnerUserIds(workspaceId),
+                () -> userExitService.requestExit(first.getPublicId()),
+                () -> userExitService.requestExit(second.getPublicId()));
+
+        assertThat(failures).singleElement()
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.LAST_OWNER);
+        List<UserStatus> statuses = List.of(userRepository.findById(first.getId()).orElseThrow().getUserStatus(),
+                userRepository.findById(second.getId()).orElseThrow().getUserStatus());
+        assertThat(statuses).containsExactlyInAnyOrder(UserStatus.DELETED_REQUESTED, UserStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("여러 조직의 OWNER 가 동시에 탈퇴해도 교착이 없다 — 조직 멤버십을 모두 잠근 뒤에 회원을 잠근다(Codex #68)")
+    void multiOrganizationOwnerExitsDoNotDeadlock() throws Exception {
+        User a = userRepository.save(User.localUser("multi-a@owner.test", "e", "가"));
+        User b = userRepository.save(User.localUser("multi-b@owner.test", "e", "나"));
+        User c = userRepository.save(User.localUser("multi-c@owner.test", "e", "다"));
+        WorkspaceResponse first = workspaceService.createOrganization(a.getPublicId(), "조직 1");    // OWNER a·c
+        WorkspaceResponse second = workspaceService.createOrganization(a.getPublicId(), "조직 2");   // OWNER a·b
+        membershipRepository.save(WorkspaceMembership.member(idOf(first), c.getId(), WorkspaceRole.OWNER));
+        membershipRepository.save(WorkspaceMembership.member(idOf(second), b.getId(), WorkspaceRole.OWNER));
+
+        // c 의 회원 행을 붙잡아 a 를 회원 잠금 앞에 세운다. 그사이 b 가 조직 2 를 잠근다.
+        // 조직마다 멤버십·회원을 번갈아 잡으면 a(조직 1·회원 a 보유, 조직 2 대기)와 b(조직 2 보유, 회원 a 대기)가 맞물린다
+        List<Throwable> failures = raceInOrder(() -> userRepository.lockStayingIds(List.of(c.getId())),
+                () -> userExitService.requestExit(a.getPublicId()),
+                () -> userExitService.requestExit(b.getPublicId()));
+
+        assertThat(failures).singleElement()
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.LAST_OWNER);
+        // 누가 먼저 잠금을 잡든(CI 속도) 한쪽만 탈퇴 신청이 된다
+        assertThat(List.of(userRepository.findById(a.getId()).orElseThrow().getUserStatus(),
+                userRepository.findById(b.getId()).orElseThrow().getUserStatus()))
+                .containsExactlyInAnyOrder(UserStatus.DELETED_REQUESTED, UserStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("관리자 정지와 탈퇴 신청이 동시에 와도 교착이 없다 — 회원 행은 어디서나 회원 id 순으로 잠근다(Codex #68)")
+    void adminBlockAndOwnerExitDoNotDeadlock() throws Exception {
+        User admin = userRepository.save(User.localUser("lock-admin@owner.test", "e", "관리"));
+        User member = userRepository.save(User.localUser("lock-member@owner.test", "e", "회원"));
+        // 회원 id 순(admin < member)과 publicId 순(member < admin)이 거꾸로 되게 둔다 — 두 경로의 순서가 다르면 맞물린다
+        jdbcTemplate.update("update users set user_role = 'ROLE_ADMIN', public_id = 'fffffffffff1' where user_id = ?", admin.getId());
+        jdbcTemplate.update("update users set public_id = '000000000001' where user_id = ?", member.getId());
+        WorkspaceResponse org = workspaceService.createOrganization("fffffffffff1", "관리자 공간");   // OWNER admin·member
+        membershipRepository.save(WorkspaceMembership.member(idOf(org), member.getId(), WorkspaceRole.OWNER));
+
+        // admin 의 회원 행을 붙잡아 둘 다 그 앞에 세운다. 탈퇴 신청은 admin → member 순으로 잡는다.
+        // 정지가 member 를 먼저 쥐었다면(publicId 순) 탈퇴 신청은 member 를, 정지는 admin 을 기다리며 맞물린다
+        List<Throwable> failures = raceInOrder(() -> userRepository.lockStayingIds(List.of(admin.getId())),
+                () -> userExitService.requestExit("000000000001"),
+                () -> adminUserService.block("fffffffffff1", "000000000001", "경쟁"));
+
+        // 먼저 선 탈퇴 신청이 되고 정지는 탈퇴 대기라 거절된다(AUTH) — 서버 오류(교착)는 없다
+        assertThat(failures).allSatisfy(failure -> assertThat(failure).isInstanceOf(BusinessException.class));
+        assertThat(userRepository.findById(member.getId()).orElseThrow().getUserStatus()).isEqualTo(UserStatus.DELETED_REQUESTED);
+    }
+
+    private Long idOf(WorkspaceResponse workspace) {
+        return workspaceRepository.findByPublicId(workspace.workspaceId()).orElseThrow().getId();
     }
 
     @Test
@@ -179,6 +262,33 @@ class LockedReadMysqlTest {
         CompletableFuture<Throwable> first = CompletableFuture.supplyAsync(() -> attempt(a));
         CompletableFuture<Throwable> second = CompletableFuture.supplyAsync(() -> attempt(b));
         Thread.sleep(1000);   // 둘 다 스냅샷을 잡고 잠금에서 기다리는 중
+        release.countDown();
+        holder.get(20, TimeUnit.SECONDS);
+        List<Throwable> failures = new ArrayList<>();
+        for (CompletableFuture<Throwable> f : List.of(first, second)) {
+            Throwable failure = f.get(30, TimeUnit.SECONDS);
+            if (failure != null) {
+                failures.add(failure);
+            }
+        }
+        return failures;
+    }
+
+    // raceBehind 와 같되 a 가 먼저 잠금 앞에 서도록 b 를 늦게 출발시킨다
+    private List<Throwable> raceInOrder(Runnable lock, Runnable a, Runnable b) throws Exception {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CompletableFuture<Void> holder = CompletableFuture.runAsync(() -> transaction.executeWithoutResult(status -> {
+            lock.run();
+            locked.countDown();
+            await(release);
+        }));
+        assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+        CompletableFuture<Throwable> first = CompletableFuture.supplyAsync(() -> attempt(a));
+        Thread.sleep(700);
+        CompletableFuture<Throwable> second = CompletableFuture.supplyAsync(() -> attempt(b));
+        Thread.sleep(1000);
         release.countDown();
         holder.get(20, TimeUnit.SECONDS);
         List<Throwable> failures = new ArrayList<>();

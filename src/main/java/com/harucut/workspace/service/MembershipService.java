@@ -146,7 +146,7 @@ public class MembershipService {
             requireOwner(workspace, actor);
         }
         if (membership.getRole() == WorkspaceRole.OWNER && role != WorkspaceRole.OWNER) {
-            requireAnotherOwner(workspace);
+            requireAnotherOwner(workspace, target);
         }
         WorkspaceRole before = membership.getRole();
         membership.changeRole(role);
@@ -166,7 +166,7 @@ public class MembershipService {
             if (!self) {
                 requireOwner(workspace, actor);
             }
-            requireAnotherOwner(workspace);
+            requireAnotherOwner(workspace, target);
         }
         membership.remove();
         grantRepository.deleteByUserIdInWorkspace(target.getId(), workspace.getId());
@@ -191,8 +191,9 @@ public class MembershipService {
         }
     }
 
-    private void requireAnotherOwner(Workspace workspace) {
-        if (membershipRepository.lockActiveOwnerIds(workspace.getId()).size() <= 1) {
+    // 이 사람이 빠져도 남을 OWNER 가 있어야 한다. 탈퇴를 신청한 OWNER 는 세지 않는다 — 유예가 끝나면 멤버십째 지워진다
+    private void requireAnotherOwner(Workspace workspace, User target) {
+        if (!workspaceService.hasRemainingOwnerOtherThan(workspace.getId(), target.getId())) {
             throw new BusinessException(MemberErrorCode.LAST_OWNER);
         }
     }

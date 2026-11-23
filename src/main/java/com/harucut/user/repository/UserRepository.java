@@ -25,6 +25,16 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     Optional<User> findByPublicId(String publicId);
 
+    // id 만 — 엔티티를 올리지 않는다. 뒤이은 잠금 읽기(lockByPublicId)가 이 요청 안에서 낡은 엔티티를 돌려받지 않게
+    @Query("select u.id from User u where u.publicId = :publicId")
+    Optional<Long> findIdByPublicId(@Param("publicId") String publicId);
+
+    // 이 회원들 중 탈퇴를 신청하지 않은 사람 — DELETED_REQUESTED 는 유예가 끝나면 멤버십째 지워진다. 회원 id 순 잠금 읽기(FOR UPDATE)라
+    // 스냅샷이 아니라 다른 요청이 막 커밋한 탈퇴 신청까지 본다(WorkspaceService.hasRemainingOwnerOtherThan)
+    @Query(value = "select user_id from users where user_id in (:ids) "
+            + "and user_status not in ('DELETED_REQUESTED', 'DELETED') order by user_id for update", nativeQuery = true)
+    List<Long> lockStayingIds(@Param("ids") List<Long> ids);
+
     // 소셜 계정은 같은 이메일이 제공자마다 따로 있다
     List<User> findAllByEmailOrderByIdAsc(String email);
 
@@ -42,6 +52,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.publicId = :publicId")
     Optional<User> lockByPublicId(@Param("publicId") String publicId);
+
+    // 회원 행을 둘 이상 잠그는 곳은 늘 회원 id 순이다(AdminUserService.lock·lockStayingIds) — 순서가 섞이면 서로를 기다리며 맞물린다
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.id = :id")
+    Optional<User> lockById(@Param("id") Long id);
 
     boolean existsByProviderAndEmail(Provider provider, String email);
 

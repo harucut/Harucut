@@ -22,11 +22,13 @@ public interface WorkspaceMembershipRepository extends JpaRepository<WorkspaceMe
 
     List<WorkspaceMembership> findAllByWorkspaceIdAndStatusOrderByIdAsc(Long workspaceId, MembershipStatus status);
 
-    // 활성 OWNER 행 — 잠금 읽기(FOR UPDATE). 두 OWNER 가 동시에 서로를 내려도 같은 행을 잠그므로 뒤쪽은 앞쪽 커밋을 보고 센다
+    // 활성 OWNER 의 회원 id — 잠금 읽기(FOR UPDATE), 멤버십 id 순. 남을 OWNER 판정(WorkspaceService.hasRemainingOwnerOtherThan)의 첫 잠금이다.
+    // 두 OWNER 가 동시에 서로를 내려도 같은 행을 잠그므로 뒤쪽은 앞쪽 커밋을 보고 센다
     // (일반 읽기면 REPEATABLE READ 스냅샷이라 둘 다 2 를 읽고 OWNER 가 0 명이 된다)
-    @Query(value = "select workspace_membership_id from workspace_membership "
-            + "where workspace_id = :workspaceId and role = 'OWNER' and status = 'ACTIVE' for update", nativeQuery = true)
-    List<Long> lockActiveOwnerIds(@Param("workspaceId") Long workspaceId);
+    @Query(value = "select user_id from workspace_membership "
+            + "where workspace_id = :workspaceId and role = 'OWNER' and status = 'ACTIVE' "
+            + "order by workspace_membership_id for update", nativeQuery = true)
+    List<Long> lockActiveOwnerUserIds(@Param("workspaceId") Long workspaceId);
 
     // 참여 중지 판정 — 활성 OWNER 중 계정이 ACTIVE 인 사람 수(WorkspaceService.participationSuspended). 요청마다 세므로 해제가 바로 보인다
     @Query("select count(m) from WorkspaceMembership m, User u where u.id = m.userId and m.workspaceId = :workspaceId "

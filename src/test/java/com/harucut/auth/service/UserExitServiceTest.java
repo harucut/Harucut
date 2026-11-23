@@ -94,14 +94,15 @@ class UserExitServiceTest {
         @Test
         @DisplayName("조직 공간의 마지막 OWNER 면 MEMBER-004 — 탈퇴 상태로 넘어가지 않는다(R5 L561)")
         void lastOwnerCannotExit() {
-            User user = givenActiveUserLocked();
+            given(userRepository.findIdByPublicId(PUBLIC_ID)).willReturn(Optional.of(7L));
             org.mockito.BDDMockito.willThrow(new com.harucut.common.exception.BusinessException(com.harucut.workspace.exception.MemberErrorCode.LAST_OWNER))
-                    .given(workspaceService).requireNotLastOwner(user.getId());
+                    .given(workspaceService).requireNotLastOwner(7L);
 
             org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.requestExit(PUBLIC_ID))
                     .isInstanceOf(com.harucut.common.exception.BusinessException.class);
 
-            assertThat(user.getUserStatus()).isEqualTo(UserStatus.ACTIVE);
+            // 본인 행을 잠그기 전에 막힌다 — 탈퇴 상태로 바꿀 행을 건드리지 않는다
+            then(userRepository).should(org.mockito.Mockito.never()).lockByPublicId(PUBLIC_ID);
             then(refreshTokenService).shouldHaveNoInteractions();
         }
 
@@ -151,7 +152,7 @@ class UserExitServiceTest {
         @Test
         @DisplayName("없는 사용자는 AUTH-020이고 토큰을 건드리지 않는다")
         void unknownUser() {
-            given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.empty());
+            given(userRepository.findIdByPublicId(PUBLIC_ID)).willReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.requestExit(PUBLIC_ID))
                     .isInstanceOf(BusinessException.class)
@@ -365,9 +366,11 @@ class UserExitServiceTest {
         }
     }
 
-    // 탈퇴 요청은 잠금 읽기로 시작한다
+    // 탈퇴 요청은 id 만 읽고(엔티티를 올리지 않는다) 마지막 OWNER 검사 뒤에 본인 행을 잠근다
     private User givenActiveUserLocked() {
         User user = UserFixtures.localUser("exit@harucut.com", "encoded");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        given(userRepository.findIdByPublicId(PUBLIC_ID)).willReturn(Optional.of(7L));
         given(userRepository.lockByPublicId(PUBLIC_ID)).willReturn(Optional.of(user));
         return user;
     }

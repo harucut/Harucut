@@ -1,7 +1,5 @@
 package com.harucut.storage.event;
 
-import com.harucut.common.utils.OpaqueTokens;
-import com.harucut.storage.repository.S3DeletionRepository;
 import com.harucut.storage.service.S3DeletionAttempt;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
@@ -30,17 +28,15 @@ public class S3DeleteListener {
 
     private static final int QUEUE_CAPACITY = 1_000;
 
-    private final S3DeletionRepository repository;
     private final S3DeletionAttempt deletionAttempt;
     private final Executor executor;
 
     @Autowired
-    public S3DeleteListener(S3DeletionRepository repository, S3DeletionAttempt deletionAttempt) {
-        this(repository, deletionAttempt, newExecutor());
+    public S3DeleteListener(S3DeletionAttempt deletionAttempt) {
+        this(deletionAttempt, newExecutor());
     }
 
-    S3DeleteListener(S3DeletionRepository repository, S3DeletionAttempt deletionAttempt, Executor executor) {
-        this.repository = repository;
+    S3DeleteListener(S3DeletionAttempt deletionAttempt, Executor executor) {
         this.deletionAttempt = deletionAttempt;
         this.executor = executor;
     }
@@ -69,15 +65,13 @@ public class S3DeleteListener {
     // 그때도 예약 행은 남아 재시도 배치가 지운다.
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void on(S3DeleteEvent event) {
-        executor.execute(() -> event.keys().forEach(this::attempt));
+        executor.execute(() -> event.keys().forEach(this::attemptFirst));
     }
 
-    // 큐에서 기다린 사이 재시도 배치가 같은 행을 먼저 다뤘을 수 있다 — 배치처럼 지금 행의 횟수·일정으로 시도해
-    // 그쪽이 남긴 재삭제 예약·실패 기록을 덮지 않는다. 행이 없으면 끝난 일이다(배치가 지웠거나 업로드 책임이 풀렸다)
-    private void attempt(String key) {
+    // 대기열에서 기다린 사이 재시도 배치가 같은 행을 먼저 다뤘을 수 있다 — 첫 시도는 지금 행을 다시 읽어 그 몫일 때만 지운다
+    private void attemptFirst(String key) {
         try {
-            repository.findByKeyHash(OpaqueTokens.hash(key))
-                    .ifPresent(row -> deletionAttempt.attempt(row.getS3Key(), row.getAttempts(), row.getNextAttemptAt()));
+            deletionAttempt.attemptFirst(key);
         } catch (RuntimeException e) {
             // key 단위로 삼킨다: 하나가 실패해도 나머지는 지운다
             log.error("S3 삭제 시도 실패 — 예약 행이 남아 다시 시도한다: {}", key, e);

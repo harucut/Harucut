@@ -153,6 +153,26 @@ class S3DeletionIntegrationTest {
     }
 
     @Test
+    @DisplayName("#72: 대기열에서 늦게 돈 첫 시도는 배치가 먼저 지우고 재무장한 재삭제 예약을 건드리지 않는다 — 첫 시도 몫인 행만 지운다")
+    void lateFirstAttemptKeepsRearmedRow() {
+        LocalDateTime due = LocalDateTime.now().minusMinutes(1).withNano(0);
+        LocalDateTime redeleteAt = LocalDateTime.now().plusHours(6).withNano(0);
+        String keyHash = OpaqueTokens.hash(KEY);
+        transaction.executeWithoutResult(status -> {
+            repository.schedule(KEY, keyHash, due, LocalDateTime.now());
+            repository.armRedelete(keyHash, redeleteAt, LocalDateTime.now());
+        });
+        // 첫 시도가 대기열에서 밀린 사이 배치가 먼저 지우고 재삭제 시각으로 재무장했다
+        assertThat(retrier.retryDue().deleted()).isEqualTo(1);
+
+        deletionAttempt.attemptFirst(KEY);
+
+        then(fileStorageService).should(times(1)).delete(KEY);   // 배치의 한 번뿐
+        assertThat(repository.findAll()).singleElement()
+                .satisfies(row -> assertThat(row.getNextAttemptAt()).isEqualTo(redeleteAt));
+    }
+
+    @Test
     @DisplayName("같은 key 를 여러 번 예약해도 행은 하나다(같은 트랜잭션·다른 트랜잭션)")
     void sameKeyScheduledOnce() {
         willThrow(new IllegalStateException("S3 장애")).given(fileStorageService).delete(KEY);

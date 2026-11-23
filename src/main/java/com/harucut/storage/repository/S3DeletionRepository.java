@@ -29,7 +29,7 @@ public interface S3DeletionRepository extends JpaRepository<S3Deletion, Long> {
     int armRedelete(@Param("keyHash") String keyHash, @Param("redeleteAt") LocalDateTime redeleteAt,
                     @Param("now") LocalDateTime now);
 
-    // 커밋 뒤 첫 시도가 지금 행의 횟수·일정을 읽는다(S3DeleteListener)
+    // 커밋 뒤 첫 시도가 지금 행의 횟수·일정을 읽는다(S3DeletionAttempt.attemptFirst)
     Optional<S3Deletion> findByKeyHash(String keyHash);
 
     // 삭제에 성공한 행 — 재삭제가 걸려 있으면 그 시각으로 다음 차례를 옮기고(횟수 초기화) 1, 아니면 0(호출자가 행을 지운다)

@@ -2,6 +2,7 @@
 
 - **상태**: 채택됨 (2026-08-22) · **갱신 2026-11-22** — 이미지는 GHCR(`ghcr.io/harucut/harucut`), 배포 저장소는 harucut/Harucut,
   서버 AWS 자격은 서버 역할(instance profile)이다. 본문의 Docker Hub·`popeye0618` 은 채택 당시 기록이고, 지금 절차는 [deployment-strategy.md](deployment-strategy.md)
+  · **갱신 2026-11-24** — 서버는 t3.small(2GB)이다. 본문의 t3.micro·1GB 도 채택 당시 기록이다 — 2GB 에서도 컨테이너 상한 합(1350MB, `deploy/prod/compose.yml`) 위에 Gradle 빌드를 얹을 자리가 없어 결정은 그대로다
 - **관련**: [ADR-0001](adr-0001-compose-result-channel.md) (끌어가는 쪽이 이긴다),
   [아키텍처 구조도 ④](harucut-architecture.drawio)
 

@@ -3,11 +3,12 @@
 #   docker compose up -d          # 이 폴더에서. .env 를 자동으로 읽는다
 #
 # 서버에는 이 파일과 .env 두 개만 있으면 된다. 앱은 CI 가 GHCR 에 올린 이미지를 받아온다 —
-# 서버(908MB)에서 Gradle 을 돌리면 메모리가 모자라고, 테스트를 통과한 그 이미지가 배포된다는 보장도 사라진다.
+# 서버(1905MB)에서 Gradle 을 돌리면 메모리가 모자라고, 테스트를 통과한 그 이미지가 배포된다는 보장도 사라진다.
 #
-# 메모리 배분 (서버 908MB + 스왑 4GB):
-#   app ~600MB / mysql ~350MB / redis ~100MB — 합이 실메모리를 넘지만 상한이지 상시 사용량이 아니다.
-#   넘치는 순간은 스왑이 받는다. 스왑을 상시 쓰기 시작하면 인스턴스를 키울 때다.
+# 메모리 배분 (서버 t3.small 1905MB — 2026-11-24 t3.micro 908MB 에서 키움):
+#   상한 app 900MB / mysql 350MB / redis 100MB — 합 1350MB 가 실메모리 안에 든다. 나머지는 OS·nginx 몫이다.
+#   앱이 상한에 닿으면 cgroup 이 앱을 스왑으로 밀어 API 가 느려진다(600MB 상한 때 RSS 387MB + 스왑 192MB 실측).
+#   상한에 자주 닿거나 호스트가 스왑을 상시 쓰면 상한·인스턴스를 키울 때다.
 name: harucut
 
 services:
@@ -73,8 +74,8 @@ services:
       # .env 와 겹치면 이쪽이 이긴다. 컨테이너끼리는 서비스명으로 찾는다 (localhost 아님)
       DB_URL: "jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?characterEncoding=UTF-8&serverTimezone=Asia/Seoul"
       REDIS_HOST: redis
-      # 힙을 컨테이너 상한의 비율로 준다 — 상한을 바꾸면 힙도 따라온다.
-      # non-heap 이 약 240MB 라 60% 면 힙이 찰 때 600MB 를 넘어 OOM kill 이 났다(2026-11-02 실측, 45% 도 재현). 값의 원본은 Dockerfile
+      # 힙을 컨테이너 상한의 비율로 준다 — 상한을 바꾸면 힙도 따라온다(900MB × 40% = 힙 최대 360MB).
+      # 600MB 상한 때 non-heap 이 약 240MB 라 60% 면 힙이 찰 때 상한을 넘어 OOM kill 이 났다(2026-11-02 실측, 45% 도 재현). 값의 원본은 Dockerfile
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=40 -XX:ReservedCodeCacheSize=64m -Xss512k"
     # nginx 가 같은 호스트에서 localhost:8080 으로 넘긴다. 바깥에는 nginx(443)만 보인다
     ports:
@@ -89,7 +90,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 600m
+          memory: 900m
 
 volumes:
   mysql-data:

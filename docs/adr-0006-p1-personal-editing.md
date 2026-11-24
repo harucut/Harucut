@@ -41,7 +41,7 @@
   2. 브라우저가 S3 에 PUT. 이미 객체가 있으면 S3 가 412 — 같은 intent 의 재시도면 `complete` 를 불러 확인하면 된다.
   3. `POST /api/auth/assets/{assetId}/complete` → 서버가 HeadObject(존재·크기) → 바이트 머리로 실제 형식 판별 →
      ImageReader 로 크기(픽셀 상한) → **서브샘플링 디코드로 끝까지 읽히는지** 확인 → VERIFIED.
-     디코드는 동시 실행 수를 제한한다(`storage.asset.verify-concurrency`, 기본 2) — 908MB 서버에서 원본 해상도로 풀지 않는다.
+     디코드는 동시 실행 수를 제한한다(`storage.asset.verify-concurrency`, 기본 2) — 900MB 앱 컨테이너(힙 최대 360MB)에서 원본 해상도로 풀지 않는다.
   4. `GET /api/auth/assets/{assetId}` → 메타데이터 + 짧은 GET URL(기본 5분, `storage.download.get-ttl`).
 - 기존 key 문자열 경로(호환): 프레임 저장은 계속 `source`/`key` 문자열을 받는다. 같은 자리에 `assetId` 를 보내면 그쪽이 우선한다.
   기존 uploads/ key 를 일괄 이동하지 않는다.

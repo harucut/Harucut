@@ -69,7 +69,7 @@ public class ExportWorker {
     private final EventRepository eventRepository;
     private final FileStorageService fileStorageService;
     private final S3Deleter s3Deleter;
-    // 묶음 압축은 한 번에 하나 — 908MB 서버에서 큰 업로드 버퍼를 여러 개 띄우지 않는다.
+    // 묶음 압축은 한 번에 하나 — 900MB 앱 컨테이너(힙 최대 360MB)에서 큰 업로드 버퍼를 여러 개 띄우지 않는다.
     // 빈으로 두지 않는다: Executor 빈이 생기면 Boot 의 기본 applicationTaskExecutor 가 물러난다(ComposeResultConsumer 와 같은 선택)
     private final ExecutorService executor = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "export-worker");
